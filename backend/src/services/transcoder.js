@@ -10,7 +10,6 @@ fs.mkdirSync(HLS_BASE, { recursive: true });
 // Active transcode sessions: key → { process, dir, lastAccess, ready, readyPromise }
 const sessions = new Map();
 
-// Clean up sessions idle > 30 minutes
 setInterval(() => {
   const cutoff = Date.now() - 30 * 60 * 1000;
   for (const [key, s] of sessions) {
@@ -20,7 +19,7 @@ setInterval(() => {
 
 function makeKey(filePath, startTime) {
   return crypto.createHash('sha256')
-    .update(`${filePath}:${Math.floor(startTime / 30)}`) // bucket by 30-sec windows
+    .update(`${filePath}:${Math.floor(startTime / 30)}`)
     .digest('hex')
     .slice(0, 24);
 }
@@ -35,10 +34,18 @@ async function getHLSSession(filePath, startTime = 0) {
     return key;
   }
 
+  // Verify file is readable before spawning ffmpeg
+  try {
+    fs.accessSync(filePath, fs.constants.R_OK);
+  } catch (e) {
+    throw new Error(`File not readable (check volume permissions): ${filePath}`);
+  }
+
   const dir = path.join(HLS_BASE, key);
   fs.mkdirSync(dir, { recursive: true });
 
   const manifestPath = path.join(dir, 'index.m3u8');
+  const firstSegPath = path.join(dir, 'seg00000.ts');
 
   let resolveReady, rejectReady;
   const readyPromise = new Promise((res, rej) => { resolveReady = res; rejectReady = rej; });
@@ -50,22 +57,18 @@ async function getHLSSession(filePath, startTime = 0) {
     '-hide_banner', '-loglevel', 'warning',
     '-ss', String(Math.max(0, startTime)),
     '-i', filePath,
-    // Video: H.264, ultrafast for low latency
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
     '-tune', 'zerolatency',
     '-crf', '23',
     '-pix_fmt', 'yuv420p',
-    // Force keyframes every 2s for clean seeking
     '-g', '48',
     '-keyint_min', '48',
     '-sc_threshold', '0',
-    // Audio: AAC stereo
     '-c:a', 'aac',
     '-b:a', '128k',
     '-ac', '2',
     '-ar', '44100',
-    // HLS output
     '-hls_time', '4',
     '-hls_list_size', '0',
     '-hls_segment_type', 'mpegts',
@@ -73,16 +76,32 @@ async function getHLSSession(filePath, startTime = 0) {
     '-hls_flags', 'independent_segments+append_list',
     '-f', 'hls',
     manifestPath,
-    '-y'
+    '-y',
   ];
 
   const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
   session.process = proc;
 
-  // Wait for first segment to appear (indicates transcode is rolling)
+  let ffmpegErrors = '';
+  proc.stderr.on('data', (data) => {
+    const msg = data.toString();
+    ffmpegErrors += msg;
+    if (msg.includes('No such file') || msg.includes('Invalid data') || msg.includes('moov atom not found')) {
+      if (!session.ready) {
+        clearInterval(checkInterval);
+        clearTimeout(startTimeout);
+        rejectReady(new Error('FFmpeg error: ' + msg.slice(0, 300)));
+        destroySession(key);
+      }
+    }
+  });
+
+  // Wait for first segment file — that guarantees at least one chunk is ready to serve
   const checkInterval = setInterval(() => {
-    if (fs.existsSync(manifestPath) && fs.statSync(manifestPath).size > 0) {
+    if (fs.existsSync(firstSegPath) && fs.statSync(firstSegPath).size > 0 &&
+        fs.existsSync(manifestPath) && fs.statSync(manifestPath).size > 0) {
       clearInterval(checkInterval);
+      clearTimeout(startTimeout);
       session.ready = true;
       resolveReady();
     }
@@ -91,27 +110,16 @@ async function getHLSSession(filePath, startTime = 0) {
   const startTimeout = setTimeout(() => {
     clearInterval(checkInterval);
     if (!session.ready) {
-      rejectReady(new Error('FFmpeg did not produce output in time. Check that ffmpeg is installed.'));
+      const errDetail = ffmpegErrors.slice(-500) || 'no output produced';
+      rejectReady(new Error(`FFmpeg did not produce output within 30s. Details: ${errDetail}`));
       destroySession(key);
     }
   }, 30000);
 
-  proc.stderr.on('data', (data) => {
-    const msg = data.toString();
-    if (msg.includes('No such file') || msg.includes('Invalid data') || msg.includes('moov atom not found')) {
-      clearInterval(checkInterval);
-      clearTimeout(startTimeout);
-      if (!session.ready) {
-        rejectReady(new Error('FFmpeg error: ' + msg.slice(0, 200)));
-        destroySession(key);
-      }
-    }
-  });
-
   proc.on('error', (err) => {
     clearInterval(checkInterval);
     clearTimeout(startTimeout);
-    if (!session.ready) rejectReady(new Error('FFmpeg not found. Make sure ffmpeg is installed in the container.'));
+    if (!session.ready) rejectReady(new Error('FFmpeg not found — ensure ffmpeg is installed in the container.'));
     sessions.delete(key);
   });
 
@@ -119,10 +127,8 @@ async function getHLSSession(filePath, startTime = 0) {
     clearInterval(checkInterval);
     clearTimeout(startTimeout);
     if (!session.ready && code !== 0) {
-      rejectReady(new Error(`FFmpeg exited with code ${code}`));
+      rejectReady(new Error(`FFmpeg exited with code ${code}. ${ffmpegErrors.slice(-300)}`));
       sessions.delete(key);
-    } else if (session.ready) {
-      // Finished transcoding whole file — keep session for serving segments
     }
   });
 
@@ -138,9 +144,8 @@ function getManifestContent(key, baseSegmentUrl) {
   const manifestPath = path.join(session.dir, 'index.m3u8');
   if (!fs.existsSync(manifestPath)) return null;
 
-  // Rewrite segment filenames to use our API URL (seg param style)
   let content = fs.readFileSync(manifestPath, 'utf8');
-  // baseSegmentUrl already has ?key=... appended
+  // Rewrite bare segment filenames to full API URLs
   content = content.replace(/^(seg\d+\.ts)$/gm, `${baseSegmentUrl}&seg=$1`);
   return content;
 }
@@ -150,9 +155,11 @@ async function getSegmentPath(key, segmentName) {
   if (!session) return null;
   session.lastAccess = Date.now();
 
+  // Sanitize segment name — only allow seg#####.ts pattern
+  if (!/^seg\d{5}\.ts$/.test(segmentName)) return null;
+
   const segPath = path.join(session.dir, segmentName);
 
-  // Wait up to 20s for segment to be written by ffmpeg
   let waited = 0;
   while (!fs.existsSync(segPath) && waited < 20000) {
     await new Promise(r => setTimeout(r, 300));
@@ -170,9 +177,7 @@ function destroySession(key) {
   sessions.delete(key);
 }
 
-// Formats that might play directly without transcoding in modern browsers
 const DIRECT_EXTENSIONS = new Set(['.mp4', '.m4v', '.webm']);
-
 function canDirectPlay(filePath) {
   return DIRECT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }

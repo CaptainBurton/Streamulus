@@ -16,19 +16,50 @@ function getFilePath(type, id) {
   return row?.file_path || null;
 }
 
-// HLS manifest — starts (or reuses) a transcode session
+// Diagnostic endpoint — checks file accessibility before player tries anything
+router.get('/check/:type/:id', authenticate, (req, res) => {
+  const filePath = getFilePath(req.params.type, req.params.id);
+  if (!filePath) return res.json({ ok: false, error: 'Media not found in database' });
+
+  const exists = fs.existsSync(filePath);
+  if (!exists) return res.json({ ok: false, error: `File not found on disk: ${filePath}` });
+
+  try {
+    fs.accessSync(filePath, fs.constants.R_OK);
+  } catch {
+    return res.json({ ok: false, error: `File exists but is not readable (permissions issue): ${filePath}` });
+  }
+
+  const stat = fs.statSync(filePath);
+  res.json({
+    ok: true,
+    filePath: path.basename(filePath),
+    ext: path.extname(filePath).toLowerCase(),
+    size: stat.size,
+    canDirectPlay: canDirectPlay(filePath),
+  });
+});
+
+// HLS manifest — authenticated; starts or reuses a transcode session
 router.get('/hls/:type/:id/index.m3u8', authenticate, async (req, res) => {
   const { type, id } = req.params;
   const startTime = parseFloat(req.query.start || '0');
   const token = req.query.token || req.headers.authorization?.split(' ')[1] || '';
 
   const filePath = getFilePath(type, id);
-  if (!filePath) return res.status(404).json({ error: 'Media not found' });
+  if (!filePath) return res.status(404).json({ error: 'Media not found in database' });
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: `File not found on disk: ${filePath}` });
 
   try {
+    fs.accessSync(filePath, fs.constants.R_OK);
+  } catch {
+    return res.status(403).json({ error: `File not readable — check that your media volume is mounted with read permissions` });
+  }
+
+  try {
     const key = await getHLSSession(filePath, startTime);
-    const baseSegmentUrl = `/api/stream/hls/${type}/${id}/seg?key=${key}&token=${token}`;
+    // Token is embedded in the segment URL so HLS.js can fetch segments without custom headers
+    const baseSegmentUrl = `/api/stream/hls/${type}/${id}/seg?token=${token}&key=${key}`;
     const manifest = getManifestContent(key, baseSegmentUrl);
 
     if (!manifest) return res.status(500).json({ error: 'Manifest not ready' });
@@ -41,7 +72,7 @@ router.get('/hls/:type/:id/index.m3u8', authenticate, async (req, res) => {
   }
 });
 
-// HLS segment — segment name is a query param to avoid Express route ambiguity
+// HLS segment — validated by session key only (no JWT needed; key is a secret per-session token)
 router.get('/hls/:type/:id/seg', authenticate, async (req, res) => {
   const { key, seg } = req.query;
   if (!key || !seg) return res.status(400).json({ error: 'key and seg required' });
@@ -54,7 +85,7 @@ router.get('/hls/:type/:id/seg', authenticate, async (req, res) => {
   fs.createReadStream(segPath).pipe(res);
 });
 
-// Direct stream (kept for MP4/WebM passthrough)
+// Direct stream — HTTP range-request passthrough for MP4/WebM
 router.get('/direct/:type/:id', authenticate, (req, res) => {
   const filePath = getFilePath(req.params.type, req.params.id);
   if (!filePath) return res.status(404).json({ error: 'Not found' });
@@ -71,20 +102,20 @@ router.get('/direct/:type/:id', authenticate, (req, res) => {
       'Content-Range': `bytes ${start}-${end}/${stat.size}`,
       'Accept-Ranges': 'bytes',
       'Content-Length': end - start + 1,
-      'Content-Type': 'video/mp4'
+      'Content-Type': 'video/mp4',
     });
     fs.createReadStream(filePath, { start, end }).pipe(res);
   } else {
     res.writeHead(200, {
       'Content-Length': stat.size,
       'Content-Type': 'video/mp4',
-      'Accept-Ranges': 'bytes'
+      'Accept-Ranges': 'bytes',
     });
     fs.createReadStream(filePath).pipe(res);
   }
 });
 
-// Info endpoint — tells the player which mode to use
+// Info endpoint
 router.get('/info/:type/:id', authenticate, (req, res) => {
   const filePath = getFilePath(req.params.type, req.params.id);
   if (!filePath) return res.status(404).json({ error: 'Not found' });
@@ -97,7 +128,7 @@ router.get('/info/:type/:id', authenticate, (req, res) => {
   });
 });
 
-// Save / get watch progress
+// Save watch progress
 router.post('/progress', authenticate, (req, res) => {
   const { mediaType, mediaId, position, completed } = req.body;
   const existing = db.prepare(
@@ -114,6 +145,7 @@ router.post('/progress', authenticate, (req, res) => {
   res.json({ success: true });
 });
 
+// Get watch progress
 router.get('/progress/:mediaType/:mediaId', authenticate, (req, res) => {
   const row = db.prepare(
     'SELECT position, completed FROM watch_history WHERE user_id=? AND media_type=? AND media_id=?'
