@@ -1,10 +1,6 @@
-version: "3.8"
-
 services:
   streamulus:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/captainburton/streamulus:latest
     container_name: streamulus
     restart: unless-stopped
     ports:
