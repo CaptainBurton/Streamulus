@@ -64,16 +64,18 @@ router.get('/hls/:type/:id/index.m3u8', authenticate, async (req, res) => {
 
     if (!manifest) return res.status(500).json({ error: 'Manifest not ready' });
 
+    console.log(`[stream] HLS manifest ready for ${path.basename(filePath)} (key=${key.slice(0,8)})`);
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
     res.send(manifest);
   } catch (err) {
+    console.error(`[stream] HLS session error for ${filePath}: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
 
-// HLS segment — validated by session key only (no JWT needed; key is a secret per-session token)
-router.get('/hls/:type/:id/seg', authenticate, async (req, res) => {
+// HLS segment — validated by session key only; no JWT auth so mid-playback token expiry can't kill the stream
+router.get('/hls/:type/:id/seg', async (req, res) => {
   const { key, seg } = req.query;
   if (!key || !seg) return res.status(400).json({ error: 'key and seg required' });
 
