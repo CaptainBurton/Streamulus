@@ -1,0 +1,32 @@
+services:
+  streamulus:
+    build:
+      context: https://github.com/CaptainBurton/Streamulus.git#development
+      dockerfile: Dockerfile
+    image: streamulus:latest
+    container_name: streamulus
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    volumes:
+      # Persistent app data (database, config)
+      - streamulus_data:/data
+      # Map your media folders here:
+      - /path/to/your/movies:/movies
+      - /path/to/your/tv:/tv
+    environment:
+      - NODE_ENV=production
+      - PORT=8096
+      - DATA_DIR=/data
+      # Change this to a strong random secret!
+      - JWT_SECRET=change-me-to-a-strong-random-secret
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8096/api/setup/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  streamulus_data:
+    driver: local
