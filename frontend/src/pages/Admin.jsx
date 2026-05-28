@@ -137,6 +137,59 @@ function PathValidator({ value, onChange, placeholder }) {
   );
 }
 
+function RefreshMetadata() {
+  const [running, setRunning] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [done, setDone] = useState(false);
+  const esRef = useRef(null);
+
+  const start = () => {
+    setRunning(true);
+    setDone(false);
+    setEvents([]);
+    const token = localStorage.getItem('streamulus_token');
+    const es = new EventSource(`/api/admin/refresh-metadata/stream?token=${token}`);
+    esRef.current = es;
+    es.onmessage = (e) => {
+      const ev = JSON.parse(e.data);
+      setEvents(prev => [...prev, ev]);
+      if (ev.type === 'complete') { setRunning(false); setDone(true); es.close(); }
+    };
+    es.onerror = () => { setRunning(false); es.close(); };
+  };
+
+  useEffect(() => () => esRef.current?.close(), []);
+
+  const last = events[events.length - 1];
+  const percent = last?.type === 'progress' ? last.percent : last?.type === 'complete' ? 100 : 0;
+
+  return (
+    <div>
+      {running && (
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <span style={{ fontSize: '13px', color: '#888' }}>{last?.title || 'Starting…'}</span>
+            <span style={{ fontSize: '13px', fontWeight: '700', color: '#00c2ff' }}>{percent}%</span>
+          </div>
+          <ProgressBar percent={percent} />
+        </div>
+      )}
+      {done && (
+        <div style={{ marginBottom: '12px', fontSize: '14px', color: '#00c864' }}>
+          ✓ Updated {events.find(e => e.type === 'complete')?.updated} of {events.find(e => e.type === 'complete')?.total} movies
+        </div>
+      )}
+      <button
+        onClick={start}
+        disabled={running}
+        style={{ padding: '10px 24px', background: running ? '#333' : 'rgba(0,194,255,0.15)', color: running ? '#555' : '#00c2ff', border: '1px solid', borderColor: running ? '#333' : 'rgba(0,194,255,0.3)', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: running ? 'not-allowed' : 'pointer' }}
+      >
+        {running ? '⟳ Refreshing…' : '⟳ Refresh All Metadata'}
+      </button>
+    </div>
+  );
+}
+
 export default function Admin() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
@@ -419,7 +472,7 @@ export default function Admin() {
 
         {/* Settings */}
         {activeTab === 'settings' && (
-          <div style={{ maxWidth: '560px' }}>
+          <div style={{ maxWidth: '560px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>TMDB API Key</h3>
               <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
@@ -433,6 +486,14 @@ export default function Admin() {
                   onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
                 <button onClick={handleSaveConfig} style={{ padding: '10px 20px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>Save</button>
               </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Refresh Artwork & Metadata</h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
+                Re-fetch posters, backdrops, ratings, and overviews for all movies already in your library. Run this after adding your TMDB API key.
+              </p>
+              <RefreshMetadata />
             </div>
           </div>
         )}

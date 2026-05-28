@@ -130,7 +130,7 @@ export default function Hero({ item, type = 'movie' }) {
 
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
-            onClick={() => navigate(`/watch/${type}/${item.id}`)}
+            onClick={() => navigate(type === 'movie' ? `/movie/${item.id}` : `/watch/${type}/${item.id}`)}
             style={{
               display: 'flex',
               alignItems: 'center',
