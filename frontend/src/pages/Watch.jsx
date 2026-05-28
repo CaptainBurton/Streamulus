@@ -1,26 +1,24 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import Hls from 'hls.js';
 
 export default function Watch() {
   const { type, id } = useParams();
   const navigate = useNavigate();
   const videoRef = useRef(null);
-  const hlsRef = useRef(null);
   const progressTimer = useRef(null);
   const hideTimer = useRef(null);
 
   const [media, setMedia] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [buffering, setBuffering] = useState(true);
   const [statusMsg, setStatusMsg] = useState('Loading…');
-  const [ready, setReady] = useState(false);  // video is ready to show
   const [showBar, setShowBar] = useState(true);
 
   const token = localStorage.getItem('streamulus_token');
 
-  // Load media metadata + saved progress
+  // ── Load media metadata ────────────────────────────────────────────────────
   useEffect(() => {
     const fetchMedia = type === 'episode'
       ? axios.get(`/api/stream/progress/episode/${id}`)
@@ -28,8 +26,7 @@ export default function Watch() {
       : axios.get(`/api/movies/${id}`).then(async r => {
           const movie = r.data.movie;
           const prog = await axios.get(`/api/stream/progress/movie/${id}`)
-            .then(p => p.data)
-            .catch(() => ({ position: 0 }));
+            .then(p => p.data).catch(() => ({ position: 0 }));
           return { ...movie, progress: prog };
         });
 
@@ -39,137 +36,87 @@ export default function Watch() {
       .finally(() => setLoading(false));
   }, [type, id]);
 
-  // Once media is loaded, check the file and start playback
+  // ── Start playback once media metadata is ready ────────────────────────────
   useEffect(() => {
     if (!media || !videoRef.current) return;
     let cancelled = false;
     const video = videoRef.current;
 
-    async function initPlayer() {
-      // Pre-flight: check the file exists and is readable
-      let checkData = null;
+    (async () => {
+      // 1. Pre-flight: verify file exists and is readable
+      let check = null;
       try {
         const r = await axios.get(`/api/stream/check/${type}/${id}`);
-        checkData = r.data;
-      } catch (e) {
-        // If the check endpoint itself fails (e.g. network error) proceed anyway
-        checkData = null;
+        check = r.data;
+      } catch {
+        // network error on check — still attempt playback
       }
 
       if (cancelled) return;
 
-      if (checkData && !checkData.ok) {
-        setError(checkData.error);
+      if (check && !check.ok) {
+        setError(check.error);
+        setBuffering(false);
         return;
       }
 
-      const useDirectPlay = checkData?.canDirectPlay ?? false;
+      // 2. Choose playback mode
+      const direct = check?.canDirectPlay ?? false;
+      const videoUrl = direct
+        ? `/api/stream/direct/${type}/${id}?token=${token}`
+        : `/api/stream/transcode/${type}/${id}?token=${token}`;
 
-      if (useDirectPlay) {
-        // Native browser playback — MP4 / M4V / WebM serve directly, no transcoding
-        setStatusMsg('Loading…');
-        const directUrl = `/api/stream/direct/${type}/${id}?token=${token}`;
-        video.src = directUrl;
+      setStatusMsg(direct ? 'Loading…' : 'Transcoding… first load may take 10–30 seconds');
 
-        video.addEventListener('loadedmetadata', () => {
-          if (cancelled) return;
-          setReady(true);
-          if (media.progress?.position > 10) video.currentTime = media.progress.position;
-          video.play().catch(() => {});
-        }, { once: true });
+      // 3. Point the video element at the chosen URL
+      video.src = videoUrl;
 
-        video.addEventListener('error', () => {
-          if (cancelled) return;
-          const code = video.error?.code;
-          const messages = { 1: 'Playback aborted', 2: 'Network error loading file', 3: 'Decoding error', 4: 'File format not supported by your browser' };
-          setError(`Direct play failed: ${messages[code] || 'Unknown error'} (code ${code}). The file may use a codec your browser doesn't support — try a different browser, or rename the file to test.`);
-        }, { once: true });
-
-      } else {
-        // HLS transcoding — for MKV, AVI, TS, and anything the browser can't decode
-        setStatusMsg('Transcoding… (first load may take up to 30 seconds)');
-
-        if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-
-        const manifestUrl = `/api/stream/hls/${type}/${id}/index.m3u8?token=${token}`;
-
-        if (Hls.isSupported()) {
-          const hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: false,
-            maxBufferLength: 60,
-            maxMaxBufferLength: 120,
-            manifestLoadingTimeOut: 70000,   // 70s — server may take up to 60s to start
-            manifestLoadingMaxRetry: 1,
-          });
-
-          hls.loadSource(manifestUrl);
-          hls.attachMedia(video);
-
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            if (cancelled) return;
-            setReady(true);
-            if (media.progress?.position > 10) video.currentTime = media.progress.position;
-            video.play().catch(() => {});
-          });
-
-          hls.on(Hls.Events.ERROR, (_, data) => {
-            if (!data.fatal || cancelled) return;
-
-            // Build a detailed error string
-            let detail = data.details || 'unknown';
-            let httpStatus = data.response?.code;
-            let body = data.response?.text || '';
-
-            // Try to parse JSON error from the server
-            let serverMsg = '';
-            try { serverMsg = JSON.parse(body)?.error || ''; } catch {}
-
-            let msg;
-            if (httpStatus === 401) {
-              msg = 'Authentication error — your session may have expired. Try refreshing the page.';
-            } else if (httpStatus === 404) {
-              msg = `File not found on server (404). Check that your media volume is mounted correctly.\n${serverMsg}`;
-            } else if (httpStatus === 500 || serverMsg) {
-              msg = `Server error: ${serverMsg || body.slice(0, 200) || detail}`;
-            } else {
-              msg = `Playback error (${detail})${httpStatus ? ` — HTTP ${httpStatus}` : ''}`;
-            }
-
-            setError(msg);
-          });
-
-          hlsRef.current = hls;
-
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          // Safari native HLS
-          video.src = manifestUrl;
-          video.addEventListener('loadedmetadata', () => {
-            if (cancelled) return;
-            setReady(true);
-            if (media.progress?.position > 10) video.currentTime = media.progress.position;
-            video.play().catch(() => {});
-          }, { once: true });
-          video.addEventListener('error', () => {
-            if (cancelled) return;
-            setError('Playback error on Safari. The file may use an unsupported codec or the transcoding failed.');
-          }, { once: true });
-
-        } else {
-          setError('Your browser does not support HLS playback. Try Chrome, Firefox, or Safari.');
+      video.onloadedmetadata = () => {
+        if (cancelled) return;
+        setBuffering(false);
+        if (media.progress?.position > 10) {
+          video.currentTime = media.progress.position;
         }
-      }
-    }
+        video.play().catch(() => {});
+      };
 
-    initPlayer();
+      video.oncanplay = () => {
+        if (cancelled) return;
+        setBuffering(false);
+      };
+
+      video.onerror = () => {
+        if (cancelled) return;
+        const code = video.error?.code;
+        const codeMsg = {
+          1: 'Playback was aborted',
+          2: 'Network error fetching the video',
+          3: 'Decoding error — the file may use a codec not supported by this browser',
+          4: 'Video format not supported',
+        }[code] || `Error code ${code}`;
+
+        setError(
+          `${codeMsg}.\n\n` +
+          (direct
+            ? 'This MP4 may use H.265/HEVC or another codec the browser cannot decode natively. ' +
+              'Try a different browser, or contact support.'
+            : 'Check the Portainer container logs for FFmpeg error output. ' +
+              'Common cause: FFmpeg not installed, or codec/file issue.')
+        );
+        setBuffering(false);
+      };
+    })();
+
     return () => {
       cancelled = true;
-      hlsRef.current?.destroy();
-      hlsRef.current = null;
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.src = '';
+      }
     };
   }, [media, type, id, token]);
 
-  // Save progress every 10 seconds
+  // ── Save watch progress every 10 s ────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -190,6 +137,7 @@ export default function Watch() {
     };
   }, [type, id]);
 
+  // ── Auto-hide controls ─────────────────────────────────────────────────────
   const showControls = useCallback(() => {
     setShowBar(true);
     clearTimeout(hideTimer.current);
@@ -197,27 +145,26 @@ export default function Watch() {
   }, []);
   useEffect(() => () => clearTimeout(hideTimer.current), []);
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   if (loading) return (
-    <div style={{ minHeight: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={styles.center}>
       <div className="spinner" />
     </div>
   );
 
   if (error) return (
-    <div style={{ minHeight: '100vh', background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px', padding: '32px', textAlign: 'center' }}>
+    <div style={{ ...styles.center, flexDirection: 'column', gap: '20px', padding: '32px', textAlign: 'center' }}>
       <div style={{ fontSize: '48px' }}>⚠️</div>
-      <div style={{ color: '#ff4444', fontSize: '17px', maxWidth: '640px', lineHeight: '1.6', whiteSpace: 'pre-line' }}>{error}</div>
-      <div style={{ color: '#444', fontSize: '12px', maxWidth: '560px', lineHeight: '1.6' }}>
-        Check the Portainer container logs for detailed FFmpeg output. Common causes:
-        the media volume isn't mounted, the file path in the database doesn't match the
-        actual mount point, or a permissions issue on the mounted folder.
+      <div style={{ color: '#ff4444', fontSize: '16px', maxWidth: '660px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
+        {error}
       </div>
-      <button
-        onClick={() => navigate(-1)}
-        style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}
-      >
-        ← Go Back
-      </button>
+      <div style={{ color: '#444', fontSize: '12px', maxWidth: '560px', lineHeight: '1.6' }}>
+        Open Portainer → your container → Logs to see server-side error output.
+        Look for lines starting with <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3 }}>[ffmpeg]</code> or
+        <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3 }}>[stream]</code>.
+      </div>
+      <button onClick={() => navigate(-1)} style={styles.backBtn}>← Go Back</button>
     </div>
   );
 
@@ -237,34 +184,25 @@ export default function Watch() {
         opacity: showBar ? 1 : 0,
         pointerEvents: showBar ? 'auto' : 'none',
       }}>
-        <button
-          onClick={() => navigate(-1)}
-          style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(8px)' }}
-        >
-          ← Back
-        </button>
+        <button onClick={() => navigate(-1)} style={styles.backBtn}>← Back</button>
         <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
           {media?.title}
           {media?.year && <span style={{ color: '#888', marginLeft: '8px', fontWeight: '400', fontSize: '13px' }}>{media.year}</span>}
         </div>
       </div>
 
-      {/* Loading / transcoding overlay — shown until video is ready */}
-      {!ready && !error && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 50,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(0,0,0,0.9)', gap: '20px',
-        }}>
+      {/* Buffering / transcoding overlay */}
+      {buffering && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...styles.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '20px' }}>
           <div className="spinner" />
           <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>{statusMsg}</div>
-          <div style={{ color: '#555', fontSize: '12px', textAlign: 'center', maxWidth: '380px' }}>
-            If this takes longer than a minute, check the container logs in Portainer for FFmpeg errors.
+          <div style={{ color: '#555', fontSize: '12px', textAlign: 'center', maxWidth: '400px' }}>
+            If it takes over a minute, open Portainer container logs to see what FFmpeg is doing.
           </div>
         </div>
       )}
 
-      {/* Video element */}
+      {/* Video */}
       <video
         ref={videoRef}
         controls
@@ -273,3 +211,8 @@ export default function Watch() {
     </div>
   );
 }
+
+const styles = {
+  center: { minHeight: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  backBtn: { background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+};

@@ -1,11 +1,13 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
-const { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay } = require('../services/transcoder');
 
 const router = express.Router();
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
 function getFilePath(type, id) {
   if (type === 'movie') {
@@ -16,18 +18,25 @@ function getFilePath(type, id) {
   return row?.file_path || null;
 }
 
-// Diagnostic endpoint — checks file accessibility before player tries anything
+const DIRECT_EXTENSIONS = new Set(['.mp4', '.m4v', '.webm']);
+function canDirectPlay(filePath) {
+  return DIRECT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+// ─── pre-flight check ─────────────────────────────────────────────────────────
+
 router.get('/check/:type/:id', authenticate, (req, res) => {
   const filePath = getFilePath(req.params.type, req.params.id);
   if (!filePath) return res.json({ ok: false, error: 'Media not found in database' });
 
-  const exists = fs.existsSync(filePath);
-  if (!exists) return res.json({ ok: false, error: `File not found on disk: ${filePath}` });
+  if (!fs.existsSync(filePath)) {
+    return res.json({ ok: false, error: `File not found on disk: ${filePath}` });
+  }
 
   try {
     fs.accessSync(filePath, fs.constants.R_OK);
   } catch {
-    return res.json({ ok: false, error: `File exists but is not readable (permissions issue): ${filePath}` });
+    return res.json({ ok: false, error: `File not readable — check Docker volume permissions: ${filePath}` });
   }
 
   const stat = fs.statSync(filePath);
@@ -40,97 +49,127 @@ router.get('/check/:type/:id', authenticate, (req, res) => {
   });
 });
 
-// HLS manifest — authenticated; starts or reuses a transcode session
-router.get('/hls/:type/:id/index.m3u8', authenticate, async (req, res) => {
-  const { type, id } = req.params;
-  const startTime = parseFloat(req.query.start || '0');
-  const token = req.query.token || req.headers.authorization?.split(' ')[1] || '';
+// ─── direct stream (MP4 / WebM — native browser formats) ─────────────────────
 
-  const filePath = getFilePath(type, id);
-  if (!filePath) return res.status(404).json({ error: 'Media not found in database' });
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: `File not found on disk: ${filePath}` });
-
-  try {
-    fs.accessSync(filePath, fs.constants.R_OK);
-  } catch {
-    return res.status(403).json({ error: `File not readable — check that your media volume is mounted with read permissions` });
-  }
-
-  try {
-    const key = await getHLSSession(filePath, startTime);
-    // Token is embedded in the segment URL so HLS.js can fetch segments without custom headers
-    const baseSegmentUrl = `/api/stream/hls/${type}/${id}/seg?token=${token}&key=${key}`;
-    const manifest = getManifestContent(key, baseSegmentUrl);
-
-    if (!manifest) return res.status(500).json({ error: 'Manifest not ready' });
-
-    console.log(`[stream] HLS manifest ready for ${path.basename(filePath)} (key=${key.slice(0,8)})`);
-    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.send(manifest);
-  } catch (err) {
-    console.error(`[stream] HLS session error for ${filePath}: ${err.message}`);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// HLS segment — validated by session key only; no JWT auth so mid-playback token expiry can't kill the stream
-router.get('/hls/:type/:id/seg', async (req, res) => {
-  const { key, seg } = req.query;
-  if (!key || !seg) return res.status(400).json({ error: 'key and seg required' });
-
-  const segPath = await getSegmentPath(key, seg);
-  if (!segPath) return res.status(404).json({ error: 'Segment not found or session expired' });
-
-  res.setHeader('Content-Type', 'video/mp2t');
-  res.setHeader('Cache-Control', 'max-age=3600');
-  fs.createReadStream(segPath).pipe(res);
-});
-
-// Direct stream — HTTP range-request passthrough for MP4/WebM
 router.get('/direct/:type/:id', authenticate, (req, res) => {
   const filePath = getFilePath(req.params.type, req.params.id);
-  if (!filePath) return res.status(404).json({ error: 'Not found' });
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
 
   const stat = fs.statSync(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  const mime = ext === '.webm' ? 'video/webm' : 'video/mp4';
   const range = req.headers.range;
 
   if (range) {
     const [startStr, endStr] = range.replace(/bytes=/, '').split('-');
     const start = parseInt(startStr, 10);
-    const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
+    const end = endStr ? Math.min(parseInt(endStr, 10), stat.size - 1) : stat.size - 1;
+    const chunkSize = end - start + 1;
+
     res.writeHead(206, {
       'Content-Range': `bytes ${start}-${end}/${stat.size}`,
       'Accept-Ranges': 'bytes',
-      'Content-Length': end - start + 1,
-      'Content-Type': 'video/mp4',
+      'Content-Length': chunkSize,
+      'Content-Type': mime,
     });
     fs.createReadStream(filePath, { start, end }).pipe(res);
   } else {
     res.writeHead(200, {
       'Content-Length': stat.size,
-      'Content-Type': 'video/mp4',
+      'Content-Type': mime,
       'Accept-Ranges': 'bytes',
     });
     fs.createReadStream(filePath).pipe(res);
   }
 });
 
-// Info endpoint
-router.get('/info/:type/:id', authenticate, (req, res) => {
+// ─── transcoding stream (MKV / AVI / anything non-native) ────────────────────
+//
+// FFmpeg transcodes to a fragmented MP4 piped directly to the HTTP response.
+// The browser plays it progressively as chunks arrive — no temp files, no HLS.
+// Optional ?start=SECONDS for seeking to a position before transcoding begins.
+
+router.get('/transcode/:type/:id', authenticate, (req, res) => {
   const filePath = getFilePath(req.params.type, req.params.id);
-  if (!filePath) return res.status(404).json({ error: 'Not found' });
-  const exists = fs.existsSync(filePath);
-  res.json({
-    exists,
-    filePath: path.basename(filePath),
-    ext: path.extname(filePath).toLowerCase(),
-    canDirectPlay: exists && canDirectPlay(filePath),
+
+  if (!filePath) {
+    return res.status(404).json({ error: 'Media not found in database' });
+  }
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: `File not found on disk: ${filePath}` });
+  }
+  try {
+    fs.accessSync(filePath, fs.constants.R_OK);
+  } catch {
+    return res.status(403).json({ error: `Cannot read file (check volume permissions): ${filePath}` });
+  }
+
+  const startSec = parseFloat(req.query.start || '0') || 0;
+
+  const ffmpegArgs = [
+    '-hide_banner',
+    '-loglevel', 'error',
+    ...(startSec > 0 ? ['-ss', String(startSec)] : []),
+    '-i', filePath,
+    // Video: re-encode to H.264 baseline (broadest browser support)
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-tune', 'zerolatency',
+    '-profile:v', 'baseline',
+    '-level', '3.1',
+    '-crf', '23',
+    '-pix_fmt', 'yuv420p',
+    // Audio: AAC stereo
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ac', '2',
+    '-ar', '44100',
+    // Output: fragmented MP4 piped to stdout
+    '-movflags', 'frag_keyframe+empty_moov+faststart',
+    '-f', 'mp4',
+    'pipe:1',
+  ];
+
+  console.log(`[stream] Transcoding: ${path.basename(filePath)}${startSec > 0 ? ` from ${startSec}s` : ''}`);
+
+  const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');   // disable nginx buffering if behind a proxy
+
+  // Pipe FFmpeg stdout directly to the HTTP response
+  proc.stdout.pipe(res);
+
+  // Print all FFmpeg output to container stderr (visible in Portainer logs)
+  proc.stderr.on('data', (chunk) => {
+    process.stderr.write(`[ffmpeg] ${chunk.toString()}`);
+  });
+
+  proc.on('error', (err) => {
+    console.error(`[stream] Failed to start FFmpeg: ${err.message}`);
+    if (!res.headersSent) res.status(500).json({ error: `FFmpeg not found: ${err.message}` });
+    else res.end();
+  });
+
+  proc.on('exit', (code) => {
+    if (code !== 0 && code !== null) {
+      console.error(`[stream] FFmpeg exited with code ${code} for: ${path.basename(filePath)}`);
+    } else {
+      console.log(`[stream] Transcode done: ${path.basename(filePath)}`);
+    }
+  });
+
+  // Kill FFmpeg when client disconnects (prevents runaway processes)
+  req.on('close', () => {
+    proc.kill('SIGTERM');
   });
 });
 
-// Save watch progress
+// ─── watch progress ───────────────────────────────────────────────────────────
+
 router.post('/progress', authenticate, (req, res) => {
   const { mediaType, mediaId, position, completed } = req.body;
   const existing = db.prepare(
@@ -147,7 +186,6 @@ router.post('/progress', authenticate, (req, res) => {
   res.json({ success: true });
 });
 
-// Get watch progress
 router.get('/progress/:mediaType/:mediaId', authenticate, (req, res) => {
   const row = db.prepare(
     'SELECT position, completed FROM watch_history WHERE user_id=? AND media_type=? AND media_id=?'
