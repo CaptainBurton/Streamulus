@@ -3,87 +3,121 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
+const { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay } = require('../services/transcoder');
 
 const router = express.Router();
 
-function streamFile(req, res, filePath) {
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+function getFilePath(type, id) {
+  if (type === 'movie') {
+    const row = db.prepare('SELECT file_path FROM movies WHERE id = ?').get(id);
+    return row?.file_path || null;
+  }
+  const row = db.prepare('SELECT file_path FROM episodes WHERE id = ?').get(id);
+  return row?.file_path || null;
+}
+
+// HLS manifest — starts (or reuses) a transcode session
+router.get('/hls/:type/:id/index.m3u8', authenticate, async (req, res) => {
+  const { type, id } = req.params;
+  const startTime = parseFloat(req.query.start || '0');
+  const token = req.query.token || req.headers.authorization?.split(' ')[1] || '';
+
+  const filePath = getFilePath(type, id);
+  if (!filePath) return res.status(404).json({ error: 'Media not found' });
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: `File not found on disk: ${filePath}` });
+
+  try {
+    const key = await getHLSSession(filePath, startTime);
+    const baseSegmentUrl = `/api/stream/hls/${type}/${id}/seg?key=${key}&token=${token}`;
+    const manifest = getManifestContent(key, baseSegmentUrl);
+
+    if (!manifest) return res.status(500).json({ error: 'Manifest not ready' });
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(manifest);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// HLS segment — segment name is a query param to avoid Express route ambiguity
+router.get('/hls/:type/:id/seg', authenticate, async (req, res) => {
+  const { key, seg } = req.query;
+  if (!key || !seg) return res.status(400).json({ error: 'key and seg required' });
+
+  const segPath = await getSegmentPath(key, seg);
+  if (!segPath) return res.status(404).json({ error: 'Segment not found or session expired' });
+
+  res.setHeader('Content-Type', 'video/mp2t');
+  res.setHeader('Cache-Control', 'max-age=3600');
+  fs.createReadStream(segPath).pipe(res);
+});
+
+// Direct stream (kept for MP4/WebM passthrough)
+router.get('/direct/:type/:id', authenticate, (req, res) => {
+  const filePath = getFilePath(req.params.type, req.params.id);
+  if (!filePath) return res.status(404).json({ error: 'Not found' });
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
 
   const stat = fs.statSync(filePath);
-  const fileSize = stat.size;
   const range = req.headers.range;
-  const ext = path.extname(filePath).toLowerCase();
-
-  const mimeTypes = {
-    '.mp4': 'video/mp4',
-    '.mkv': 'video/x-matroska',
-    '.avi': 'video/x-msvideo',
-    '.mov': 'video/quicktime',
-    '.wmv': 'video/x-ms-wmv',
-    '.webm': 'video/webm',
-    '.m4v': 'video/mp4',
-    '.ts': 'video/mp2t',
-    '.flv': 'video/x-flv'
-  };
-  const contentType = mimeTypes[ext] || 'video/mp4';
 
   if (range) {
-    const parts = range.replace(/bytes=/, '').split('-');
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunkSize = end - start + 1;
-
+    const [startStr, endStr] = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(startStr, 10);
+    const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
     res.writeHead(206, {
-      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Content-Range': `bytes ${start}-${end}/${stat.size}`,
       'Accept-Ranges': 'bytes',
-      'Content-Length': chunkSize,
-      'Content-Type': contentType
+      'Content-Length': end - start + 1,
+      'Content-Type': 'video/mp4'
     });
     fs.createReadStream(filePath, { start, end }).pipe(res);
   } else {
     res.writeHead(200, {
-      'Content-Length': fileSize,
-      'Content-Type': contentType,
+      'Content-Length': stat.size,
+      'Content-Type': 'video/mp4',
       'Accept-Ranges': 'bytes'
     });
     fs.createReadStream(filePath).pipe(res);
   }
-}
-
-router.get('/movie/:id', authenticate, (req, res) => {
-  const movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(req.params.id);
-  if (!movie) return res.status(404).json({ error: 'Movie not found' });
-  streamFile(req, res, movie.file_path);
 });
 
-router.get('/episode/:id', authenticate, (req, res) => {
-  const episode = db.prepare('SELECT * FROM episodes WHERE id = ?').get(req.params.id);
-  if (!episode) return res.status(404).json({ error: 'Episode not found' });
-  streamFile(req, res, episode.file_path);
+// Info endpoint — tells the player which mode to use
+router.get('/info/:type/:id', authenticate, (req, res) => {
+  const filePath = getFilePath(req.params.type, req.params.id);
+  if (!filePath) return res.status(404).json({ error: 'Not found' });
+  const exists = fs.existsSync(filePath);
+  res.json({
+    exists,
+    filePath: path.basename(filePath),
+    ext: path.extname(filePath).toLowerCase(),
+    canDirectPlay: exists && canDirectPlay(filePath),
+  });
 });
 
-// Save watch progress
+// Save / get watch progress
 router.post('/progress', authenticate, (req, res) => {
   const { mediaType, mediaId, position, completed } = req.body;
-  db.prepare(`
-    INSERT INTO watch_history (user_id, media_type, media_id, position, completed, watched_at)
-    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT DO NOTHING
-  `).run(req.user.id, mediaType, mediaId, position, completed ? 1 : 0);
+  const existing = db.prepare(
+    'SELECT id FROM watch_history WHERE user_id=? AND media_type=? AND media_id=?'
+  ).get(req.user.id, mediaType, mediaId);
 
-  db.prepare(`
-    UPDATE watch_history SET position = ?, completed = ?, watched_at = CURRENT_TIMESTAMP
-    WHERE user_id = ? AND media_type = ? AND media_id = ?
-  `).run(position, completed ? 1 : 0, req.user.id, mediaType, mediaId);
-
+  if (existing) {
+    db.prepare('UPDATE watch_history SET position=?, completed=?, watched_at=CURRENT_TIMESTAMP WHERE id=?')
+      .run(position, completed ? 1 : 0, existing.id);
+  } else {
+    db.prepare('INSERT INTO watch_history (user_id, media_type, media_id, position, completed) VALUES (?,?,?,?,?)')
+      .run(req.user.id, mediaType, mediaId, position, completed ? 1 : 0);
+  }
   res.json({ success: true });
 });
 
 router.get('/progress/:mediaType/:mediaId', authenticate, (req, res) => {
-  const row = db.prepare(`
-    SELECT position, completed FROM watch_history
-    WHERE user_id = ? AND media_type = ? AND media_id = ?
-  `).get(req.user.id, req.params.mediaType, req.params.mediaId);
+  const row = db.prepare(
+    'SELECT position, completed FROM watch_history WHERE user_id=? AND media_type=? AND media_id=?'
+  ).get(req.user.id, req.params.mediaType, req.params.mediaId);
   res.json(row || { position: 0, completed: false });
 });
 

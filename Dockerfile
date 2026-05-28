@@ -12,8 +12,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Build tools required to compile better-sqlite3 native addon
-RUN apk add --no-cache python3 make g++
+# Build tools for better-sqlite3 native addon + ffmpeg for video transcoding
+RUN apk add --no-cache python3 make g++ ffmpeg
 
 # Install backend dependencies (compiles native modules here)
 COPY backend/package.json ./
