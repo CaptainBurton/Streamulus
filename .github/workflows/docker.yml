@@ -5,6 +5,7 @@ on:
     branches:
       - development
       - main
+      - claude/laughing-hopper-fX8qI
   workflow_dispatch:
 
 env:
@@ -39,7 +40,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/laughing-hopper-fX8qI' }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
