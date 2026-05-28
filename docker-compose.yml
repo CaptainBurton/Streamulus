@@ -1,7 +1,7 @@
 services:
   streamulus:
     build:
-      context: https://github.com/CaptainBurton/Streamulus.git#development
+      context: https://github.com/CaptainBurton/Streamulus.git#claude/laughing-hopper-fX8qI
       dockerfile: Dockerfile
     container_name: streamulus
     restart: unless-stopped
