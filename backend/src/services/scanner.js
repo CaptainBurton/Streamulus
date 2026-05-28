@@ -46,19 +46,24 @@ function parseTVFilename(filename) {
   return null;
 }
 
+// Returns { status: 'added'|'skipped', title }
 async function processMovieFile(filePath, libraryId) {
-  const existing = db.prepare('SELECT id FROM movies WHERE file_path = ?').get(filePath);
-  if (existing) return 'skipped';
+  // Check first to avoid an unnecessary TMDB API call for files already in the library
+  const existing = db.prepare('SELECT id, title FROM movies WHERE file_path = ?').get(filePath);
+  if (existing) return { status: 'skipped', title: existing.title };
 
   const { title, year } = parseMovieFilename(filePath);
   const tmdbData = await tmdb.searchMovie(title, year);
+  const resolvedTitle = tmdbData?.title || title;
 
-  const insertResult = db.prepare(`
-    INSERT OR IGNORE INTO movies (library_id, file_path, title, year, tmdb_id, overview, poster_path, backdrop_path, rating, genres)
+  // INSERT OR IGNORE means a concurrent scan that already inserted this file causes no error
+  const r = db.prepare(`
+    INSERT OR IGNORE INTO movies
+      (library_id, file_path, title, year, tmdb_id, overview, poster_path, backdrop_path, rating, genres)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     libraryId, filePath,
-    tmdbData?.title || title,
+    resolvedTitle,
     tmdbData?.release_date?.split('-')[0] || year,
     tmdbData?.id || null,
     tmdbData?.overview || null,
@@ -67,37 +72,45 @@ async function processMovieFile(filePath, libraryId) {
     tmdbData?.vote_average || null,
     tmdbData?.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null
   );
-  return insertResult.changes > 0 ? 'added' : 'skipped';
+  return { status: r.changes > 0 ? 'added' : 'skipped', title: resolvedTitle };
 }
 
+// Returns { status: 'added'|'skipped', title }
 async function processTVFile(filePath, libraryId) {
   const existing = db.prepare('SELECT id FROM episodes WHERE file_path = ?').get(filePath);
-  if (existing) return 'skipped';
+  if (existing) return { status: 'skipped', title: path.basename(filePath) };
 
   const parsed = parseTVFilename(filePath);
-  if (!parsed) return 'skipped';
+  if (!parsed) return { status: 'skipped', title: path.basename(filePath) };
 
   const { showTitle, season, episode } = parsed;
 
   let show = db.prepare('SELECT id, tmdb_id FROM tv_shows WHERE title = ? AND library_id = ?').get(showTitle, libraryId);
   if (!show) {
     const tmdbData = await tmdb.searchTV(showTitle);
-    const result = db.prepare(`
-      INSERT INTO tv_shows (library_id, title, tmdb_id, overview, poster_path, backdrop_path, rating, genres, status, first_air_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      libraryId,
-      tmdbData?.name || showTitle,
-      tmdbData?.id || null,
-      tmdbData?.overview || null,
-      tmdbData?.poster_path || null,
-      tmdbData?.backdrop_path || null,
-      tmdbData?.vote_average || null,
-      tmdbData?.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null,
-      tmdbData?.status || null,
-      tmdbData?.first_air_date || null
-    );
-    show = { id: result.lastInsertRowid, tmdb_id: tmdbData?.id || null };
+    try {
+      const result = db.prepare(`
+        INSERT INTO tv_shows
+          (library_id, title, tmdb_id, overview, poster_path, backdrop_path, rating, genres, status, first_air_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        libraryId,
+        tmdbData?.name || showTitle,
+        tmdbData?.id || null,
+        tmdbData?.overview || null,
+        tmdbData?.poster_path || null,
+        tmdbData?.backdrop_path || null,
+        tmdbData?.vote_average || null,
+        tmdbData?.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null,
+        tmdbData?.status || null,
+        tmdbData?.first_air_date || null
+      );
+      show = { id: result.lastInsertRowid, tmdb_id: tmdbData?.id || null };
+    } catch {
+      // Concurrent scan inserted the same show — re-fetch
+      show = db.prepare('SELECT id, tmdb_id FROM tv_shows WHERE title = ? AND library_id = ?').get(showTitle, libraryId);
+      if (!show) throw new Error(`Could not insert or find show: ${showTitle}`);
+    }
   }
 
   let epData = null;
@@ -105,19 +118,23 @@ async function processTVFile(filePath, libraryId) {
     epData = await tmdb.getEpisodeDetails(show.tmdb_id, season, episode);
   }
 
-  const epInsert = db.prepare(`
-    INSERT OR IGNORE INTO episodes (show_id, file_path, season, episode_number, title, overview, still_path)
+  const epTitle = epData?.name || `S${String(season).padStart(2,'0')}E${String(episode).padStart(2,'0')}`;
+
+  const r = db.prepare(`
+    INSERT OR IGNORE INTO episodes
+      (show_id, file_path, season, episode_number, title, overview, still_path)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     show.id, filePath, season, episode,
-    epData?.name || `Episode ${episode}`,
+    epTitle,
     epData?.overview || null,
     epData?.still_path || null
   );
-  return epInsert.changes > 0 ? 'added' : 'skipped';
+
+  const displayTitle = `${showTitle} — ${epTitle}`;
+  return { status: r.changes > 0 ? 'added' : 'skipped', title: displayTitle };
 }
 
-// Scan with per-file progress events via callback
 async function scanAllWithProgress(onProgress) {
   const libraries = db.prepare('SELECT * FROM libraries').all();
 
@@ -151,16 +168,18 @@ async function scanAllWithProgress(onProgress) {
       const fileName = path.basename(filePath);
       const percent = Math.round(((i + 1) / files.length) * 100);
 
-      onProgress({ type: 'scanning', library: lib.name, file: fileName, index: i + 1, total: files.length, percent });
+      // Announce which file is about to be processed
+      onProgress({ type: 'file_start', library: lib.name, file: fileName, index: i + 1, total: files.length, percent });
 
       try {
-        let result;
-        if (lib.type === 'movies') {
-          result = await processMovieFile(filePath, lib.id);
-        } else {
-          result = await processTVFile(filePath, lib.id);
-        }
-        if (result === 'added') added++;
+        const res = lib.type === 'movies'
+          ? await processMovieFile(filePath, lib.id)
+          : await processTVFile(filePath, lib.id);
+
+        // Report result for this file
+        onProgress({ type: 'file_done', file: fileName, title: res.title, result: res.status, index: i + 1, total: files.length, percent });
+
+        if (res.status === 'added') added++;
         else skipped++;
       } catch (err) {
         errors++;
@@ -169,7 +188,6 @@ async function scanAllWithProgress(onProgress) {
     }
 
     db.prepare('UPDATE libraries SET last_scanned = CURRENT_TIMESTAMP WHERE id = ?').run(lib.id);
-
     grandTotal.added += added;
     grandTotal.skipped += skipped;
     grandTotal.errors += errors;
@@ -181,18 +199,14 @@ async function scanAllWithProgress(onProgress) {
   onProgress({ type: 'complete', ...grandTotal });
 }
 
-// Non-streaming scan (used during initial setup)
 async function scanAll() {
-  const results = [];
   const events = [];
   await scanAllWithProgress(e => events.push(e));
   const libraries = db.prepare('SELECT * FROM libraries').all();
-  for (const lib of libraries) {
-    const libEvents = events.filter(e => e.library === lib.name);
-    const done = libEvents.find(e => e.type === 'library_done');
-    if (done) results.push({ library: lib.name, added: done.added, skipped: done.skipped, total: done.total });
-  }
-  return results;
+  return libraries.map(lib => {
+    const done = events.find(e => e.type === 'library_done' && e.library === lib.name);
+    return done ? { library: lib.name, added: done.added, skipped: done.skipped, total: done.total } : null;
+  }).filter(Boolean);
 }
 
 function validatePath(dirPath) {

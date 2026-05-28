@@ -23,51 +23,67 @@ function ProgressBar({ percent }) {
 }
 
 function ScanProgress({ events, scanning, onClose }) {
-  const logRef = useRef(null);
-  const lastEvent = events[events.length - 1];
+  const fileLogRef = useRef(null);
   const completeEvent = events.find(e => e.type === 'complete');
 
+  // Latest progress tick (file_start or file_done)
+  const progressEvent = [...events].reverse().find(e => e.type === 'file_start' || e.type === 'file_done');
+  const currentFile = scanning ? [...events].reverse().find(e => e.type === 'file_start') : null;
+  // Only show spinner for file_start that hasn't been resolved by a file_done yet
+  const processingFile = scanning && currentFile &&
+    !events.some(e => (e.type === 'file_done' || e.type === 'file_error') && e.file === currentFile.file && events.indexOf(e) > events.indexOf(currentFile))
+    ? currentFile : null;
+
   const currentLib = [...events].reverse().find(e => e.type === 'library_start');
-  const progressEvent = [...events].reverse().find(e => e.type === 'scanning');
-  const percent = progressEvent?.percent || 0;
+  const percent = completeEvent ? 100 : progressEvent?.percent || 0;
+
+  // Individual file result rows
+  const fileResults = events.filter(e => e.type === 'file_done' || e.type === 'file_error');
+
+  // Library-level messages
+  const libMessages = events.filter(e => ['library_start', 'library_error', 'found', 'library_done', 'error'].includes(e.type));
 
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [events]);
-
-  const logLines = events.filter(e => ['library_start', 'library_error', 'found', 'library_done', 'file_error', 'complete', 'error'].includes(e.type));
+    if (fileLogRef.current) fileLogRef.current.scrollTop = fileLogRef.current.scrollHeight;
+  }, [fileResults.length]);
 
   return (
     <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '24px' }}>
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h3 style={{ fontSize: '16px', fontWeight: '700' }}>
           {scanning ? '⟳ Scanning Libraries…' : completeEvent ? '✓ Scan Complete' : 'Scan'}
         </h3>
-        {!scanning && <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#666', fontSize: '18px', cursor: 'pointer' }}>✕</button>}
+        {!scanning && (
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#666', fontSize: '18px', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+        )}
       </div>
 
-      {/* Current file progress */}
-      {scanning && progressEvent && (
+      {/* Progress bar + current file */}
+      {(scanning || completeEvent) && progressEvent && (
         <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
             <span style={{ fontSize: '13px', color: '#888' }}>
               {currentLib?.library} — {progressEvent.index}/{progressEvent.total} files
             </span>
             <span style={{ fontSize: '13px', fontWeight: '700', color: '#00c2ff' }}>{percent}%</span>
           </div>
           <ProgressBar percent={percent} />
-          <div style={{ marginTop: '8px', fontSize: '12px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {progressEvent.file}
-          </div>
+          {processingFile && (
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#555', display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+              <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', flexShrink: 0 }}>⟳</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{processingFile.file}</span>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Summary on complete */}
+      {/* Summary stats on complete */}
       {completeEvent && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
           {[
             { label: 'Added', value: completeEvent.added, color: '#00c864' },
-            { label: 'Already existed', value: completeEvent.skipped, color: '#888' },
+            { label: 'Already in library', value: completeEvent.skipped, color: '#888' },
             { label: 'Errors', value: completeEvent.errors, color: completeEvent.errors > 0 ? '#ff4444' : '#555' },
           ].map(({ label, value, color }) => (
             <div key={label} style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '14px', textAlign: 'center' }}>
@@ -78,19 +94,60 @@ function ScanProgress({ events, scanning, onClose }) {
         </div>
       )}
 
-      {/* Event log */}
-      <div ref={logRef} style={{ maxHeight: '220px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.8' }}>
-        {logLines.map((e, i) => {
-          if (e.type === 'library_start') return <div key={i} style={{ color: '#00c2ff' }}>▶ Library: {e.library} ({e.path})</div>;
-          if (e.type === 'library_error') return <div key={i} style={{ color: '#ff4444' }}>✕ {e.message}</div>;
-          if (e.type === 'found') return <div key={i} style={{ color: '#888' }}>  Found {e.count} video file{e.count !== 1 ? 's' : ''}</div>;
-          if (e.type === 'library_done') return <div key={i} style={{ color: '#00c864' }}>  ✓ Done — added {e.added}, skipped {e.skipped}{e.errors > 0 ? `, ${e.errors} errors` : ''}</div>;
-          if (e.type === 'file_error') return <div key={i} style={{ color: '#ff4444' }}>  ✕ {e.file}: {e.message}</div>;
-          if (e.type === 'complete') return <div key={i} style={{ color: '#00c2ff', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px', marginTop: '4px' }}>✓ All libraries scanned. Total added: {e.added}</div>;
-          if (e.type === 'error') return <div key={i} style={{ color: '#ff4444' }}>✕ {e.message}</div>;
+      {/* File-by-file results log */}
+      <div ref={fileLogRef} style={{ maxHeight: '280px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.75', borderRadius: '6px', background: 'rgba(0,0,0,0.2)', padding: '10px 12px' }}>
+        {/* Library-level messages */}
+        {libMessages.map((e, i) => {
+          if (e.type === 'library_start') return (
+            <div key={`lib-${i}`} style={{ color: '#00c2ff', marginTop: i > 0 ? '8px' : 0 }}>
+              ▶ {e.library} <span style={{ color: '#444' }}>({e.path})</span>
+            </div>
+          );
+          if (e.type === 'library_error') return <div key={`lib-${i}`} style={{ color: '#ff4444' }}>✕ {e.message}</div>;
+          if (e.type === 'found') return <div key={`lib-${i}`} style={{ color: '#555' }}>  Found {e.count} file{e.count !== 1 ? 's' : ''}</div>;
+          if (e.type === 'library_done') return (
+            <div key={`lib-${i}`} style={{ color: '#00c864', borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '6px', paddingTop: '6px' }}>
+              ✓ {e.library} done — {e.added} added, {e.skipped} skipped{e.errors > 0 ? `, ${e.errors} errors` : ''}
+            </div>
+          );
+          if (e.type === 'error') return <div key={`lib-${i}`} style={{ color: '#ff4444' }}>✕ {e.message}</div>;
           return null;
         })}
-        {scanning && <div style={{ color: '#555' }}>…</div>}
+
+        {/* Individual file results */}
+        {fileResults.map((e, i) => {
+          if (e.type === 'file_done') {
+            const isAdded = e.result === 'added';
+            return (
+              <div key={`f-${i}`} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', color: isAdded ? '#ccc' : '#444' }}>
+                <span style={{ color: isAdded ? '#00c864' : '#3a3a3a', flexShrink: 0 }}>{isAdded ? '✓' : '→'}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={e.title}>{e.title}</span>
+                <span style={{ color: isAdded ? '#00c864' : '#2a2a2a', fontSize: '11px', flexShrink: 0 }}>
+                  {isAdded ? 'added' : 'exists'}
+                </span>
+              </div>
+            );
+          }
+          if (e.type === 'file_error') {
+            return (
+              <div key={`f-${i}`} style={{ color: '#ff4444', display: 'flex', gap: '8px' }}>
+                <span style={{ flexShrink: 0 }}>✕</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={`${e.file}: ${e.message}`}>
+                  {e.file}: {e.message}
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })}
+
+        {/* Currently processing indicator */}
+        {processingFile && (
+          <div style={{ color: '#555', display: 'flex', gap: '8px' }}>
+            <span style={{ flexShrink: 0 }}>⟳</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{processingFile.file}</span>
+          </div>
+        )}
       </div>
     </div>
   );
