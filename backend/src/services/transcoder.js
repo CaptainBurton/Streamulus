@@ -34,18 +34,16 @@ async function getHLSSession(filePath, startTime = 0) {
     return key;
   }
 
-  // Verify file is readable before spawning ffmpeg
   try {
     fs.accessSync(filePath, fs.constants.R_OK);
-  } catch (e) {
-    throw new Error(`File not readable (check volume permissions): ${filePath}`);
+  } catch {
+    throw new Error(`File not readable (check volume mount permissions): ${filePath}`);
   }
 
   const dir = path.join(HLS_BASE, key);
   fs.mkdirSync(dir, { recursive: true });
 
   const manifestPath = path.join(dir, 'index.m3u8');
-  const firstSegPath = path.join(dir, 'seg00000.ts');
 
   let resolveReady, rejectReady;
   const readyPromise = new Promise((res, rej) => { resolveReady = res; rejectReady = rej; });
@@ -54,7 +52,8 @@ async function getHLSSession(filePath, startTime = 0) {
   sessions.set(key, session);
 
   const ffmpegArgs = [
-    '-hide_banner', '-loglevel', 'warning',
+    '-hide_banner',
+    '-loglevel', 'error',     // show errors in container logs
     '-ss', String(Math.max(0, startTime)),
     '-i', filePath,
     '-c:v', 'libx264',
@@ -73,62 +72,69 @@ async function getHLSSession(filePath, startTime = 0) {
     '-hls_list_size', '0',
     '-hls_segment_type', 'mpegts',
     '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
-    '-hls_flags', 'independent_segments+append_list',
+    '-hls_flags', 'independent_segments',   // removed append_list — it holds the file open for writing
     '-f', 'hls',
-    manifestPath,
     '-y',
+    manifestPath,
   ];
 
+  console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)}`);
   const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
   session.process = proc;
 
-  let ffmpegErrors = '';
+  let ffmpegOutput = '';
   proc.stderr.on('data', (data) => {
     const msg = data.toString();
-    ffmpegErrors += msg;
-    if (msg.includes('No such file') || msg.includes('Invalid data') || msg.includes('moov atom not found')) {
-      if (!session.ready) {
-        clearInterval(checkInterval);
-        clearTimeout(startTimeout);
-        rejectReady(new Error('FFmpeg error: ' + msg.slice(0, 300)));
-        destroySession(key);
-      }
-    }
+    ffmpegOutput += msg;
+    // Always print FFmpeg output so it appears in Portainer container logs
+    process.stderr.write(`[ffmpeg] ${msg}`);
   });
 
-  // Wait for first segment file — that guarantees at least one chunk is ready to serve
+  // Ready when the manifest contains at least one #EXTINF entry.
+  // FFmpeg writes the manifest entry only after finishing writing the segment file,
+  // so if the manifest has EXTINF, the corresponding .ts file is guaranteed to exist.
   const checkInterval = setInterval(() => {
-    if (fs.existsSync(firstSegPath) && fs.statSync(firstSegPath).size > 0 &&
-        fs.existsSync(manifestPath) && fs.statSync(manifestPath).size > 0) {
-      clearInterval(checkInterval);
-      clearTimeout(startTimeout);
-      session.ready = true;
-      resolveReady();
-    }
-  }, 300);
+    if (!fs.existsSync(manifestPath)) return;
+    try {
+      const content = fs.readFileSync(manifestPath, 'utf8');
+      if (content.includes('#EXTINF')) {
+        clearInterval(checkInterval);
+        clearTimeout(startTimeout);
+        session.ready = true;
+        console.log(`[transcode] First segment ready for: ${path.basename(filePath)} (key=${key.slice(0, 8)})`);
+        resolveReady();
+      }
+    } catch { /* manifest not fully written yet, retry */ }
+  }, 250);
 
   const startTimeout = setTimeout(() => {
     clearInterval(checkInterval);
     if (!session.ready) {
-      const errDetail = ffmpegErrors.slice(-500) || 'no output produced';
-      rejectReady(new Error(`FFmpeg did not produce output within 30s. Details: ${errDetail}`));
+      const detail = ffmpegOutput.slice(-800) || '(no output — is ffmpeg installed?)';
+      console.error(`[transcode] Timeout for ${filePath}. FFmpeg output:\n${detail}`);
+      rejectReady(new Error(`Transcoding timed out after 60s. FFmpeg output: ${detail.slice(0, 400)}`));
       destroySession(key);
     }
-  }, 30000);
+  }, 60000);
 
   proc.on('error', (err) => {
     clearInterval(checkInterval);
     clearTimeout(startTimeout);
-    if (!session.ready) rejectReady(new Error('FFmpeg not found — ensure ffmpeg is installed in the container.'));
+    console.error(`[transcode] Could not spawn FFmpeg: ${err.message}`);
+    if (!session.ready) rejectReady(new Error('Could not start FFmpeg. Is ffmpeg installed in the container?'));
     sessions.delete(key);
   });
 
   proc.on('exit', (code) => {
     clearInterval(checkInterval);
     clearTimeout(startTimeout);
-    if (!session.ready && code !== 0) {
-      rejectReady(new Error(`FFmpeg exited with code ${code}. ${ffmpegErrors.slice(-300)}`));
+    if (!session.ready) {
+      const msg = `FFmpeg exited with code ${code}. Output: ${ffmpegOutput.slice(-300)}`;
+      console.error(`[transcode] ${msg}`);
+      rejectReady(new Error(msg));
       sessions.delete(key);
+    } else {
+      console.log(`[transcode] FFmpeg finished transcoding: ${path.basename(filePath)}`);
     }
   });
 
@@ -145,8 +151,7 @@ function getManifestContent(key, baseSegmentUrl) {
   if (!fs.existsSync(manifestPath)) return null;
 
   let content = fs.readFileSync(manifestPath, 'utf8');
-  // Replace segment lines — handles bare filenames or full paths that FFmpeg may write,
-  // and strips trailing \r in case of CRLF line endings.
+  // Replace segment lines regardless of whether FFmpeg wrote bare filenames or full absolute paths
   content = content.replace(/^[^\n#]*?(seg\d{5}\.ts)\s*$/gm, `${baseSegmentUrl}&seg=$1`);
   return content;
 }
@@ -156,15 +161,15 @@ async function getSegmentPath(key, segmentName) {
   if (!session) return null;
   session.lastAccess = Date.now();
 
-  // Sanitize segment name — only allow seg#####.ts pattern
   if (!/^seg\d{5}\.ts$/.test(segmentName)) return null;
 
   const segPath = path.join(session.dir, segmentName);
 
+  // Wait up to 30s for the segment to be written by FFmpeg
   let waited = 0;
-  while (!fs.existsSync(segPath) && waited < 20000) {
-    await new Promise(r => setTimeout(r, 300));
-    waited += 300;
+  while (!fs.existsSync(segPath) && waited < 30000) {
+    await new Promise(r => setTimeout(r, 250));
+    waited += 250;
   }
 
   return fs.existsSync(segPath) ? segPath : null;
