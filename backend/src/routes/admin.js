@@ -82,7 +82,22 @@ router.put('/libraries/:id', requireAdmin, (req, res) => {
 });
 
 router.delete('/libraries/:id', requireAdmin, (req, res) => {
-  db.prepare('DELETE FROM libraries WHERE id = ?').run(req.params.id);
+  const lib = db.prepare('SELECT * FROM libraries WHERE id = ?').get(req.params.id);
+  if (!lib) return res.status(404).json({ error: 'Library not found' });
+
+  db.transaction(() => {
+    if (lib.type === 'movies') {
+      db.prepare('DELETE FROM movies WHERE library_id = ?').run(lib.id);
+    } else {
+      const shows = db.prepare('SELECT id FROM tv_shows WHERE library_id = ?').all(lib.id);
+      for (const show of shows) {
+        db.prepare('DELETE FROM episodes WHERE show_id = ?').run(show.id);
+      }
+      db.prepare('DELETE FROM tv_shows WHERE library_id = ?').run(lib.id);
+    }
+    db.prepare('DELETE FROM libraries WHERE id = ?').run(lib.id);
+  })();
+
   res.json({ success: true });
 });
 
@@ -120,6 +135,38 @@ router.put('/config', requireAdmin, (req, res) => {
     db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run('tmdb_api_key', tmdbApiKey);
   }
   res.json({ success: true });
+});
+
+// Refresh metadata for every movie/show that has a tmdb_id (SSE)
+router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (data) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(data)}\n\n`); };
+  req.on('close', () => res.end());
+
+  const tmdb = require('../services/tmdb');
+  const movies = db.prepare('SELECT * FROM movies').all();
+  let updated = 0;
+
+  send({ type: 'start', total: movies.length });
+
+  for (let i = 0; i < movies.length; i++) {
+    const movie = movies[i];
+    send({ type: 'progress', index: i + 1, total: movies.length, title: movie.title, percent: Math.round(((i + 1) / movies.length) * 100) });
+    const result = await tmdb.searchMovie(movie.title, movie.year);
+    if (result) {
+      db.prepare(`UPDATE movies SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=? WHERE id=?`)
+        .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
+      updated++;
+    }
+  }
+
+  send({ type: 'complete', updated, total: movies.length });
+  res.end();
 });
 
 router.post('/movies/:id/refresh', requireAdmin, async (req, res) => {

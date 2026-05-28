@@ -8,8 +8,8 @@ export default function MediaCard({ item, type = 'movie' }) {
   const [hovered, setHovered] = useState(false);
   const [imgError, setImgError] = useState(false);
 
-  const watchId = type === 'movie' ? item.id : item.id;
-  const handleClick = () => navigate(`/watch/${type}/${watchId}`);
+  // Movies open the detail page; TV shows open the TV browse page
+  const handleClick = () => type === 'movie' ? navigate(`/movie/${item.id}`) : navigate('/tv');
 
   const poster = imgError || !item.poster_url ? PLACEHOLDER : item.poster_url;
   const rating = item.rating ? item.rating.toFixed(1) : null;
@@ -64,17 +64,8 @@ export default function MediaCard({ item, type = 'movie' }) {
           )}
         </div>
         {type === 'movie' && (
-          <div style={{
-            marginTop: '8px',
-            background: '#00c2ff',
-            color: '#000',
-            borderRadius: '4px',
-            padding: '5px 0',
-            textAlign: 'center',
-            fontSize: '12px',
-            fontWeight: '700',
-          }}>
-            ▶ Play
+          <div style={{ marginTop: '8px', background: '#00c2ff', color: '#000', borderRadius: '4px', padding: '5px 0', textAlign: 'center', fontSize: '12px', fontWeight: '700' }}>
+            More Info
           </div>
         )}
       </div>

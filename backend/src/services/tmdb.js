@@ -4,6 +4,21 @@ const db = require('../database/db');
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
+const MOVIE_GENRES = {
+  28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy',
+  80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family',
+  14: 'Fantasy', 36: 'History', 27: 'Horror', 10402: 'Music',
+  9648: 'Mystery', 10749: 'Romance', 878: 'Sci-Fi', 53: 'Thriller',
+  10752: 'War', 37: 'Western', 10770: 'TV Movie'
+};
+
+const TV_GENRES = {
+  10759: 'Action & Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
+  99: 'Documentary', 18: 'Drama', 10751: 'Family', 10762: 'Kids',
+  9648: 'Mystery', 10763: 'News', 10764: 'Reality', 10765: 'Sci-Fi & Fantasy',
+  10766: 'Soap', 10767: 'Talk', 10768: 'War & Politics', 37: 'Western'
+};
+
 function getApiKey() {
   const row = db.prepare('SELECT value FROM config WHERE key = ?').get('tmdb_api_key');
   return row?.value || null;
@@ -17,61 +32,61 @@ async function searchMovie(title, year) {
     if (year) params.year = year;
     const res = await axios.get(`${TMDB_BASE}/search/movie`, { params });
     return res.data.results[0] || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 async function searchTV(title) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
   try {
-    const res = await axios.get(`${TMDB_BASE}/search/tv`, {
-      params: { api_key: apiKey, query: title }
-    });
+    const res = await axios.get(`${TMDB_BASE}/search/tv`, { params: { api_key: apiKey, query: title } });
     return res.data.results[0] || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 async function getMovieDetails(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
   try {
-    const res = await axios.get(`${TMDB_BASE}/movie/${tmdbId}`, {
-      params: { api_key: apiKey }
-    });
+    const res = await axios.get(`${TMDB_BASE}/movie/${tmdbId}`, { params: { api_key: apiKey } });
     return res.data;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
+}
+
+async function getMovieCredits(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}/movie/${tmdbId}/credits`, { params: { api_key: apiKey } });
+    return res.data;
+  } catch { return null; }
+}
+
+async function getSimilarMovies(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}/movie/${tmdbId}/similar`, { params: { api_key: apiKey } });
+    return res.data.results?.slice(0, 8) || [];
+  } catch { return null; }
 }
 
 async function getTVDetails(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
   try {
-    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}`, {
-      params: { api_key: apiKey }
-    });
+    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}`, { params: { api_key: apiKey } });
     return res.data;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 async function getEpisodeDetails(tmdbId, season, episode) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
   try {
-    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/season/${season}/episode/${episode}`, {
-      params: { api_key: apiKey }
-    });
+    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/season/${season}/episode/${episode}`, { params: { api_key: apiKey } });
     return res.data;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function posterUrl(path, size = 'w500') {
@@ -84,4 +99,14 @@ function backdropUrl(path, size = 'w1280') {
   return `${IMAGE_BASE}/${size}${path}`;
 }
 
-module.exports = { searchMovie, searchTV, getMovieDetails, getTVDetails, getEpisodeDetails, posterUrl, backdropUrl };
+function resolveGenreNames(genreIds, isTV = false) {
+  if (!genreIds) return [];
+  const map = isTV ? TV_GENRES : MOVIE_GENRES;
+  const ids = Array.isArray(genreIds) ? genreIds : JSON.parse(genreIds);
+  return ids.map(id => map[id]).filter(Boolean);
+}
+
+module.exports = {
+  searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies,
+  getTVDetails, getEpisodeDetails, posterUrl, backdropUrl, resolveGenreNames
+};

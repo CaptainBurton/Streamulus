@@ -82,9 +82,11 @@ export default function Watch() {
     };
   }, [type, id]);
 
+  // <video> can't send Authorization headers — pass token as query param instead
+  const token = localStorage.getItem('streamulus_token');
   const streamUrl = type === 'episode'
-    ? `/api/stream/episode/${id}`
-    : `/api/stream/movie/${id}`;
+    ? `/api/stream/episode/${id}?token=${token}`
+    : `/api/stream/movie/${id}?token=${token}`;
 
   if (loading) {
     return (

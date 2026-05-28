@@ -8,6 +8,7 @@ import Home from './pages/Home';
 import Movies from './pages/Movies';
 import TVShows from './pages/TVShows';
 import Watch from './pages/Watch';
+import MovieDetail from './pages/MovieDetail';
 import Admin from './pages/Admin';
 
 function AppRoutes() {
@@ -36,6 +37,7 @@ function AppRoutes() {
       <Route path="/" element={<Home />} />
       <Route path="/movies" element={<Movies />} />
       <Route path="/tv" element={<TVShows />} />
+      <Route path="/movie/:id" element={<MovieDetail />} />
       <Route path="/watch/:type/:id" element={<Watch />} />
       <Route path="/admin" element={user.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
       <Route path="*" element={<Navigate to="/" />} />
