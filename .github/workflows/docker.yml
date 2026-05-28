@@ -8,6 +8,12 @@ on:
       - claude/laughing-hopper-fX8qI
   workflow_dispatch:
 
+# Top-level permissions so the token can write packages
+# regardless of the repository's default token permissions setting
+permissions:
+  contents: read
+  packages: write
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/streamulus
@@ -15,9 +21,6 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
 
     steps:
       - name: Checkout
