@@ -4,7 +4,8 @@ const db = require('../database/db');
 const JWT_SECRET = process.env.JWT_SECRET || 'streamulus-secret-change-in-production';
 
 function authenticate(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1] || req.cookies?.token;
+  // Also accept token as query param for SSE endpoints (EventSource can't set headers)
+  const token = req.headers.authorization?.split(' ')[1] || req.cookies?.token || req.query?.token;
   if (!token) return res.status(401).json({ error: 'Authentication required' });
 
   try {
