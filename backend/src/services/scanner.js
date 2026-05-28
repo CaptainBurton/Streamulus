@@ -53,8 +53,8 @@ async function processMovieFile(filePath, libraryId) {
   const { title, year } = parseMovieFilename(filePath);
   const tmdbData = await tmdb.searchMovie(title, year);
 
-  db.prepare(`
-    INSERT INTO movies (library_id, file_path, title, year, tmdb_id, overview, poster_path, backdrop_path, rating, genres)
+  const insertResult = db.prepare(`
+    INSERT OR IGNORE INTO movies (library_id, file_path, title, year, tmdb_id, overview, poster_path, backdrop_path, rating, genres)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     libraryId, filePath,
@@ -67,7 +67,7 @@ async function processMovieFile(filePath, libraryId) {
     tmdbData?.vote_average || null,
     tmdbData?.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null
   );
-  return 'added';
+  return insertResult.changes > 0 ? 'added' : 'skipped';
 }
 
 async function processTVFile(filePath, libraryId) {
@@ -105,8 +105,8 @@ async function processTVFile(filePath, libraryId) {
     epData = await tmdb.getEpisodeDetails(show.tmdb_id, season, episode);
   }
 
-  db.prepare(`
-    INSERT INTO episodes (show_id, file_path, season, episode_number, title, overview, still_path)
+  const epInsert = db.prepare(`
+    INSERT OR IGNORE INTO episodes (show_id, file_path, season, episode_number, title, overview, still_path)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     show.id, filePath, season, episode,
@@ -114,7 +114,7 @@ async function processTVFile(filePath, libraryId) {
     epData?.overview || null,
     epData?.still_path || null
   );
-  return 'added';
+  return epInsert.changes > 0 ? 'added' : 'skipped';
 }
 
 // Scan with per-file progress events via callback

@@ -145,8 +145,9 @@ function getManifestContent(key, baseSegmentUrl) {
   if (!fs.existsSync(manifestPath)) return null;
 
   let content = fs.readFileSync(manifestPath, 'utf8');
-  // Rewrite bare segment filenames to full API URLs
-  content = content.replace(/^(seg\d+\.ts)$/gm, `${baseSegmentUrl}&seg=$1`);
+  // Replace segment lines — handles bare filenames or full paths that FFmpeg may write,
+  // and strips trailing \r in case of CRLF line endings.
+  content = content.replace(/^[^\n#]*?(seg\d{5}\.ts)\s*$/gm, `${baseSegmentUrl}&seg=$1`);
   return content;
 }
 
