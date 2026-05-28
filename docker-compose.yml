@@ -3,7 +3,6 @@ services:
     build:
       context: https://github.com/CaptainBurton/Streamulus.git#development
       dockerfile: Dockerfile
-    image: streamulus:latest
     container_name: streamulus
     restart: unless-stopped
     ports:
