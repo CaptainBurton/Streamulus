@@ -1,8 +1,9 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
 const db = require('../database/db');
 const { requireAdmin } = require('../middleware/auth');
-const { scanAll } = require('../services/scanner');
+const { scanAllWithProgress, validatePath } = require('../services/scanner');
 
 const router = express.Router();
 
@@ -15,13 +16,48 @@ router.get('/stats', requireAdmin, (req, res) => {
   res.json({ movieCount, showCount, episodeCount, userCount, libraries });
 });
 
-router.post('/scan', requireAdmin, async (req, res) => {
+// SSE endpoint — streams scan progress events in real time
+router.get('/scan/stream', requireAdmin, async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (data) => {
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
+  };
+
+  req.on('close', () => { res.end(); });
+
   try {
-    const results = await scanAll();
+    await scanAllWithProgress(send);
+  } catch (err) {
+    send({ type: 'error', message: err.message });
+    res.end();
+  }
+});
+
+// Non-streaming scan (kept for compatibility)
+router.post('/scan', requireAdmin, async (req, res) => {
+  const results = [];
+  try {
+    await scanAllWithProgress((event) => {
+      if (event.type === 'library_done') results.push(event);
+    });
     res.json({ success: true, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Validate a path before adding as library
+router.get('/validate-path', requireAdmin, (req, res) => {
+  const { path: dirPath } = req.query;
+  if (!dirPath) return res.status(400).json({ error: 'path query param required' });
+  res.json(validatePath(dirPath));
 });
 
 router.get('/libraries', requireAdmin, (req, res) => {
@@ -33,8 +69,10 @@ router.post('/libraries', requireAdmin, (req, res) => {
   const { name, path: libPath, type } = req.body;
   if (!name || !libPath || !type) return res.status(400).json({ error: 'name, path, and type required' });
   if (!['movies', 'tv'].includes(type)) return res.status(400).json({ error: 'type must be movies or tv' });
+
+  const { exists, fileCount } = validatePath(libPath);
   const result = db.prepare('INSERT INTO libraries (name, path, type) VALUES (?, ?, ?)').run(name, libPath, type);
-  res.json({ id: result.lastInsertRowid, name, path: libPath, type });
+  res.json({ id: result.lastInsertRowid, name, path: libPath, type, pathExists: exists, fileCount });
 });
 
 router.put('/libraries/:id', requireAdmin, (req, res) => {
@@ -84,18 +122,14 @@ router.put('/config', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// Refresh metadata for a single movie
 router.post('/movies/:id/refresh', requireAdmin, async (req, res) => {
   const movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(req.params.id);
   if (!movie) return res.status(404).json({ error: 'Movie not found' });
-
   const tmdb = require('../services/tmdb');
   const result = await tmdb.searchMovie(movie.title, movie.year);
   if (result) {
-    db.prepare(`
-      UPDATE movies SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=?
-      WHERE id=?
-    `).run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
+    db.prepare(`UPDATE movies SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=? WHERE id=?`)
+      .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
   }
   res.json({ success: true, found: !!result });
 });
