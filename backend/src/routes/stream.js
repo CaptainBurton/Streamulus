@@ -194,6 +194,9 @@ router.get('/progress/:mediaType/:mediaId', authenticate, (req, res) => {
 // ─── continue watching ────────────────────────────────────────────────────────
 
 router.get('/continue-watching', authenticate, (req, res) => {
+  const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://'));
+  const resolveImg = (p, fn) => isFullUrl(p) ? p : fn(p);
+
   const movies = db.prepare(`
     SELECT 'movie' as type, wh.media_id as id, wh.position, wh.watched_at,
            m.title, m.poster_path, m.backdrop_path, m.year, m.duration
@@ -203,8 +206,8 @@ router.get('/continue-watching', authenticate, (req, res) => {
     ORDER BY wh.watched_at DESC LIMIT 20
   `).all(req.user.id).map(m => ({
     ...m,
-    poster_url: posterUrl(m.poster_path),
-    backdrop_url: backdropUrl(m.backdrop_path),
+    poster_url: resolveImg(m.poster_path, posterUrl),
+    backdrop_url: resolveImg(m.backdrop_path, backdropUrl),
   }));
 
   const episodes = db.prepare(`
@@ -219,8 +222,8 @@ router.get('/continue-watching', authenticate, (req, res) => {
   `).all(req.user.id).map(e => ({
     ...e,
     subtitle: `S${String(e.season).padStart(2,'0')}E${String(e.episode_number).padStart(2,'0')}${e.episode_title ? ` · ${e.episode_title}` : ''}`,
-    poster_url: posterUrl(e.poster_path),
-    backdrop_url: backdropUrl(e.backdrop_path),
+    poster_url: resolveImg(e.poster_path, posterUrl),
+    backdrop_url: resolveImg(e.backdrop_path, backdropUrl),
   }));
 
   const items = [...movies, ...episodes]

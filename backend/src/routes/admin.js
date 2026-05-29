@@ -32,8 +32,9 @@ router.get('/scan/stream', requireAdmin, async (req, res) => {
 
   req.on('close', () => { res.end(); });
 
+  const libraryId = req.query.libraryId ? parseInt(req.query.libraryId) : null;
   try {
-    await scanAllWithProgress(send);
+    await scanAllWithProgress(send, libraryId);
   } catch (err) {
     send({ type: 'error', message: err.message });
     res.end();
