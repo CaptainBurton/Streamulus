@@ -53,24 +53,32 @@ async function getHLSSession(filePath, startTime = 0) {
 
   const ffmpegArgs = [
     '-hide_banner',
-    '-loglevel', 'warning',   // changed from 'error' so codec warnings appear in container logs
+    '-loglevel', 'warning',
     '-ss', String(Math.max(0, startTime)),
     '-i', filePath,
+    // Explicit stream selection: first video track + first audio track (optional).
+    // Prevents FFmpeg from picking embedded cover art (APIC) as a video stream,
+    // or choosing the wrong audio/video track in multi-track MKV files.
+    '-map', '0:v:0',
+    '-map', '0:a:0?',
+    '-sn',                   // drop subtitle streams — avoids muxing conflicts
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
     '-tune', 'zerolatency',
     '-crf', '23',
     '-pix_fmt', 'yuv420p',
-    // Normalize to even dimensions — required for yuv420p; odd W/H causes silent encode failure
-    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-    '-max_muxing_queue_size', '1024',
+    // scale: fix odd dimensions (required for yuv420p).
+    // format=yuv420p: explicitly convert 10-bit HDR sources (yuv420p10le etc.)
+    // to 8-bit before encoding — without this, libx264 silently fails on HDR input.
+    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
+    '-max_muxing_queue_size', '4096',  // increased from 1024 for files with long audio lead-in
     '-g', '48',
     '-keyint_min', '48',
     '-sc_threshold', '0',
     '-c:a', 'aac',
-    '-b:a', '128k',
-    '-ac', '2',
-    '-ar', '44100',
+    '-b:a', '192k',          // increased from 128k for better audio quality (5.1 downmix)
+    '-ac', '2',              // downmix to stereo (handles AC3, DTS, 5.1, 7.1 sources)
+    '-ar', '48000',          // 48 kHz is the standard for video audio (was 44100)
     '-hls_time', '4',
     '-hls_list_size', '0',
     '-hls_segment_type', 'mpegts',
