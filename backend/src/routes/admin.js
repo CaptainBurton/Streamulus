@@ -125,15 +125,28 @@ router.delete('/users/:id', requireAdmin, (req, res) => {
 });
 
 router.get('/config', requireAdmin, (req, res) => {
-  const tmdbKey = db.prepare('SELECT value FROM config WHERE key = ?').get('tmdb_api_key');
-  res.json({ tmdbApiKey: tmdbKey?.value ? '***configured***' : null });
+  const get = (key) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? null;
+  res.json({
+    tmdbApiKey: get('tmdb_api_key'),
+    videoCrf: get('video_crf') ?? '23',
+    videoPreset: get('video_preset') ?? 'ultrafast',
+    videoResolution: get('video_resolution') ?? 'original',
+    audioBitrate: get('audio_bitrate') ?? '192k',
+    audioChannels: get('audio_channels') ?? '2',
+    hlsSegmentDuration: get('hls_segment_duration') ?? '4',
+  });
 });
 
 router.put('/config', requireAdmin, (req, res) => {
-  const { tmdbApiKey } = req.body;
-  if (tmdbApiKey !== undefined) {
-    db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run('tmdb_api_key', tmdbApiKey);
-  }
+  const { tmdbApiKey, videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration } = req.body;
+  const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+  if (tmdbApiKey !== undefined) upsert.run('tmdb_api_key', tmdbApiKey);
+  if (videoCrf !== undefined) upsert.run('video_crf', videoCrf);
+  if (videoPreset !== undefined) upsert.run('video_preset', videoPreset);
+  if (videoResolution !== undefined) upsert.run('video_resolution', videoResolution);
+  if (audioBitrate !== undefined) upsert.run('audio_bitrate', audioBitrate);
+  if (audioChannels !== undefined) upsert.run('audio_channels', audioChannels);
+  if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   res.json({ success: true });
 });
 
