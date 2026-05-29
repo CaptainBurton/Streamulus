@@ -5,6 +5,10 @@ WORKDIR /app/frontend
 COPY frontend/package.json ./
 RUN npm install
 COPY frontend/ .
+# Serve hls.js as a plain static asset so it is NOT bundled by Vite/Rollup.
+# Bundling hls.js in production breaks it (Worker URL mangling, eval, etc.).
+# The script tag in index.html loads it before React, exposing window.Hls.
+RUN mkdir -p public && cp node_modules/hls.js/dist/hls.min.js public/
 RUN npm run build
 
 # Stage 2: Backend with built frontend

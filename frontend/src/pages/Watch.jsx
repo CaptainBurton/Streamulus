@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import Hls from 'hls.js';
+
+// hls.js is loaded via <script src="/hls.min.js"> in index.html (not bundled by
+// Vite). This avoids Rollup mangling the Worker URL, which breaks hls.js silently
+// in production builds. window.Hls is set synchronously before React runs.
 
 export default function Watch() {
   const { type, id } = useParams();
@@ -19,8 +22,15 @@ export default function Watch() {
   const [showBar, setShowBar] = useState(true);
   const [diagInfo, setDiagInfo] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [dbgLog, setDbgLog] = useState([]);
 
   const token = localStorage.getItem('streamulus_token');
+
+  const addLog = useCallback((msg) => {
+    const ts = new Date().toTimeString().slice(0, 8);
+    console.log('[Watch]', msg);
+    setDbgLog(prev => [...prev.slice(-10), `${ts}  ${msg}`]);
+  }, []);
 
   // ── Load media metadata ────────────────────────────────────────────────────
   useEffect(() => {
@@ -45,18 +55,29 @@ export default function Watch() {
     if (!media || !videoRef.current) return;
     let cancelled = false;
     const video = videoRef.current;
+    const Hls = window.Hls;
 
     (async () => {
+      addLog(`window.Hls loaded: ${Hls ? 'YES' : 'NO — script tag missing!'}`);
+      if (!Hls) {
+        setError('hls.js failed to load. The container may need to be rebuilt.\n\nMake sure to redeploy (not just restart) the Docker container.');
+        setBuffering(false);
+        return;
+      }
+
       // Pre-flight: verify file is on disk and readable
+      addLog('Checking file on disk...');
       try {
         const r = await axios.get(`/api/stream/check/${type}/${id}`);
         if (!r.data.ok) {
+          addLog(`File check FAILED: ${r.data.error}`);
           setError(r.data.error);
           setBuffering(false);
           return;
         }
+        addLog(`File OK: ${r.data.filePath} (${r.data.ext})`);
       } catch {
-        // Network error — still attempt playback
+        addLog('File check request failed — continuing anyway');
       }
       if (cancelled) return;
 
@@ -64,30 +85,32 @@ export default function Watch() {
       startPosRef.current = startPos;
       const hlsUrl = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${startPos > 0 ? `&start=${startPos}` : ''}`;
 
+      const hlsSupported = Hls.isSupported();
+      addLog(`Hls.isSupported(): ${hlsSupported} | token: ${token ? 'present' : 'MISSING'}`);
+
       video.onwaiting = () => { if (!cancelled) setBuffering(true); };
-      video.onplaying = () => { if (!cancelled) setBuffering(false); };
+      video.onplaying = () => { if (!cancelled) { setBuffering(false); addLog('Playing!'); } };
       video.oncanplay = () => { if (!cancelled) setBuffering(false); };
 
-      console.log('[Watch] hlsUrl:', hlsUrl, '| Hls.isSupported():', Hls.isSupported());
-
-      if (Hls.isSupported()) {
-        // hls.js works on every browser including modern Safari (MSE+WebKitMSE).
-        // Segments are MPEG-TS; hls.js demuxes and re-muxes to fMP4 in the main
-        // thread (enableWorker:false avoids Vite-built Worker issues in Safari).
+      if (hlsSupported) {
+        addLog('Using hls.js path (MSE supported)');
         const hls = new Hls({ enableWorker: false });
         hlsRef.current = hls;
         hls.loadSource(hlsUrl);
         hls.attachMedia(video);
+        addLog('Fetching HLS manifest...');
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelled) return;
-          console.log('[Watch] Manifest parsed, starting playback');
+          addLog('Manifest parsed — calling play()');
           setBuffering(false);
-          video.play().catch(e => console.warn('[Watch] play() rejected:', e.message));
+          video.play().catch(e => {
+            addLog(`play() rejected: ${e.message}`);
+          });
         });
 
         hls.on(Hls.Events.ERROR, (_, data) => {
-          console.error('[Watch] hls.js error:', data.type, data.details, 'fatal:', data.fatal, 'HTTP:', data.response?.status, data.error?.message);
+          addLog(`hls.js ${data.fatal ? 'FATAL' : 'non-fatal'}: ${data.details} HTTP:${data.response?.status ?? '-'}`);
           if (cancelled || !data.fatal) return;
           let msg = `HLS error: ${data.details}`;
           if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
@@ -95,30 +118,29 @@ export default function Watch() {
             try { const e = JSON.parse(data.response.data); if (e?.error) msg += `\n${e.error}`; } catch {}
           }
           if (data.error?.message && !msg.includes(data.error.message)) msg += `\n${data.error.message}`;
-          msg += '\n\nOpen Safari → Develop → Show Web Inspector → Console for full details.\nOr click "Diagnose File" below.';
           setError(msg);
           setBuffering(false);
           hls.destroy();
         });
 
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Fallback: native HLS for browsers that support it but not MSE.
-        console.log('[Watch] Using native HLS fallback (hls.js MSE not supported)');
-        // Probe the manifest first so we surface server errors (auth, 500, etc.)
-        // instead of the browser's opaque MEDIA_ERR_SRC_NOT_SUPPORTED.
+        addLog('Using native HLS fallback (hls.js MSE not supported)');
         try {
+          addLog('Probing manifest URL...');
           const probe = await fetch(hlsUrl);
+          addLog(`Probe response: HTTP ${probe.status}`);
           if (!probe.ok) {
             const text = await probe.text().catch(() => '');
             let serverMsg = '';
             try { serverMsg = JSON.parse(text)?.error; } catch {}
             if (!cancelled) {
-              setError(`Stream error (HTTP ${probe.status}): ${serverMsg || text.slice(0, 300) || 'Server returned no details'}`);
+              setError(`Stream error (HTTP ${probe.status}): ${serverMsg || text.slice(0, 300) || 'No details'}`);
               setBuffering(false);
             }
             return;
           }
         } catch (e) {
+          addLog(`Probe failed: ${e.message}`);
           if (!cancelled && e.name !== 'AbortError') {
             setError(`Cannot reach server: ${e.message}`);
             setBuffering(false);
@@ -126,6 +148,7 @@ export default function Watch() {
           }
         }
         if (cancelled) return;
+        addLog('Setting video.src for native HLS');
         video.src = hlsUrl;
         video.onloadedmetadata = () => {
           if (cancelled) return;
@@ -133,13 +156,15 @@ export default function Watch() {
           video.play().catch(() => {});
         };
         video.onerror = () => {
-          console.error('[Watch] native video error:', video.error?.code, video.error?.message);
+          const code = video.error?.code ?? '?';
+          addLog(`video.onerror: code=${code} msg=${video.error?.message || '-'}`);
           if (!cancelled) {
-            setError(`Playback failed (code ${video.error?.code ?? '?'}): ${video.error?.message || 'unknown'}\n\nOpen Safari → Develop → Show Web Inspector → Console for details.\nOr click "Diagnose File" below.`);
+            setError(`Playback failed (code ${code}): ${video.error?.message || 'unknown codec or network error'}\n\nClick "Diagnose File" to inspect the source file's codec.`);
             setBuffering(false);
           }
         };
       } else {
+        addLog('Neither hls.js nor native HLS is supported in this browser');
         setError('Your browser does not support video streaming. Please try Chrome, Firefox, or Safari.');
         setBuffering(false);
       }
@@ -150,14 +175,13 @@ export default function Watch() {
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (videoRef.current) { videoRef.current.pause(); videoRef.current.src = ''; }
     };
-  }, [media, type, id, token]);
+  }, [media, type, id, token, addLog]);
 
   // ── Save progress every 10 s ──────────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     const save = () => {
-      // HLS stream starts at 0; add startPos to get actual source position
       const position = startPosRef.current + Math.floor(video.currentTime);
       if (position < 2) return;
       const completed = video.duration > 0 && video.currentTime / video.duration > 0.9;
@@ -198,12 +222,19 @@ export default function Watch() {
     }
   };
 
+  const DebugLog = () => dbgLog.length > 0 ? (
+    <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#444', lineHeight: '1.6', textAlign: 'left', maxWidth: '620px', width: '100%' }}>
+      {dbgLog.map((line, i) => <div key={i} style={{ color: line.includes('FAIL') || line.includes('fatal') || line.includes('error') ? '#f66' : '#666' }}>{line}</div>)}
+    </div>
+  ) : null;
+
   if (error) return (
-    <div style={{ ...S.center, flexDirection: 'column', gap: '20px', padding: '32px', textAlign: 'center' }}>
+    <div style={{ ...S.center, flexDirection: 'column', gap: '16px', padding: '32px', textAlign: 'center' }}>
       <div style={{ fontSize: '40px' }}>⚠️</div>
       <div style={{ color: '#ff4444', fontSize: '16px', maxWidth: '660px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
         {error}
       </div>
+      <DebugLog />
       <div style={{ display: 'flex', gap: '12px' }}>
         <button onClick={() => navigate(-1)} style={S.btn}>← Go Back</button>
         <button onClick={runDiag} disabled={diagLoading} style={S.btn}>
@@ -239,14 +270,14 @@ export default function Watch() {
         </div>
       </div>
 
-      {/* Buffering overlay */}
+      {/* Buffering overlay with live debug log */}
       {buffering && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '20px' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
           <div className="spinner" />
           <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
-          <div style={{ color: '#555', fontSize: '12px', textAlign: 'center', maxWidth: '400px' }}>
-            Preparing your video. First load takes 5–30 seconds.
-            <br />If it takes longer, check Portainer container logs for output.
+          <DebugLog />
+          <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '400px' }}>
+            First load takes 5–30 seconds while the server transcodes the video.
           </div>
         </div>
       )}
