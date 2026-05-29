@@ -43,6 +43,7 @@ export default function Watch() {
 
     (async () => {
       // Pre-flight: check the file exists and is readable, show a clear error if not
+      let checkData = null;
       try {
         const r = await axios.get(`/api/stream/check/${type}/${id}`);
         if (!r.data.ok) {
@@ -50,24 +51,33 @@ export default function Watch() {
           setBuffering(false);
           return;
         }
+        checkData = r.data; // { ok, filePath, ext }
       } catch {
         // Network error on check — still try to play
       }
 
       if (cancelled) return;
 
-      // Detect Safari — use HLS (Apple's native streaming protocol) to avoid the
-      // Range-request issues that fragmented MP4 has with Safari's media pipeline.
       const ua = navigator.userAgent;
       const isSafari = /safari/i.test(ua) && !/chrome|crios|fxios|chromium/i.test(ua);
 
+      // For Safari, prefer direct play for native formats (MP4/M4V/MOV).
+      // Safari natively decodes H.264 and H.265 in these containers — no transcoding
+      // needed, and Range-request seeking/resume just works. For formats Safari can't
+      // play natively (MKV, AVI, TS, etc.) fall back to HLS transcoding.
+      let isHLS = false;
+
       if (isSafari) {
-        // HLS: pass start offset to FFmpeg so resume works without browser seeking.
-        // Safari's built-in HLS player handles buffering and playback natively.
-        const startPos = media.progress?.position > 10 ? Math.floor(media.progress.position) : 0;
-        const hlsUrl = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${startPos > 0 ? `&start=${startPos}` : ''}`;
-        if (cancelled) return;
-        video.src = hlsUrl;
+        const ext = checkData?.ext || '';
+        if (['.mp4', '.m4v', '.mov'].includes(ext)) {
+          if (cancelled) return;
+          video.src = `/api/stream/direct/${type}/${id}?token=${token}`;
+        } else {
+          isHLS = true;
+          const startPos = media.progress?.position > 10 ? Math.floor(media.progress.position) : 0;
+          if (cancelled) return;
+          video.src = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${startPos > 0 ? `&start=${startPos}` : ''}`;
+        }
       } else {
         // Chrome/Firefox: fragmented MP4 — probe first to surface HTTP errors
         // as readable messages instead of the browser's generic code 4.
@@ -99,9 +109,9 @@ export default function Watch() {
       video.onloadedmetadata = () => {
         if (cancelled) return;
         setBuffering(false);
-        // fMP4: seek to saved position (stream starts from 0).
-        // HLS: FFmpeg already started from the right offset via ?start=.
-        if (!isSafari && media.progress?.position > 10) video.currentTime = media.progress.position;
+        // Direct play + fMP4: set currentTime to resume from saved position.
+        // HLS: FFmpeg already started from the right offset via ?start=, skip.
+        if (!isHLS && media.progress?.position > 10) video.currentTime = media.progress.position;
         video.play().catch(() => {});
       };
 

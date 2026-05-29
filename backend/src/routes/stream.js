@@ -139,6 +139,33 @@ router.get('/video/:type/:id', authenticate, (req, res) => {
   });
 });
 
+// ─── direct file serving ─────────────────────────────────────────────────────
+//
+// Serves the original file with full byte-range support. Safari can natively
+// play H.264 and H.265 MP4 without any transcoding — Express sendFile handles
+// Range headers automatically so the browser can seek and resume freely.
+
+router.get('/direct/:type/:id', authenticate, (req, res) => {
+  const { type, id } = req.params;
+  const filePath = getFilePath(type, id);
+
+  if (!filePath) return res.status(404).json({ error: 'Media not found in database' });
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: `File not found on disk: ${filePath}` });
+  try {
+    fs.accessSync(filePath, fs.constants.R_OK);
+  } catch {
+    return res.status(403).json({ error: `Cannot read file — check Docker volume permissions: ${filePath}` });
+  }
+
+  console.log(`[stream] Direct play: ${path.basename(filePath)}`);
+  res.sendFile(filePath, (err) => {
+    if (err && !res.headersSent) {
+      console.error(`[stream] Direct play error: ${err.message}`);
+      res.status(500).json({ error: `Failed to stream: ${err.message}` });
+    }
+  });
+});
+
 // ─── watch progress ───────────────────────────────────────────────────────────
 
 router.post('/progress', authenticate, (req, res) => {
