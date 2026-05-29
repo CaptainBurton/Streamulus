@@ -59,6 +59,31 @@ export default function Watch() {
       // All files go through the /video endpoint which always transcodes to H.264/AAC.
       // This handles MP4 (including H.265), MKV, AVI, TS — any source format.
       const videoUrl = `/api/stream/video/${type}/${id}?token=${token}`;
+
+      // Probe the URL first so auth/server errors surface as readable messages
+      // instead of the browser's generic MEDIA_ERR_SRC_NOT_SUPPORTED (code 4).
+      const ctrl = new AbortController();
+      try {
+        const probe = await fetch(videoUrl, { signal: ctrl.signal });
+        ctrl.abort();
+        if (!probe.ok) {
+          let errText = '';
+          try { errText = await probe.clone().text(); } catch {}
+          let serverMsg = '';
+          try { serverMsg = JSON.parse(errText)?.error; } catch {}
+          setError(`Stream error (HTTP ${probe.status}): ${serverMsg || errText.slice(0, 200) || 'No details from server'}`);
+          setBuffering(false);
+          return;
+        }
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          setError(`Cannot reach server: ${e.message}`);
+          setBuffering(false);
+          return;
+        }
+      }
+
+      if (cancelled) return;
       video.src = videoUrl;
 
       video.onloadedmetadata = () => {

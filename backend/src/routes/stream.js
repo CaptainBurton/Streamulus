@@ -75,24 +75,23 @@ router.get('/video/:type/:id', authenticate, (req, res) => {
 
   const ffmpegArgs = [
     '-hide_banner',
-    '-loglevel', 'warning',          // 'warning' shows codec issues; 'error' is too quiet
+    '-loglevel', 'warning',
     ...(startSec > 0 ? ['-ss', String(startSec)] : []),
     '-i', filePath,
-    // Always re-encode video to H.264 baseline — works in every browser
-    // regardless of whether the source is H.264, H.265, VP9, AV1, etc.
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
-    '-profile:v', 'baseline',
-    '-level', '3.1',
     '-crf', '23',
     '-pix_fmt', 'yuv420p',
-    // Always re-encode audio to AAC stereo — handles AC3, DTS, FLAC, etc.
+    // Normalize to even dimensions — required for yuv420p (odd width/height causes encode failure)
+    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    '-max_muxing_queue_size', '1024',
     '-c:a', 'aac',
     '-b:a', '128k',
     '-ac', '2',
     '-ar', '44100',
-    // Fragmented MP4 piped to stdout — browser can play progressively
-    '-movflags', 'frag_keyframe+empty_moov+faststart',
+    // frag_keyframe writes a complete moov atom (with codec info) before the first fragment.
+    // Do NOT use empty_moov — it omits codec info and browsers reject the stream immediately.
+    '-movflags', 'frag_keyframe+default_base_moof',
     '-f', 'mp4',
     'pipe:1',
   ];
