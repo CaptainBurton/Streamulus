@@ -3,11 +3,12 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
+const db = require('../database/db');
 
 const HLS_BASE = path.join(os.tmpdir(), 'streamulus-hls');
 fs.mkdirSync(HLS_BASE, { recursive: true });
 
-// Active transcode sessions: key → { process, dir, lastAccess, ready, readyPromise }
+// Active transcode sessions: key → { process, dir, lastAccess, ready, readyPromise, precomputedManifest }
 const sessions = new Map();
 
 setInterval(() => {
@@ -22,6 +23,44 @@ function makeKey(filePath, startTime) {
     .update(`${filePath}:${Math.floor(startTime / 30)}`)
     .digest('hex')
     .slice(0, 24);
+}
+
+function probeFileDuration(filePath) {
+  return new Promise((resolve) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'quiet', '-print_format', 'json', '-show_format', filePath,
+    ], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    proc.stdout.on('data', d => { out += d.toString(); });
+    proc.on('error', () => resolve(0));
+    proc.on('exit', () => {
+      try { resolve(parseFloat(JSON.parse(out).format?.duration) || 0); }
+      catch { resolve(0); }
+    });
+  });
+}
+
+function getSettings() {
+  const get = (key, fallback) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? fallback;
+  return {
+    crf: get('video_crf', '23'),
+    preset: get('video_preset', 'ultrafast'),
+    resolution: get('video_resolution', 'original'),
+    audioBitrate: get('audio_bitrate', '192k'),
+    audioChannels: get('audio_channels', '2'),
+    segmentDuration: parseInt(get('hls_segment_duration', '4')) || 4,
+  };
+}
+
+function buildVideoFilter(resolution) {
+  const even = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
+  const fmt = 'format=yuv420p';
+  const limits = {
+    '1080': 'scale=1920:1080:force_original_aspect_ratio=decrease',
+    '720':  'scale=1280:720:force_original_aspect_ratio=decrease',
+    '480':  'scale=854:480:force_original_aspect_ratio=decrease',
+  };
+  return limits[resolution] ? `${limits[resolution]},${even},${fmt}` : `${even},${fmt}`;
 }
 
 async function getHLSSession(filePath, startTime = 0) {
@@ -40,6 +79,9 @@ async function getHLSSession(filePath, startTime = 0) {
     throw new Error(`File not readable (check volume mount permissions): ${filePath}`);
   }
 
+  const settings = getSettings();
+  const totalDuration = await probeFileDuration(filePath);
+
   const dir = path.join(HLS_BASE, key);
   fs.mkdirSync(dir, { recursive: true });
 
@@ -48,7 +90,28 @@ async function getHLSSession(filePath, startTime = 0) {
   let resolveReady, rejectReady;
   const readyPromise = new Promise((res, rej) => { resolveReady = res; rejectReady = rej; });
 
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null };
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null };
+
+  if (totalDuration > 0) {
+    const effectiveDuration = Math.max(1, totalDuration - Math.max(0, startTime));
+    const segCount = Math.ceil(effectiveDuration / settings.segmentDuration);
+    const lines = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      `#EXT-X-TARGETDURATION:${settings.segmentDuration}`,
+      '#EXT-X-PLAYLIST-TYPE:VOD',
+      '#EXT-X-MEDIA-SEQUENCE:0',
+    ];
+    for (let i = 0; i < segCount; i++) {
+      const remaining = effectiveDuration - i * settings.segmentDuration;
+      const segDur = i < segCount - 1 ? settings.segmentDuration : Math.min(remaining, settings.segmentDuration);
+      lines.push(`#EXTINF:${segDur.toFixed(6)},`);
+      lines.push(`seg${String(i).padStart(5, '0')}.ts`);
+    }
+    lines.push('#EXT-X-ENDLIST');
+    session.precomputedManifest = lines.join('\n') + '\n';
+  }
+
   sessions.set(key, session);
 
   const ffmpegArgs = [
@@ -67,9 +130,9 @@ async function getHLSSession(filePath, startTime = 0) {
     '-map', '0:a:0?',
     '-sn',                   // drop subtitle streams — avoids muxing conflicts
     '-c:v', 'libx264',
-    '-preset', 'ultrafast',
+    '-preset', settings.preset,
     '-tune', 'zerolatency',
-    '-crf', '23',
+    '-crf', settings.crf,
     // profile high / level 5.1: supports up to 4K@30fps.
     // Without explicit level, some fMP4 init segments omit AVCLevelIndication,
     // causing Safari to reject the stream with MEDIA_ERR_SRC_NOT_SUPPORTED.
@@ -82,7 +145,7 @@ async function getHLSSession(filePath, startTime = 0) {
     // to 8-bit before encoding — without this, libx264 silently fails on HDR input.
     // colorspace/primaries/trc: tag output as BT.709 so Safari's color manager
     // does not misinterpret HDR metadata as needing HDR tone-mapping.
-    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
+    '-vf', buildVideoFilter(settings.resolution),
     '-colorspace', 'bt709',
     '-color_primaries', 'bt709',
     '-color_trc', 'bt709',
@@ -91,10 +154,10 @@ async function getHLSSession(filePath, startTime = 0) {
     '-keyint_min', '48',
     '-sc_threshold', '0',
     '-c:a', 'aac',
-    '-b:a', '192k',          // increased from 128k for better audio quality (5.1 downmix)
-    '-ac', '2',              // downmix to stereo (handles AC3, DTS, 5.1, 7.1 sources)
+    '-b:a', settings.audioBitrate,
+    ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
     '-ar', '48000',          // 48 kHz is the standard for video audio (was 44100)
-    '-hls_time', '4',
+    '-hls_time', String(settings.segmentDuration),
     '-hls_list_size', '0',
     // MPEG-TS segments: the original HLS format, universally supported by
     // Safari (native + hls.js), no init-segment codec handshake required.
@@ -176,10 +239,14 @@ function getManifestContent(key, baseSegmentUrl) {
   if (!session) return null;
   session.lastAccess = Date.now();
 
-  const manifestPath = path.join(session.dir, 'index.m3u8');
-  if (!fs.existsSync(manifestPath)) return null;
-
-  let content = fs.readFileSync(manifestPath, 'utf8');
+  let content;
+  if (session.precomputedManifest) {
+    content = session.precomputedManifest;
+  } else {
+    const manifestPath = path.join(session.dir, 'index.m3u8');
+    if (!fs.existsSync(manifestPath)) return null;
+    content = fs.readFileSync(manifestPath, 'utf8');
+  }
   // Rewrite .ts segment lines so browsers fetch them through our auth endpoint
   content = content.replace(/^[^\n#]*?(seg\d{5}\.ts)\s*$/gm, `${baseSegmentUrl}&seg=$1`);
   return content;

@@ -253,6 +253,11 @@ export default function Admin() {
   const [config, setConfig] = useState({});
   const [activeTab, setActiveTab] = useState('overview');
   const [tmdbKey, setTmdbKey] = useState('');
+  const [tmdbVisible, setTmdbVisible] = useState(false);
+  const [encSettings, setEncSettings] = useState({
+    videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
+    audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4',
+  });
   const [newLib, setNewLib] = useState({ name: '', path: '', type: 'movies' });
   const [newUser, setNewUser] = useState({ username: '', password: '', email: '', role: 'user' });
   const [msg, setMsg] = useState('');
@@ -279,6 +284,15 @@ export default function Admin() {
       setStats(statsRes.data);
       setUsers(usersRes.data.users || []);
       setConfig(configRes.data);
+      setTmdbKey(configRes.data.tmdbApiKey || '');
+      setEncSettings({
+        videoCrf: configRes.data.videoCrf || '23',
+        videoPreset: configRes.data.videoPreset || 'ultrafast',
+        videoResolution: configRes.data.videoResolution || 'original',
+        audioBitrate: configRes.data.audioBitrate || '192k',
+        audioChannels: configRes.data.audioChannels || '2',
+        hlsSegmentDuration: configRes.data.hlsSegmentDuration || '4',
+      });
     } catch { }
   };
 
@@ -319,6 +333,13 @@ export default function Admin() {
       flash('Settings saved!');
       loadData();
     } catch { flash('Failed to save settings', true); }
+  };
+
+  const handleSaveEncoding = async () => {
+    try {
+      await axios.put('/api/admin/config', encSettings);
+      flash('Encoding settings saved — applies to next video played.');
+    } catch { flash('Failed to save encoding settings', true); }
   };
 
   const handleAddLibrary = async (e) => {
@@ -529,7 +550,8 @@ export default function Admin() {
 
         {/* Settings */}
         {activeTab === 'settings' && (
-          <div style={{ maxWidth: '560px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ maxWidth: '620px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* TMDB API Key */}
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>TMDB API Key</h3>
               <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
@@ -537,16 +559,133 @@ export default function Admin() {
                 <br /><span style={{ fontSize: '12px' }}>Without a TMDB key, media will still be imported but without posters or descriptions.</span>
               </p>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <input style={{ ...inputStyle }} type="text" placeholder="Enter TMDB v3 API key" value={tmdbKey}
-                  onChange={e => setTmdbKey(e.target.value)}
-                  onFocus={e => { e.target.style.borderColor = '#00c2ff'; }}
-                  onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    style={{ ...inputStyle, paddingRight: '44px', width: '100%', boxSizing: 'border-box' }}
+                    type={tmdbVisible ? 'text' : 'password'}
+                    placeholder="Enter TMDB v3 API key"
+                    value={tmdbKey}
+                    onChange={e => setTmdbKey(e.target.value)}
+                    onFocus={e => { e.target.style.borderColor = '#00c2ff'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTmdbVisible(v => !v)}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px', color: '#666', display: 'flex', alignItems: 'center' }}
+                    title={tmdbVisible ? 'Hide key' : 'Show key'}
+                  >
+                    {tmdbVisible ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                      </svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    )}
+                  </button>
+                </div>
                 <button onClick={handleSaveConfig} style={{ padding: '10px 20px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>Save</button>
               </div>
             </div>
 
+            {/* Transcoding & Streaming */}
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Refresh Artwork & Metadata</h3>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Transcoding &amp; Streaming</h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
+                Controls how videos are encoded when streamed. Changes apply to new playback sessions.
+              </p>
+
+              {/* VIDEO section */}
+              <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '12px', marginTop: '4px' }}>Video</div>
+              {[
+                {
+                  label: 'Quality',
+                  key: 'videoCrf',
+                  options: { '18': 'High (larger file, more CPU)', '23': 'Balanced (default)', '28': 'Low (smaller file, less CPU)' },
+                },
+                {
+                  label: 'Speed',
+                  key: 'videoPreset',
+                  options: { 'ultrafast': 'Ultra Fast (recommended)', 'veryfast': 'Very Fast', 'fast': 'Fast', 'medium': 'Medium (better compression)' },
+                },
+                {
+                  label: 'Max Resolution',
+                  key: 'videoResolution',
+                  options: { 'original': 'Original (no limit)', '1080': '1080p', '720': '720p', '480': '480p' },
+                },
+              ].map(({ label, key, options }, i, arr) => (
+                <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>{label}</span>
+                  <select
+                    value={encSettings[key]}
+                    onChange={e => setEncSettings(s => ({ ...s, [key]: e.target.value }))}
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none' }}
+                  >
+                    {Object.entries(options).map(([val, lbl]) => (
+                      <option key={val} value={val}>{lbl}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+
+              {/* AUDIO section */}
+              <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '12px', marginTop: '16px' }}>Audio</div>
+              {[
+                {
+                  label: 'Bitrate',
+                  key: 'audioBitrate',
+                  options: { '128k': '128 kbps', '192k': '192 kbps (default)', '256k': '256 kbps', '320k': '320 kbps' },
+                },
+                {
+                  label: 'Channels',
+                  key: 'audioChannels',
+                  options: { '2': 'Stereo (recommended)', 'original': 'Original (keep source channels)' },
+                },
+              ].map(({ label, key, options }, i, arr) => (
+                <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>{label}</span>
+                  <select
+                    value={encSettings[key]}
+                    onChange={e => setEncSettings(s => ({ ...s, [key]: e.target.value }))}
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none' }}
+                  >
+                    {Object.entries(options).map(([val, lbl]) => (
+                      <option key={val} value={val}>{lbl}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+
+              {/* STREAMING section */}
+              <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '12px', marginTop: '16px' }}>Streaming</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>
+                <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Segment Size</span>
+                <select
+                  value={encSettings.hlsSegmentDuration}
+                  onChange={e => setEncSettings(s => ({ ...s, hlsSegmentDuration: e.target.value }))}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none' }}
+                >
+                  <option value="2">2 seconds (precise seeking)</option>
+                  <option value="4">4 seconds (default)</option>
+                  <option value="6">6 seconds (fewer requests)</option>
+                </select>
+              </div>
+
+              <button
+                onClick={handleSaveEncoding}
+                style={{ marginTop: '20px', padding: '10px 24px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Save Encoding Settings
+              </button>
+            </div>
+
+            {/* Refresh Metadata */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Refresh Artwork &amp; Metadata</h3>
               <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
                 Re-fetch posters, backdrops, ratings, and overviews for all movies already in your library. Run this after adding your TMDB API key.
               </p>

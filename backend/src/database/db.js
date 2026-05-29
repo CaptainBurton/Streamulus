@@ -113,4 +113,16 @@ db.exec(`
   );
 `);
 
+const ENCODING_DEFAULTS = {
+  video_crf: '23',
+  video_preset: 'ultrafast',
+  video_resolution: 'original',
+  audio_bitrate: '192k',
+  audio_channels: '2',
+  hls_segment_duration: '4',
+};
+for (const [key, value] of Object.entries(ENCODING_DEFAULTS)) {
+  db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)').run(key, value);
+}
+
 module.exports = db;
