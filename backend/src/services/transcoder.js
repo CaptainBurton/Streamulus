@@ -53,7 +53,7 @@ async function getHLSSession(filePath, startTime = 0) {
 
   const ffmpegArgs = [
     '-hide_banner',
-    '-loglevel', 'error',     // show errors in container logs
+    '-loglevel', 'warning',   // changed from 'error' so codec warnings appear in container logs
     '-ss', String(Math.max(0, startTime)),
     '-i', filePath,
     '-c:v', 'libx264',
@@ -61,6 +61,9 @@ async function getHLSSession(filePath, startTime = 0) {
     '-tune', 'zerolatency',
     '-crf', '23',
     '-pix_fmt', 'yuv420p',
+    // Normalize to even dimensions — required for yuv420p; odd W/H causes silent encode failure
+    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    '-max_muxing_queue_size', '1024',
     '-g', '48',
     '-keyint_min', '48',
     '-sc_threshold', '0',
@@ -72,7 +75,7 @@ async function getHLSSession(filePath, startTime = 0) {
     '-hls_list_size', '0',
     '-hls_segment_type', 'mpegts',
     '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
-    '-hls_flags', 'independent_segments',   // removed append_list — it holds the file open for writing
+    '-hls_flags', 'independent_segments',
     '-f', 'hls',
     '-y',
     manifestPath,
