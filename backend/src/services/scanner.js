@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../database/db');
 const tmdb = require('./tmdb');
+const tvdb = require('./tvdb');
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.m2ts']);
 
@@ -85,37 +86,92 @@ async function processTVFile(filePath, libraryId) {
 
   const { showTitle, season, episode } = parsed;
 
-  let show = db.prepare('SELECT id, tmdb_id FROM tv_shows WHERE title = ? AND library_id = ?').get(showTitle, libraryId);
-  if (!show) {
+  // Fetch show metadata — prefer TVDB if configured, fall back to TMDB.
+  // Fetching metadata BEFORE the DB lookup is critical: it gives us the
+  // canonical show ID so we can find existing rows even when filenames parse
+  // to slightly different title strings (e.g. "American Dad" vs "American Dad!").
+  let showMeta = null;
+  const useTVDB = tvdb.isConfigured();
+
+  if (useTVDB) {
+    const tvdbData = await tvdb.searchSeries(showTitle);
+    if (tvdbData) showMeta = { ...tvdbData, source: 'tvdb' };
+  }
+
+  if (!showMeta) {
     const tmdbData = await tmdb.searchTV(showTitle);
+    if (tmdbData) {
+      showMeta = {
+        source: 'tmdb',
+        tvdb_id: null,
+        tmdb_id: tmdbData.id,
+        name: tmdbData.name,
+        overview: tmdbData.overview,
+        poster_path: tmdbData.poster_path,
+        backdrop_path: tmdbData.backdrop_path,
+        rating: tmdbData.vote_average,
+        genres: tmdbData.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null,
+        status: tmdbData.status,
+        first_air_date: tmdbData.first_air_date,
+      };
+    }
+  }
+
+  // Deduplicate: find existing show by metadata ID first, then fall back to canonical title.
+  // This prevents a second row being created when a different file parses to a
+  // slightly different title string than the one already stored.
+  let show = null;
+  if (showMeta?.tvdb_id) {
+    show = db.prepare('SELECT id, tmdb_id, tvdb_id FROM tv_shows WHERE tvdb_id = ? AND library_id = ?')
+      .get(showMeta.tvdb_id, libraryId);
+  }
+  if (!show && showMeta?.tmdb_id) {
+    show = db.prepare('SELECT id, tmdb_id, tvdb_id FROM tv_shows WHERE tmdb_id = ? AND library_id = ?')
+      .get(showMeta.tmdb_id, libraryId);
+  }
+  if (!show) {
+    const canonicalTitle = showMeta?.name || showTitle;
+    show = db.prepare('SELECT id, tmdb_id, tvdb_id FROM tv_shows WHERE title = ? AND library_id = ?')
+      .get(canonicalTitle, libraryId);
+  }
+
+  if (!show) {
     try {
       const result = db.prepare(`
         INSERT INTO tv_shows
-          (library_id, title, tmdb_id, overview, poster_path, backdrop_path, rating, genres, status, first_air_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (library_id, title, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, rating, genres, status, first_air_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         libraryId,
-        tmdbData?.name || showTitle,
-        tmdbData?.id || null,
-        tmdbData?.overview || null,
-        tmdbData?.poster_path || null,
-        tmdbData?.backdrop_path || null,
-        tmdbData?.vote_average || null,
-        tmdbData?.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null,
-        tmdbData?.status || null,
-        tmdbData?.first_air_date || null
+        showMeta?.name || showTitle,
+        showMeta?.tmdb_id || null,
+        showMeta?.tvdb_id || null,
+        showMeta?.overview || null,
+        showMeta?.poster_path || null,
+        showMeta?.backdrop_path || null,
+        showMeta?.rating || null,
+        showMeta?.genres || null,
+        showMeta?.status || null,
+        showMeta?.first_air_date || null,
       );
-      show = { id: result.lastInsertRowid, tmdb_id: tmdbData?.id || null };
+      show = { id: result.lastInsertRowid, tmdb_id: showMeta?.tmdb_id || null, tvdb_id: showMeta?.tvdb_id || null };
     } catch {
       // Concurrent scan inserted the same show — re-fetch
-      show = db.prepare('SELECT id, tmdb_id FROM tv_shows WHERE title = ? AND library_id = ?').get(showTitle, libraryId);
+      const canonicalTitle = showMeta?.name || showTitle;
+      show = db.prepare('SELECT id, tmdb_id, tvdb_id FROM tv_shows WHERE title = ? AND library_id = ?')
+        .get(canonicalTitle, libraryId);
       if (!show) throw new Error(`Could not insert or find show: ${showTitle}`);
     }
   }
 
+  // Fetch episode metadata from whichever service has a match
   let epData = null;
-  if (show.tmdb_id) {
-    epData = await tmdb.getEpisodeDetails(show.tmdb_id, season, episode);
+  if (show.tvdb_id && useTVDB) {
+    epData = await tvdb.getEpisodeDetails(show.tvdb_id, season, episode);
+  }
+  if (!epData && show.tmdb_id) {
+    const tmdbEp = await tmdb.getEpisodeDetails(show.tmdb_id, season, episode);
+    if (tmdbEp) epData = { name: tmdbEp.name, overview: tmdbEp.overview, still_path: tmdbEp.still_path };
   }
 
   const epTitle = epData?.name || `S${String(season).padStart(2,'0')}E${String(episode).padStart(2,'0')}`;
@@ -124,15 +180,9 @@ async function processTVFile(filePath, libraryId) {
     INSERT OR IGNORE INTO episodes
       (show_id, file_path, season, episode_number, title, overview, still_path)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    show.id, filePath, season, episode,
-    epTitle,
-    epData?.overview || null,
-    epData?.still_path || null
-  );
+  `).run(show.id, filePath, season, episode, epTitle, epData?.overview || null, epData?.still_path || null);
 
-  const displayTitle = `${showTitle} — ${epTitle}`;
-  return { status: r.changes > 0 ? 'added' : 'skipped', title: displayTitle };
+  return { status: r.changes > 0 ? 'added' : 'skipped', title: `${showMeta?.name || showTitle} — ${epTitle}` };
 }
 
 async function scanAllWithProgress(onProgress) {

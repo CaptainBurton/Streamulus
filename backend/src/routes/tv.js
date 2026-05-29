@@ -7,12 +7,14 @@ const router = express.Router();
 
 const IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
+const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://'));
+
 function formatShow(s) {
   return {
     ...s,
     genres: s.genres ? JSON.parse(s.genres) : [],
-    poster_url: posterUrl(s.poster_path),
-    backdrop_url: backdropUrl(s.backdrop_path)
+    poster_url: isFullUrl(s.poster_path) ? s.poster_path : posterUrl(s.poster_path),
+    backdrop_url: isFullUrl(s.backdrop_path) ? s.backdrop_path : backdropUrl(s.backdrop_path),
   };
 }
 
@@ -64,7 +66,9 @@ router.get('/:id/season/:season', authenticate, (req, res) => {
 
   const formatted = episodes.map(ep => ({
     ...ep,
-    still_url: ep.still_path ? `${IMAGE_BASE}/w300${ep.still_path}` : null
+    still_url: ep.still_path
+      ? (isFullUrl(ep.still_path) ? ep.still_path : `${IMAGE_BASE}/w300${ep.still_path}`)
+      : null,
   }));
   res.json({ episodes: formatted });
 });

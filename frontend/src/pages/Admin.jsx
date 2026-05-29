@@ -247,6 +247,44 @@ function RefreshMetadata() {
   );
 }
 
+function FixDuplicates() {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const run = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      const r = await axios.post('/api/admin/tv/deduplicate');
+      setResult(r.data);
+    } catch (e) {
+      setResult({ error: e.response?.data?.error || e.message });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div>
+      {result && !result.error && (
+        <div style={{ marginBottom: '12px', fontSize: '14px', color: result.merged > 0 ? '#00c864' : '#888' }}>
+          {result.merged > 0 ? `✓ Merged ${result.merged} duplicate show${result.merged !== 1 ? 's' : ''}` : '✓ No duplicates found'}
+        </div>
+      )}
+      {result?.error && (
+        <div style={{ marginBottom: '12px', fontSize: '14px', color: '#ff4444' }}>⚠ {result.error}</div>
+      )}
+      <button
+        onClick={run}
+        disabled={running}
+        style={{ padding: '10px 24px', background: running ? '#333' : 'rgba(0,194,255,0.15)', color: running ? '#555' : '#00c2ff', border: '1px solid', borderColor: running ? '#333' : 'rgba(0,194,255,0.3)', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: running ? 'not-allowed' : 'pointer' }}
+      >
+        {running ? 'Scanning…' : 'Fix Duplicate Shows'}
+      </button>
+    </div>
+  );
+}
+
 export default function Admin() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
@@ -254,6 +292,8 @@ export default function Admin() {
   const [activeTab, setActiveTab] = useState('overview');
   const [tmdbKey, setTmdbKey] = useState('');
   const [tmdbVisible, setTmdbVisible] = useState(false);
+  const [tvdbKey, setTvdbKey] = useState('');
+  const [tvdbVisible, setTvdbVisible] = useState(false);
   const [debugLogs, setDebugLogs] = useState(() => localStorage.getItem('streamulus_debug_logs') === 'true');
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
@@ -286,6 +326,7 @@ export default function Admin() {
       setUsers(usersRes.data.users || []);
       setConfig(configRes.data);
       setTmdbKey(configRes.data.tmdbApiKey || '');
+      setTvdbKey(configRes.data.tvdbApiKey || '');
       setEncSettings({
         videoCrf: configRes.data.videoCrf || '23',
         videoPreset: configRes.data.videoPreset || 'ultrafast',
@@ -334,6 +375,14 @@ export default function Admin() {
       flash('Settings saved!');
       loadData();
     } catch { flash('Failed to save settings', true); }
+  };
+
+  const handleSaveTVDB = async () => {
+    try {
+      await axios.put('/api/admin/config', { tvdbApiKey: tvdbKey });
+      flash('TVDB key saved!');
+      loadData();
+    } catch { flash('Failed to save TVDB key', true); }
   };
 
   const handleSaveEncoding = async () => {
@@ -591,6 +640,56 @@ export default function Admin() {
                 </div>
                 <button onClick={handleSaveConfig} style={{ padding: '10px 20px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>Save</button>
               </div>
+            </div>
+
+            {/* TVDB API Key */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>TVDB API Key</h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
+                Current status: <strong style={{ color: config.tvdbApiKey ? '#00c864' : '#ff4444' }}>{config.tvdbApiKey ? 'Configured' : 'Not set'}</strong>
+                <br /><span style={{ fontSize: '12px' }}>Used for TV show metadata and episode details. When set, TVDB is preferred over TMDB for TV shows. Get a free key at <span style={{ color: '#00c2ff' }}>thetvdb.com</span>.</span>
+              </p>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    style={{ ...inputStyle, paddingRight: '44px', width: '100%', boxSizing: 'border-box' }}
+                    type={tvdbVisible ? 'text' : 'password'}
+                    placeholder="Enter TVDB v4 API key"
+                    value={tvdbKey}
+                    onChange={e => setTvdbKey(e.target.value)}
+                    onFocus={e => { e.target.style.borderColor = '#00c2ff'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTvdbVisible(v => !v)}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px', color: '#666', display: 'flex', alignItems: 'center' }}
+                    title={tvdbVisible ? 'Hide key' : 'Show key'}
+                  >
+                    {tvdbVisible ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                      </svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                <button onClick={handleSaveTVDB} style={{ padding: '10px 20px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>Save</button>
+              </div>
+            </div>
+
+            {/* Fix Duplicate Shows */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Fix Duplicate TV Shows</h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
+                Merge TV shows that were scanned as separate entries due to slight filename differences (e.g. "American Dad" vs "American Dad!"). All episodes will be moved to the oldest matching entry.
+              </p>
+              <FixDuplicates />
             </div>
 
             {/* Transcoding & Streaming */}
