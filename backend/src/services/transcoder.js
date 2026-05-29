@@ -66,7 +66,9 @@ function buildVideoFilter(resolution) {
 // Build FFmpeg args for HLS transcoding into the given output directory.
 // Segments are always named seg00000.ts, seg00001.ts, ... within that dir.
 // Seek restarts use separate subdirectories so -start_number is not needed.
-function buildFfmpegArgs(filePath, startSec, settings, dir) {
+// outputTsOffset: when set, shifts output PTS by this many seconds so hls.js
+// places the content at the correct timeline position (seek restarts only).
+function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0) {
   return [
     '-hide_banner', '-loglevel', 'warning',
     '-fflags', '+genpts+discardcorrupt',
@@ -85,6 +87,7 @@ function buildFfmpegArgs(filePath, startSec, settings, dir) {
     '-c:a', 'aac', '-b:a', settings.audioBitrate,
     ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
     '-ar', '48000',
+    ...(outputTsOffset > 0 ? ['-output_ts_offset', String(outputTsOffset)] : []),
     '-hls_time', String(settings.segmentDuration),
     '-hls_list_size', '0',
     '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
@@ -296,7 +299,7 @@ async function getSegmentPath(key, segmentName) {
     if (session.process) { try { session.process.kill('SIGTERM'); } catch {} session.process = null; }
     session.seekPoints.push({ fromIdx: requestedIdx, dir: seekDir });
     const proc = spawn('ffmpeg',
-      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir),
+      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, seekSec),
       { stdio: ['ignore', 'ignore', 'pipe'] });
     session.process = proc;
     proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
