@@ -58,37 +58,8 @@ export default function Watch() {
 
       // Safari requires HLS; all other browsers use fragmented MP4.
       const isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|fxios|chromium/i.test(navigator.userAgent);
-      const videoUrl = isSafari
-        ? `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}`
-        : `/api/stream/video/${type}/${id}?token=${token}`;
 
-      // Probe the URL first so auth/server errors surface as readable messages
-      // instead of the browser's generic MEDIA_ERR_SRC_NOT_SUPPORTED (code 4).
-      // For HLS, this also warms up the transcode session before the video element requests it.
-      const ctrl = new AbortController();
-      try {
-        const probe = await fetch(videoUrl, { signal: ctrl.signal });
-        ctrl.abort();
-        if (!probe.ok) {
-          let errText = '';
-          try { errText = await probe.clone().text(); } catch {}
-          let serverMsg = '';
-          try { serverMsg = JSON.parse(errText)?.error; } catch {}
-          setError(`Stream error (HTTP ${probe.status}): ${serverMsg || errText.slice(0, 200) || 'No details from server'}`);
-          setBuffering(false);
-          return;
-        }
-      } catch (e) {
-        if (e.name !== 'AbortError') {
-          setError(`Cannot reach server: ${e.message}`);
-          setBuffering(false);
-          return;
-        }
-      }
-
-      if (cancelled) return;
-      video.src = videoUrl;
-
+      // Wire up event handlers before setting src
       video.onloadedmetadata = () => {
         if (cancelled) return;
         setBuffering(false);
@@ -96,10 +67,9 @@ export default function Watch() {
         video.play().catch(() => {});
       };
 
-      video.oncanplay = () => {
-        if (cancelled) return;
-        setBuffering(false);
-      };
+      video.oncanplay = () => { if (!cancelled) setBuffering(false); };
+      video.onwaiting  = () => { if (!cancelled) setBuffering(true); };
+      video.onplaying  = () => { if (!cancelled) setBuffering(false); };
 
       video.onerror = () => {
         if (cancelled) return;
@@ -108,15 +78,43 @@ export default function Watch() {
           1: 'Playback aborted',
           2: 'Network error — the server may have failed to start transcoding',
           3: 'Decode error — the output codec may be invalid',
-          4: 'Unsupported format',
+          4: 'Unsupported format — check container logs for FFmpeg errors',
         }[code] || `Unknown error (code ${code})`;
-
-        setError(
-          `Video failed to play: ${codeMsg}.\n\n` +
-          `Check the Portainer container logs for lines starting with [ffmpeg] or [stream] to see the exact error.`
-        );
+        setError(`Video failed to play: ${codeMsg}.\n\nCheck the Portainer container logs for lines starting with [ffmpeg] or [stream] to see the exact error.`);
         setBuffering(false);
       };
+
+      if (isSafari) {
+        // Safari has native HLS support — set src directly, no fetch probe.
+        // The manifest route triggers FFmpeg transcoding; the spinner covers the wait.
+        video.src = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}`;
+      } else {
+        // Other browsers use fragmented MP4. Probe first to surface HTTP errors
+        // (401/404/500) as readable messages instead of browser's generic code 4.
+        const videoUrl = `/api/stream/video/${type}/${id}?token=${token}`;
+        const ctrl = new AbortController();
+        try {
+          const probe = await fetch(videoUrl, { signal: ctrl.signal });
+          ctrl.abort();
+          if (!probe.ok) {
+            let errText = '';
+            try { errText = await probe.clone().text(); } catch {}
+            let serverMsg = '';
+            try { serverMsg = JSON.parse(errText)?.error; } catch {}
+            setError(`Stream error (HTTP ${probe.status}): ${serverMsg || errText.slice(0, 200) || 'No details from server'}`);
+            setBuffering(false);
+            return;
+          }
+        } catch (e) {
+          if (e.name !== 'AbortError') {
+            setError(`Cannot reach server: ${e.message}`);
+            setBuffering(false);
+            return;
+          }
+        }
+        if (cancelled) return;
+        video.src = videoUrl;
+      }
     })();
 
     return () => {
