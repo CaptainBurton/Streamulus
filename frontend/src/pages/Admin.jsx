@@ -340,16 +340,15 @@ export default function Admin() {
 
   useEffect(() => { loadData(); }, []);
 
-  const handleScan = () => {
+  const startScan = (libraryId = null) => {
     if (scanning) return;
     setScanEvents([]);
     setShowScan(true);
     setScanning(true);
-
     const token = localStorage.getItem('streamulus_token');
-    const es = new EventSource(`/api/admin/scan/stream?token=${token}`);
+    const url = `/api/admin/scan/stream?token=${token}${libraryId ? `&libraryId=${libraryId}` : ''}`;
+    const es = new EventSource(url);
     esRef.current = es;
-
     es.onmessage = (e) => {
       const event = JSON.parse(e.data);
       setScanEvents(prev => [...prev, event]);
@@ -359,13 +358,14 @@ export default function Admin() {
         loadData();
       }
     };
-
     es.onerror = () => {
       setScanning(false);
       setScanEvents(prev => [...prev, { type: 'error', message: 'Connection lost. Scan may still be running.' }]);
       es.close();
     };
   };
+
+  const handleScan = () => startScan(null);
 
   useEffect(() => () => esRef.current?.close(), []);
 
@@ -533,14 +533,25 @@ export default function Admin() {
                       {lib.last_scanned && <span style={{ fontSize: '11px', color: '#444' }}>Last scanned: {new Date(lib.last_scanned).toLocaleString()}</span>}
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDeleteLibrary(lib.id)}
-                    style={{ padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', color: '#ff4444', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,68,68,0.1)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    Remove
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => { setActiveTab('overview'); startScan(lib.id); }}
+                      disabled={scanning}
+                      style={{ padding: '8px 16px', background: scanning ? 'transparent' : 'rgba(0,194,255,0.1)', border: '1px solid', borderColor: scanning ? 'rgba(255,255,255,0.08)' : 'rgba(0,194,255,0.3)', color: scanning ? '#444' : '#00c2ff', borderRadius: '6px', fontSize: '13px', cursor: scanning ? 'not-allowed' : 'pointer', fontWeight: '600' }}
+                      onMouseEnter={e => { if (!scanning) e.currentTarget.style.background = 'rgba(0,194,255,0.2)'; }}
+                      onMouseLeave={e => { if (!scanning) e.currentTarget.style.background = 'rgba(0,194,255,0.1)'; }}
+                    >
+                      ⟳ Scan
+                    </button>
+                    <button
+                      onClick={() => handleDeleteLibrary(lib.id)}
+                      style={{ padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', color: '#ff4444', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,68,68,0.1)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ))}
               {!stats?.libraries?.length && (

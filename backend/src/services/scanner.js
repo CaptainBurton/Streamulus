@@ -185,11 +185,13 @@ async function processTVFile(filePath, libraryId) {
   return { status: r.changes > 0 ? 'added' : 'skipped', title: `${showMeta?.name || showTitle} — ${epTitle}` };
 }
 
-async function scanAllWithProgress(onProgress) {
-  const libraries = db.prepare('SELECT * FROM libraries').all();
+async function scanAllWithProgress(onProgress, filterLibraryId = null) {
+  const libraries = filterLibraryId
+    ? db.prepare('SELECT * FROM libraries WHERE id = ?').all(filterLibraryId)
+    : db.prepare('SELECT * FROM libraries').all();
 
   if (libraries.length === 0) {
-    onProgress({ type: 'error', message: 'No libraries configured. Add a library first.' });
+    onProgress({ type: 'error', message: filterLibraryId ? 'Library not found.' : 'No libraries configured. Add a library first.' });
     return;
   }
 
