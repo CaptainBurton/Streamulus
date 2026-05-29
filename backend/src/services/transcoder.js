@@ -154,7 +154,6 @@ async function getHLSSession(filePath, startTime = 0) {
 
   const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir);
 
-  const manifestPath = path.join(dir, 'index.m3u8');
   console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)} start=${startTime}s`);
   console.log(`[transcode] Command: ffmpeg ${ffmpegArgs.join(' ')}`);
   const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
