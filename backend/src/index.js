@@ -21,8 +21,19 @@ app.use('/api/admin', require('./routes/admin'));
 // Serve React frontend in production
 const publicDir = path.join(__dirname, '../public');
 if (fs.existsSync(publicDir)) {
-  app.use(express.static(publicDir));
+  // index.html must never be cached — it references hashed JS/CSS filenames.
+  // Without this, browsers (especially Safari) serve stale HTML that loads old bundles.
+  app.use(express.static(publicDir, {
+    setHeaders(res, filepath) {
+      if (path.basename(filepath) === 'index.html') {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    },
+  }));
   app.get('*', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(publicDir, 'index.html'));
   });
 }
