@@ -3,9 +3,30 @@ const path = require('path');
 const fs = require('fs');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const db = new Database(path.join(DATA_DIR, 'streamulus.db'));
+try {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch (err) {
+  console.error(`[db] FATAL: Cannot create data directory ${DATA_DIR}: ${err.message}`);
+  console.error('[db] Fix: ensure the Docker volume for /data is writable by the container process.');
+  process.exit(1);
+}
+
+let db;
+try {
+  db = new Database(path.join(DATA_DIR, 'streamulus.db'));
+} catch (err) {
+  console.error(`[db] FATAL: Cannot open database at ${path.join(DATA_DIR, 'streamulus.db')}: ${err.message}`);
+  if (err.message.includes('permission') || err.message.includes('EACCES')) {
+    console.error('[db] Fix: the /data volume is not writable. On Ubuntu/Linux, run:');
+    console.error(`[db]   docker exec streamulus chmod 777 /data`);
+    console.error('[db] or fix the volume permissions on the host and restart the container.');
+  } else if (err.code === 'MODULE_NOT_FOUND' || err.message.includes('better_sqlite3')) {
+    console.error('[db] Fix: better-sqlite3 native module failed to load.');
+    console.error('[db] The image may need a clean rebuild: in Portainer, remove the image and redeploy.');
+  }
+  process.exit(1);
+}
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
