@@ -13,7 +13,6 @@ export default function Watch() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [buffering, setBuffering] = useState(true);
-  const [statusMsg, setStatusMsg] = useState('Loading…');
   const [showBar, setShowBar] = useState(true);
 
   const token = localStorage.getItem('streamulus_token');
@@ -32,51 +31,40 @@ export default function Watch() {
 
     fetchMedia
       .then(m => setMedia(m))
-      .catch(() => setError('Media not found — the item may have been removed from your library.'))
+      .catch(() => setError('Media not found.'))
       .finally(() => setLoading(false));
   }, [type, id]);
 
-  // ── Start playback once media metadata is ready ────────────────────────────
+  // ── Start playback once media is ready ────────────────────────────────────
   useEffect(() => {
     if (!media || !videoRef.current) return;
     let cancelled = false;
     const video = videoRef.current;
 
     (async () => {
-      // 1. Pre-flight: verify file exists and is readable
-      let check = null;
+      // Pre-flight: check the file exists and is readable, show a clear error if not
       try {
         const r = await axios.get(`/api/stream/check/${type}/${id}`);
-        check = r.data;
+        if (!r.data.ok) {
+          setError(r.data.error);
+          setBuffering(false);
+          return;
+        }
       } catch {
-        // network error on check — still attempt playback
+        // Network error on check — still try to play
       }
 
       if (cancelled) return;
 
-      if (check && !check.ok) {
-        setError(check.error);
-        setBuffering(false);
-        return;
-      }
-
-      // 2. Choose playback mode
-      const direct = check?.canDirectPlay ?? false;
-      const videoUrl = direct
-        ? `/api/stream/direct/${type}/${id}?token=${token}`
-        : `/api/stream/transcode/${type}/${id}?token=${token}`;
-
-      setStatusMsg(direct ? 'Loading…' : 'Transcoding… first load may take 10–30 seconds');
-
-      // 3. Point the video element at the chosen URL
+      // All files go through the /video endpoint which always transcodes to H.264/AAC.
+      // This handles MP4 (including H.265), MKV, AVI, TS — any source format.
+      const videoUrl = `/api/stream/video/${type}/${id}?token=${token}`;
       video.src = videoUrl;
 
       video.onloadedmetadata = () => {
         if (cancelled) return;
         setBuffering(false);
-        if (media.progress?.position > 10) {
-          video.currentTime = media.progress.position;
-        }
+        if (media.progress?.position > 10) video.currentTime = media.progress.position;
         video.play().catch(() => {});
       };
 
@@ -89,19 +77,15 @@ export default function Watch() {
         if (cancelled) return;
         const code = video.error?.code;
         const codeMsg = {
-          1: 'Playback was aborted',
-          2: 'Network error fetching the video',
-          3: 'Decoding error — the file may use a codec not supported by this browser',
-          4: 'Video format not supported',
-        }[code] || `Error code ${code}`;
+          1: 'Playback aborted',
+          2: 'Network error — the server may have failed to start transcoding',
+          3: 'Decode error — the output codec may be invalid',
+          4: 'Unsupported format',
+        }[code] || `Unknown error (code ${code})`;
 
         setError(
-          `${codeMsg}.\n\n` +
-          (direct
-            ? 'This MP4 may use H.265/HEVC or another codec the browser cannot decode natively. ' +
-              'Try a different browser, or contact support.'
-            : 'Check the Portainer container logs for FFmpeg error output. ' +
-              'Common cause: FFmpeg not installed, or codec/file issue.')
+          `Video failed to play: ${codeMsg}.\n\n` +
+          `Check the Portainer container logs for lines starting with [ffmpeg] or [stream] to see the exact error.`
         );
         setBuffering(false);
       };
@@ -116,7 +100,7 @@ export default function Watch() {
     };
   }, [media, type, id, token]);
 
-  // ── Save watch progress every 10 s ────────────────────────────────────────
+  // ── Save progress every 10 s ──────────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -137,7 +121,7 @@ export default function Watch() {
     };
   }, [type, id]);
 
-  // ── Auto-hide controls ─────────────────────────────────────────────────────
+  // ── Auto-hide controls ────────────────────────────────────────────────────
   const showControls = useCallback(() => {
     setShowBar(true);
     clearTimeout(hideTimer.current);
@@ -145,26 +129,19 @@ export default function Watch() {
   }, []);
   useEffect(() => () => clearTimeout(hideTimer.current), []);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) return (
-    <div style={styles.center}>
-      <div className="spinner" />
-    </div>
+    <div style={S.center}><div className="spinner" /></div>
   );
 
   if (error) return (
-    <div style={{ ...styles.center, flexDirection: 'column', gap: '20px', padding: '32px', textAlign: 'center' }}>
-      <div style={{ fontSize: '48px' }}>⚠️</div>
+    <div style={{ ...S.center, flexDirection: 'column', gap: '20px', padding: '32px', textAlign: 'center' }}>
+      <div style={{ fontSize: '40px' }}>⚠️</div>
       <div style={{ color: '#ff4444', fontSize: '16px', maxWidth: '660px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
         {error}
       </div>
-      <div style={{ color: '#444', fontSize: '12px', maxWidth: '560px', lineHeight: '1.6' }}>
-        Open Portainer → your container → Logs to see server-side error output.
-        Look for lines starting with <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3 }}>[ffmpeg]</code> or
-        <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3 }}>[stream]</code>.
-      </div>
-      <button onClick={() => navigate(-1)} style={styles.backBtn}>← Go Back</button>
+      <button onClick={() => navigate(-1)} style={S.btn}>← Go Back</button>
     </div>
   );
 
@@ -177,32 +154,31 @@ export default function Watch() {
       {/* Top bar */}
       <div style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-        padding: '16px 24px',
-        display: 'flex', alignItems: 'center', gap: '16px',
+        padding: '16px 24px', display: 'flex', alignItems: 'center', gap: '16px',
         background: 'linear-gradient(to bottom, rgba(0,0,0,0.85), transparent)',
         transition: 'opacity 0.3s',
-        opacity: showBar ? 1 : 0,
-        pointerEvents: showBar ? 'auto' : 'none',
+        opacity: showBar ? 1 : 0, pointerEvents: showBar ? 'auto' : 'none',
       }}>
-        <button onClick={() => navigate(-1)} style={styles.backBtn}>← Back</button>
+        <button onClick={() => navigate(-1)} style={S.btn}>← Back</button>
         <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
           {media?.title}
           {media?.year && <span style={{ color: '#888', marginLeft: '8px', fontWeight: '400', fontSize: '13px' }}>{media.year}</span>}
         </div>
       </div>
 
-      {/* Buffering / transcoding overlay */}
+      {/* Buffering overlay */}
       {buffering && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...styles.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '20px' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '20px' }}>
           <div className="spinner" />
-          <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>{statusMsg}</div>
+          <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Transcoding… please wait</div>
           <div style={{ color: '#555', fontSize: '12px', textAlign: 'center', maxWidth: '400px' }}>
-            If it takes over a minute, open Portainer container logs to see what FFmpeg is doing.
+            Converting to a browser-compatible format. First load takes 5–30 seconds.
+            <br />If it takes longer, check Portainer container logs for FFmpeg output.
           </div>
         </div>
       )}
 
-      {/* Video */}
+      {/* Video element */}
       <video
         ref={videoRef}
         controls
@@ -212,7 +188,7 @@ export default function Watch() {
   );
 }
 
-const styles = {
+const S = {
   center: { minHeight: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  backBtn: { background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  btn: { background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
 };

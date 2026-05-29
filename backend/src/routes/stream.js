@@ -7,6 +7,12 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Log every request that reaches /api/stream/* — visible in Portainer container logs
+router.use((req, res, next) => {
+  console.log(`[stream] ${req.method} ${req.path} ip=${req.ip} token=${req.query.token ? 'present' : 'missing'}`);
+  next();
+});
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function getFilePath(type, id) {
@@ -18,11 +24,6 @@ function getFilePath(type, id) {
   return row?.file_path || null;
 }
 
-const DIRECT_EXTENSIONS = new Set(['.mp4', '.m4v', '.webm']);
-function canDirectPlay(filePath) {
-  return DIRECT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-}
-
 // ─── pre-flight check ─────────────────────────────────────────────────────────
 
 router.get('/check/:type/:id', authenticate, (req, res) => {
@@ -32,137 +33,99 @@ router.get('/check/:type/:id', authenticate, (req, res) => {
   if (!fs.existsSync(filePath)) {
     return res.json({ ok: false, error: `File not found on disk: ${filePath}` });
   }
-
   try {
     fs.accessSync(filePath, fs.constants.R_OK);
   } catch {
     return res.json({ ok: false, error: `File not readable — check Docker volume permissions: ${filePath}` });
   }
 
-  const stat = fs.statSync(filePath);
-  res.json({
-    ok: true,
-    filePath: path.basename(filePath),
-    ext: path.extname(filePath).toLowerCase(),
-    size: stat.size,
-    canDirectPlay: canDirectPlay(filePath),
-  });
+  res.json({ ok: true, filePath: path.basename(filePath), ext: path.extname(filePath).toLowerCase() });
 });
 
-// ─── direct stream (MP4 / WebM — native browser formats) ─────────────────────
-
-router.get('/direct/:type/:id', authenticate, (req, res) => {
-  const filePath = getFilePath(req.params.type, req.params.id);
-  if (!filePath || !fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'File not found' });
-  }
-
-  const stat = fs.statSync(filePath);
-  const ext = path.extname(filePath).toLowerCase();
-  const mime = ext === '.webm' ? 'video/webm' : 'video/mp4';
-  const range = req.headers.range;
-
-  if (range) {
-    const [startStr, endStr] = range.replace(/bytes=/, '').split('-');
-    const start = parseInt(startStr, 10);
-    const end = endStr ? Math.min(parseInt(endStr, 10), stat.size - 1) : stat.size - 1;
-    const chunkSize = end - start + 1;
-
-    res.writeHead(206, {
-      'Content-Range': `bytes ${start}-${end}/${stat.size}`,
-      'Accept-Ranges': 'bytes',
-      'Content-Length': chunkSize,
-      'Content-Type': mime,
-    });
-    fs.createReadStream(filePath, { start, end }).pipe(res);
-  } else {
-    res.writeHead(200, {
-      'Content-Length': stat.size,
-      'Content-Type': mime,
-      'Accept-Ranges': 'bytes',
-    });
-    fs.createReadStream(filePath).pipe(res);
-  }
-});
-
-// ─── transcoding stream (MKV / AVI / anything non-native) ────────────────────
+// ─── video stream ─────────────────────────────────────────────────────────────
 //
-// FFmpeg transcodes to a fragmented MP4 piped directly to the HTTP response.
-// The browser plays it progressively as chunks arrive — no temp files, no HLS.
-// Optional ?start=SECONDS for seeking to a position before transcoding begins.
+// ALL files are transcoded through FFmpeg to H.264 + AAC in a fragmented MP4.
+// This handles H.265/HEVC MP4, MKV, AVI, TS — anything the browser can't play
+// natively. The browser receives a progressive video/mp4 stream and starts
+// playing as soon as the first chunks arrive.
+//
+// Optional: ?start=SECONDS  restarts the transcode from that position (seeking)
 
-router.get('/transcode/:type/:id', authenticate, (req, res) => {
-  const filePath = getFilePath(req.params.type, req.params.id);
+router.get('/video/:type/:id', authenticate, (req, res) => {
+  const { type, id } = req.params;
+  const filePath = getFilePath(type, id);
 
   if (!filePath) {
+    console.error(`[stream] No file path found for ${type}/${id}`);
     return res.status(404).json({ error: 'Media not found in database' });
   }
   if (!fs.existsSync(filePath)) {
+    console.error(`[stream] File not on disk: ${filePath}`);
     return res.status(404).json({ error: `File not found on disk: ${filePath}` });
   }
   try {
     fs.accessSync(filePath, fs.constants.R_OK);
   } catch {
-    return res.status(403).json({ error: `Cannot read file (check volume permissions): ${filePath}` });
+    console.error(`[stream] Permission denied: ${filePath}`);
+    return res.status(403).json({ error: `Cannot read file — check Docker volume permissions: ${filePath}` });
   }
 
-  const startSec = parseFloat(req.query.start || '0') || 0;
+  const startSec = Math.max(0, parseFloat(req.query.start || '0') || 0);
+  console.log(`[stream] Starting transcode: ${path.basename(filePath)} start=${startSec}s`);
 
   const ffmpegArgs = [
     '-hide_banner',
-    '-loglevel', 'error',
+    '-loglevel', 'warning',          // 'warning' shows codec issues; 'error' is too quiet
     ...(startSec > 0 ? ['-ss', String(startSec)] : []),
     '-i', filePath,
-    // Video: re-encode to H.264 baseline (broadest browser support)
+    // Always re-encode video to H.264 baseline — works in every browser
+    // regardless of whether the source is H.264, H.265, VP9, AV1, etc.
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
-    '-tune', 'zerolatency',
     '-profile:v', 'baseline',
     '-level', '3.1',
     '-crf', '23',
     '-pix_fmt', 'yuv420p',
-    // Audio: AAC stereo
+    // Always re-encode audio to AAC stereo — handles AC3, DTS, FLAC, etc.
     '-c:a', 'aac',
     '-b:a', '128k',
     '-ac', '2',
     '-ar', '44100',
-    // Output: fragmented MP4 piped to stdout
+    // Fragmented MP4 piped to stdout — browser can play progressively
     '-movflags', 'frag_keyframe+empty_moov+faststart',
     '-f', 'mp4',
     'pipe:1',
   ];
 
-  console.log(`[stream] Transcoding: ${path.basename(filePath)}${startSec > 0 ? ` from ${startSec}s` : ''}`);
-
   const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
   res.setHeader('Content-Type', 'video/mp4');
   res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('X-Accel-Buffering', 'no');   // disable nginx buffering if behind a proxy
+  res.setHeader('X-Accel-Buffering', 'no');
 
-  // Pipe FFmpeg stdout directly to the HTTP response
   proc.stdout.pipe(res);
 
-  // Print all FFmpeg output to container stderr (visible in Portainer logs)
+  let ffmpegLog = '';
   proc.stderr.on('data', (chunk) => {
-    process.stderr.write(`[ffmpeg] ${chunk.toString()}`);
+    const txt = chunk.toString();
+    ffmpegLog += txt;
+    process.stderr.write(`[ffmpeg] ${txt}`);
   });
 
   proc.on('error', (err) => {
-    console.error(`[stream] Failed to start FFmpeg: ${err.message}`);
+    console.error(`[stream] FFmpeg spawn failed: ${err.message}`);
     if (!res.headersSent) res.status(500).json({ error: `FFmpeg not found: ${err.message}` });
     else res.end();
   });
 
   proc.on('exit', (code) => {
     if (code !== 0 && code !== null) {
-      console.error(`[stream] FFmpeg exited with code ${code} for: ${path.basename(filePath)}`);
+      console.error(`[stream] FFmpeg exit code ${code} for ${path.basename(filePath)}`);
     } else {
       console.log(`[stream] Transcode done: ${path.basename(filePath)}`);
     }
   });
 
-  // Kill FFmpeg when client disconnects (prevents runaway processes)
   req.on('close', () => {
     proc.kill('SIGTERM');
   });
