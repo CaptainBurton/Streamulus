@@ -81,8 +81,9 @@ async function getHLSSession(filePath, startTime = 0) {
     '-ar', '48000',          // 48 kHz is the standard for video audio (was 44100)
     '-hls_time', '4',
     '-hls_list_size', '0',
-    '-hls_segment_type', 'mpegts',
-    '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
+    '-hls_segment_type', 'fmp4',           // fMP4 segments — no MPEG-TS transmuxing needed
+    '-hls_fmp4_init_filename', 'init.mp4', // init segment with codec/track info
+    '-hls_segment_filename', path.join(dir, 'seg%05d.m4s'),
     '-hls_flags', 'independent_segments',
     '-f', 'hls',
     '-y',
@@ -162,8 +163,10 @@ function getManifestContent(key, baseSegmentUrl) {
   if (!fs.existsSync(manifestPath)) return null;
 
   let content = fs.readFileSync(manifestPath, 'utf8');
-  // Replace segment lines regardless of whether FFmpeg wrote bare filenames or full absolute paths
-  content = content.replace(/^[^\n#]*?(seg\d{5}\.ts)\s*$/gm, `${baseSegmentUrl}&seg=$1`);
+  // Rewrite #EXT-X-MAP init segment so browsers can fetch it through our auth endpoint
+  content = content.replace(/#EXT-X-MAP:URI="[^"]*"/g, `#EXT-X-MAP:URI="${baseSegmentUrl}&seg=init.mp4"`);
+  // Rewrite .m4s segment lines (handles both bare filenames and absolute paths)
+  content = content.replace(/^[^\n#]*?(seg\d{5}\.m4s)\s*$/gm, `${baseSegmentUrl}&seg=$1`);
   return content;
 }
 
@@ -172,7 +175,8 @@ async function getSegmentPath(key, segmentName) {
   if (!session) return null;
   session.lastAccess = Date.now();
 
-  if (!/^seg\d{5}\.ts$/.test(segmentName)) return null;
+  // Allow init.mp4 (fMP4 init segment) and seg*.m4s (fMP4 segments)
+  if (!/^(init\.mp4|seg\d{5}\.m4s)$/.test(segmentName)) return null;
 
   const segPath = path.join(session.dir, segmentName);
 
