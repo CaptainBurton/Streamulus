@@ -73,16 +73,19 @@ router.get('/video/:type/:id', authenticate, (req, res) => {
   }
 
   const startSec = Math.max(0, parseFloat(req.query.start || '0') || 0);
-  console.log(`[stream] Starting transcode: ${path.basename(filePath)} start=${startSec}s`);
+  const isH265 = req.query.h265 === '1';
+  console.log(`[stream] Starting transcode: ${path.basename(filePath)} start=${startSec}s codec=${isH265 ? 'h265' : 'h264'}`);
+
+  const videoCodecArgs = isH265
+    ? ['-c:v', 'libx265', '-preset', 'ultrafast', '-crf', '28', '-tag:v', 'hvc1']
+    : ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23'];
 
   const ffmpegArgs = [
     '-hide_banner',
     '-loglevel', 'warning',
     ...(startSec > 0 ? ['-ss', String(startSec)] : []),
     '-i', filePath,
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-crf', '23',
+    ...videoCodecArgs,
     '-pix_fmt', 'yuv420p',
     // Normalize to even dimensions — required for yuv420p (odd width/height causes encode failure)
     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
