@@ -1,11 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import Hls from 'hls.js';
 
 export default function Watch() {
   const { type, id } = useParams();
   const navigate = useNavigate();
   const videoRef = useRef(null);
+  const hlsRef = useRef(null);
+  const startPosRef = useRef(0);
   const progressTimer = useRef(null);
   const hideTimer = useRef(null);
 
@@ -42,8 +45,7 @@ export default function Watch() {
     const video = videoRef.current;
 
     (async () => {
-      // Pre-flight: check the file exists and is readable, show a clear error if not
-      let checkData = null;
+      // Pre-flight: verify file is on disk and readable
       try {
         const r = await axios.get(`/api/stream/check/${type}/${id}`);
         if (!r.data.ok) {
@@ -51,106 +53,66 @@ export default function Watch() {
           setBuffering(false);
           return;
         }
-        checkData = r.data; // { ok, filePath, ext }
       } catch {
-        // Network error on check — still try to play
+        // Network error — still attempt playback
       }
-
       if (cancelled) return;
 
-      const ua = navigator.userAgent;
-      const isSafari = /safari/i.test(ua) && !/chrome|crios|fxios|chromium/i.test(ua);
+      const startPos = media.progress?.position > 10 ? Math.floor(media.progress.position) : 0;
+      startPosRef.current = startPos;
+      const hlsUrl = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${startPos > 0 ? `&start=${startPos}` : ''}`;
 
-      // For Safari, prefer direct play for native formats (MP4/M4V/MOV).
-      // Safari natively decodes H.264 and H.265 in these containers — no transcoding
-      // needed, and Range-request seeking/resume just works. For formats Safari can't
-      // play natively (MKV, AVI, TS, etc.) fall back to HLS transcoding.
-      let isHLS = false;
+      video.onwaiting = () => { if (!cancelled) setBuffering(true); };
+      video.onplaying = () => { if (!cancelled) setBuffering(false); };
+      video.oncanplay = () => { if (!cancelled) setBuffering(false); };
 
-      if (isSafari) {
-        const ext = checkData?.ext || '';
-        if (['.mp4', '.m4v', '.mov'].includes(ext)) {
+      if (Hls.isSupported()) {
+        // hls.js works on every browser including Safari (MSE).
+        // It downloads MPEG-TS segments and transmuxes them to fMP4 in a
+        // Web Worker before feeding Safari's SourceBuffer — no native HLS
+        // quirks, no Range-request pipe conflicts.
+        const hls = new Hls({ enableWorker: true });
+        hlsRef.current = hls;
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelled) return;
-          video.src = `/api/stream/direct/${type}/${id}?token=${token}`;
-        } else {
-          isHLS = true;
-          const startPos = media.progress?.position > 10 ? Math.floor(media.progress.position) : 0;
+          setBuffering(false);
+          video.play().catch(() => {});
+        });
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (cancelled || !data.fatal) return;
+          setError(`Playback error (${data.details}).\n\nCheck the Portainer container logs for lines starting with [ffmpeg] or [stream].`);
+          setBuffering(false);
+          hls.destroy();
+        });
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Fallback: native HLS for browsers that have it but lack MSE
+        video.src = hlsUrl;
+        video.onloadedmetadata = () => {
           if (cancelled) return;
-          video.src = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${startPos > 0 ? `&start=${startPos}` : ''}`;
-        }
+          setBuffering(false);
+          video.play().catch(() => {});
+        };
+        video.onerror = () => {
+          if (!cancelled) {
+            setError(`Playback failed (code ${video.error?.code}).\n\nCheck Portainer container logs.`);
+            setBuffering(false);
+          }
+        };
       } else {
-        // Chrome/Firefox: fragmented MP4 — probe first to surface HTTP errors
-        // as readable messages instead of the browser's generic code 4.
-        const videoUrl = `/api/stream/video/${type}/${id}?token=${token}`;
-        const ctrl = new AbortController();
-        try {
-          const probe = await fetch(videoUrl, { signal: ctrl.signal });
-          ctrl.abort();
-          if (!probe.ok) {
-            let errText = '';
-            try { errText = await probe.clone().text(); } catch {}
-            let serverMsg = '';
-            try { serverMsg = JSON.parse(errText)?.error; } catch {}
-            setError(`Stream error (HTTP ${probe.status}): ${serverMsg || errText.slice(0, 200) || 'No details from server'}`);
-            setBuffering(false);
-            return;
-          }
-        } catch (e) {
-          if (e.name !== 'AbortError') {
-            setError(`Cannot reach server: ${e.message}`);
-            setBuffering(false);
-            return;
-          }
-        }
-        if (cancelled) return;
-        video.src = videoUrl;
+        setError('Your browser does not support video streaming. Please try Chrome, Firefox, or Safari.');
+        setBuffering(false);
       }
-
-      video.onloadedmetadata = () => {
-        if (cancelled) return;
-        setBuffering(false);
-        // Direct play + fMP4: set currentTime to resume from saved position.
-        // HLS: FFmpeg already started from the right offset via ?start=, skip.
-        if (!isHLS && media.progress?.position > 10) video.currentTime = media.progress.position;
-        video.play().catch(() => {});
-      };
-
-      video.oncanplay  = () => { if (!cancelled) setBuffering(false); };
-      video.onwaiting  = () => { if (!cancelled) setBuffering(true); };
-      video.onplaying  = () => { if (!cancelled) setBuffering(false); };
-
-      video.onerror = () => {
-        if (cancelled) return;
-        const code = video.error?.code;
-
-        // Safari direct-play fallback: code 4 usually means the MP4's audio
-        // codec (AC3/DTS) isn't native on Safari. Transparently fall back to
-        // HLS which transcodes both video and audio to H.264+AAC.
-        if (isSafari && !isHLS && code === 4) {
-          isHLS = true;
-          setBuffering(true);
-          const startPos = media.progress?.position > 10 ? Math.floor(media.progress.position) : 0;
-          video.src = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${startPos > 0 ? `&start=${startPos}` : ''}`;
-          return;
-        }
-
-        const codeMsg = {
-          1: 'Playback aborted',
-          2: 'Network error — check Portainer container logs for details',
-          3: 'Decode error — the codec may be invalid',
-          4: 'Unsupported format — the file codec is not compatible with this browser',
-        }[code] || `Unknown error (code ${code})`;
-        setError(`Video failed to play: ${codeMsg}.\n\nCheck the Portainer container logs for lines starting with [ffmpeg] or [stream].`);
-        setBuffering(false);
-      };
     })();
 
     return () => {
       cancelled = true;
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.src = '';
-      }
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      if (videoRef.current) { videoRef.current.pause(); videoRef.current.src = ''; }
     };
   }, [media, type, id, token]);
 
@@ -159,7 +121,8 @@ export default function Watch() {
     const video = videoRef.current;
     if (!video) return;
     const save = () => {
-      const position = Math.floor(video.currentTime);
+      // HLS stream starts at 0; add startPos to get actual source position
+      const position = startPosRef.current + Math.floor(video.currentTime);
       if (position < 2) return;
       const completed = video.duration > 0 && video.currentTime / video.duration > 0.9;
       axios.post('/api/stream/progress', {
@@ -185,9 +148,7 @@ export default function Watch() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  if (loading) return (
-    <div style={S.center}><div className="spinner" /></div>
-  );
+  if (loading) return <div style={S.center}><div className="spinner" /></div>;
 
   if (error) return (
     <div style={{ ...S.center, flexDirection: 'column', gap: '20px', padding: '32px', textAlign: 'center' }}>
@@ -224,10 +185,10 @@ export default function Watch() {
       {buffering && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '20px' }}>
           <div className="spinner" />
-          <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Transcoding… please wait</div>
+          <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
           <div style={{ color: '#555', fontSize: '12px', textAlign: 'center', maxWidth: '400px' }}>
-            Converting to a browser-compatible format. First load takes 5–30 seconds.
-            <br />If it takes longer, check Portainer container logs for FFmpeg output.
+            Preparing your video. First load takes 5–30 seconds.
+            <br />If it takes longer, check Portainer container logs for output.
           </div>
         </div>
       )}
