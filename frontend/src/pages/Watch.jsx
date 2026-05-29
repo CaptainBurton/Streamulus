@@ -14,7 +14,6 @@ export default function Watch() {
   const startPosRef = useRef(0);
   const progressTimer = useRef(null);
   const hideTimer = useRef(null);
-  const seekHandlerRef = useRef(null);
 
   const [media, setMedia] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -148,24 +147,6 @@ export default function Watch() {
 
         startHlsAt(startPos);
 
-        // When user seeks to an unbuffered position (i.e. past what FFmpeg has
-        // generated so far), restart the transcode session from that point.
-        // hls.js handles seeks within the buffered range on its own.
-        const handleSeeked = () => {
-          if (cancelled) return;
-          const target = video.currentTime;
-          for (let i = 0; i < video.buffered.length; i++) {
-            if (target >= video.buffered.start(i) - 0.5 && target <= video.buffered.end(i) + 0.5) return;
-          }
-          const newPos = startPosRef.current + Math.floor(target);
-          setBuffering(true);
-          addLog(`Seek to ${newPos}s — restarting stream`);
-          startHlsAt(newPos);
-        };
-
-        seekHandlerRef.current = handleSeeked;
-        video.addEventListener('seeked', handleSeeked);
-
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         addLog('Using native HLS fallback (hls.js MSE not supported)');
         try {
@@ -215,10 +196,6 @@ export default function Watch() {
 
     return () => {
       cancelled = true;
-      if (seekHandlerRef.current && videoRef.current) {
-        videoRef.current.removeEventListener('seeked', seekHandlerRef.current);
-        seekHandlerRef.current = null;
-      }
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (videoRef.current) { videoRef.current.pause(); videoRef.current.src = ''; }
     };
@@ -324,7 +301,7 @@ export default function Watch() {
           <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
           <DebugLog />
           <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '400px' }}>
-            Seeking starts a new transcode from that position — takes 5–15 seconds.
+            First load takes 5–15 s. Seeking far ahead restarts the transcoder.
           </div>
         </div>
       )}
