@@ -63,13 +63,10 @@ function buildVideoFilter(resolution) {
   return limits[resolution] ? `${limits[resolution]},${even},${fmt}` : `${even},${fmt}`;
 }
 
-// Build FFmpeg args for HLS transcoding.
-// startSegIdx > 0 is used for seek restarts: it passes -start_number so FFmpeg
-// names segment files starting at that index (seg00450.ts, seg00451.ts, ...).
-// NOTE: -hls_list_size 0 causes FFmpeg to ignore -start_number (resets it to 0).
-// For seek restarts we use -hls_list_size 1 so the numbering is respected.
-// Segment files are never deleted (no delete_segments flag).
-function buildFfmpegArgs(filePath, startSec, settings, dir, startSegIdx = 0) {
+// Build FFmpeg args for HLS transcoding into the given output directory.
+// Segments are always named seg00000.ts, seg00001.ts, ... within that dir.
+// Seek restarts use separate subdirectories so -start_number is not needed.
+function buildFfmpegArgs(filePath, startSec, settings, dir) {
   return [
     '-hide_banner', '-loglevel', 'warning',
     '-fflags', '+genpts+discardcorrupt',
@@ -89,10 +86,7 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, startSegIdx = 0) {
     ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
     '-ar', '48000',
     '-hls_time', String(settings.segmentDuration),
-    // hls_list_size 0 keeps all segments in FFmpeg's manifest but disables start_number.
-    // Use 1 for seek restarts so -start_number is respected for correct file naming.
-    '-hls_list_size', startSegIdx > 0 ? '1' : '0',
-    ...(startSegIdx > 0 ? ['-start_number', String(startSegIdx)] : []),
+    '-hls_list_size', '0',
     '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
     '-hls_flags', 'independent_segments',
     '-f', 'hls', '-y',
@@ -128,7 +122,11 @@ async function getHLSSession(filePath, startTime = 0) {
   let resolveReady, rejectReady;
   const readyPromise = new Promise((res, rej) => { resolveReady = res; rejectReady = rej; });
 
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, settings };
+  // seekPoints tracks sub-sessions created by seek restarts.
+  // Each entry { fromIdx, dir } maps a range of global segment indices to a
+  // local directory where FFmpeg wrote seg00000.ts, seg00001.ts, ...
+  // Global segment N → seek point with highest fromIdx ≤ N → local file seg{N-fromIdx}.ts
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, settings, seekPoints: [{ fromIdx: 0, dir }] };
 
   if (totalDuration > 0) {
     const effectiveDuration = Math.max(1, totalDuration - Math.max(0, startTime));
@@ -154,7 +152,6 @@ async function getHLSSession(filePath, startTime = 0) {
 
   const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir);
 
-  const manifestPath = path.join(dir, 'index.m3u8');
   console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)} start=${startTime}s`);
   console.log(`[transcode] Command: ffmpeg ${ffmpegArgs.join(' ')}`);
   const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -241,11 +238,21 @@ function getManifestContent(key, baseSegmentUrl) {
   return content;
 }
 
-// How many segments ahead of FFmpeg's current position counts as a "seek".
-// 10 segments = 40s (at 4s/seg). Seeks of ≤40s wait for FFmpeg to catch up
-// normally (ultrafast preset transcodes ~5x real-time, so 40s takes ~8s).
-// Seeks further than 40s restart FFmpeg at the target position immediately.
+// Seeks further than this many segments ahead of FFmpeg's current position
+// restart FFmpeg immediately. 10 segments = 40s at 4s/seg.
 const SEEK_THRESHOLD = 10;
+
+// Map a global segment index to the local file path within the appropriate
+// seek sub-session directory. The seek point with the highest fromIdx that
+// is still ≤ requestedIdx owns that segment.
+function resolveSegPath(session, requestedIdx) {
+  let best = null;
+  for (const sp of session.seekPoints) {
+    if (sp.fromIdx <= requestedIdx && (!best || sp.fromIdx > best.fromIdx)) best = sp;
+  }
+  if (!best) return null;
+  return path.join(best.dir, `seg${String(requestedIdx - best.fromIdx).padStart(5, '0')}.ts`);
+}
 
 async function getSegmentPath(key, segmentName) {
   const session = sessions.get(key);
@@ -253,48 +260,58 @@ async function getSegmentPath(key, segmentName) {
   session.lastAccess = Date.now();
 
   if (!/^seg\d{5}\.ts$/.test(segmentName)) return null;
-
-  const segPath = path.join(session.dir, segmentName);
-
-  // Fast path: segment already on disk
-  if (fs.existsSync(segPath)) return segPath;
-
   const requestedIdx = parseInt(segmentName.match(/\d+/)[0], 10);
 
-  // Find the highest segment index FFmpeg has written so far
-  let lastIdx = -1;
+  // Fast path: file already on disk
+  const fastPath = resolveSegPath(session, requestedIdx);
+  if (fastPath && fs.existsSync(fastPath)) return fastPath;
+
+  // Find where the current (latest) FFmpeg process has gotten to
+  const latestSP = session.seekPoints[session.seekPoints.length - 1];
+  let lastLocalIdx = -1;
   try {
-    for (const f of fs.readdirSync(session.dir)) {
+    for (const f of fs.readdirSync(latestSP.dir)) {
       const m = f.match(/^seg(\d{5})\.ts$/);
-      if (m) { const n = parseInt(m[1], 10); if (n > lastIdx) lastIdx = n; }
+      if (m) { const n = parseInt(m[1], 10); if (n > lastLocalIdx) lastLocalIdx = n; }
     }
   } catch {}
+  const lastGlobalIdx = latestSP.fromIdx + lastLocalIdx;
 
-  // Seek detected: restart FFmpeg at the requested position so the segment
-  // arrives in seconds rather than minutes. The manifest and video timeline
-  // are unchanged — only the FFmpeg process is replaced.
-  if (requestedIdx > lastIdx + SEEK_THRESHOLD && session.filePath) {
+  // Restart FFmpeg when:
+  //  a) Forward seek: requested segment is far ahead of what FFmpeg has written
+  //  b) Backward seek to a segment the current FFmpeg can never produce (it
+  //     started after that segment), e.g. user seeks back past the seek point
+  const needsRestart = session.filePath && (
+    requestedIdx > lastGlobalIdx + SEEK_THRESHOLD ||
+    latestSP.fromIdx > requestedIdx
+  );
+
+  if (needsRestart) {
     const seekSec = session.startTime + requestedIdx * session.settings.segmentDuration;
-    console.log(`[transcode] Seek: restarting FFmpeg at t=${seekSec}s (seg${String(requestedIdx).padStart(5,'0')}, was at ${lastIdx})`);
+    // Each seek gets its own subdirectory so segments are always named from
+    // seg00000.ts — no need for FFmpeg's -start_number option.
+    const seekDir = path.join(session.dir, `seek_${requestedIdx}`);
+    fs.mkdirSync(seekDir, { recursive: true });
+    console.log(`[transcode] Seek: t=${seekSec}s → seg${String(requestedIdx).padStart(5,'0')} (prev lastGlobal=${lastGlobalIdx})`);
     if (session.process) { try { session.process.kill('SIGTERM'); } catch {} session.process = null; }
-    const proc = spawn(
-      'ffmpeg',
-      buildFfmpegArgs(session.filePath, seekSec, session.settings, session.dir, requestedIdx),
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    );
+    session.seekPoints.push({ fromIdx: requestedIdx, dir: seekDir });
+    const proc = spawn('ffmpeg',
+      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir),
+      { stdio: ['ignore', 'ignore', 'pipe'] });
     session.process = proc;
     proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
     proc.on('error', err => console.error(`[transcode] seek spawn error: ${err.message}`));
     proc.on('exit', code => { if (code) console.error(`[transcode] seek FFmpeg exit ${code}`); });
   }
 
-  // Wait up to 30s for FFmpeg to write this segment
+  // Wait up to 30s for FFmpeg to write the segment
+  const segPath = resolveSegPath(session, requestedIdx);
+  if (!segPath) return null;
   let waited = 0;
   while (!fs.existsSync(segPath) && waited < 30000) {
     await new Promise(r => setTimeout(r, 250));
     waited += 250;
   }
-
   return fs.existsSync(segPath) ? segPath : null;
 }
 
