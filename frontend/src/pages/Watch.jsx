@@ -122,13 +122,25 @@ export default function Watch() {
       video.onerror = () => {
         if (cancelled) return;
         const code = video.error?.code;
+
+        // Safari direct-play fallback: code 4 usually means the MP4's audio
+        // codec (AC3/DTS) isn't native on Safari. Transparently fall back to
+        // HLS which transcodes both video and audio to H.264+AAC.
+        if (isSafari && !isHLS && code === 4) {
+          isHLS = true;
+          setBuffering(true);
+          const startPos = media.progress?.position > 10 ? Math.floor(media.progress.position) : 0;
+          video.src = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${startPos > 0 ? `&start=${startPos}` : ''}`;
+          return;
+        }
+
         const codeMsg = {
           1: 'Playback aborted',
-          2: 'Network error — the server may have failed to start transcoding',
-          3: 'Decode error — the output codec may be invalid',
-          4: 'Unsupported format — check container logs for FFmpeg errors',
+          2: 'Network error — check Portainer container logs for details',
+          3: 'Decode error — the codec may be invalid',
+          4: 'Unsupported format — the file codec is not compatible with this browser',
         }[code] || `Unknown error (code ${code})`;
-        setError(`Video failed to play: ${codeMsg}.\n\nCheck the Portainer container logs for lines starting with [ffmpeg] or [stream] to see the exact error.`);
+        setError(`Video failed to play: ${codeMsg}.\n\nCheck the Portainer container logs for lines starting with [ffmpeg] or [stream].`);
         setBuffering(false);
       };
     })();
@@ -224,6 +236,7 @@ export default function Watch() {
       <video
         ref={videoRef}
         controls
+        playsInline
         style={{ width: '100%', height: '100vh', background: '#000', display: 'block' }}
       />
     </div>
