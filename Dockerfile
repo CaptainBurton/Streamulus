@@ -8,15 +8,14 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: Backend with built frontend
-FROM node:20-slim
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Build tools for better-sqlite3 native addon + ffmpeg (Debian package has full codec coverage:
-# H.264, H.265/HEVC, VP9, AV1, AC3, DTS, FLAC, Opus, etc. — same breadth as Plex)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg python3 make g++ build-essential wget curl \
-    && rm -rf /var/lib/apt/lists/*
+# Build tools for better-sqlite3 native addon + ffmpeg for video transcoding.
+# Alpine's ffmpeg includes libx264, libx265, libvpx, libopus, libvorbis, AAC, etc.
+# wget is provided by busybox (built into Alpine base — no extra install needed).
+RUN apk add --no-cache python3 make g++ ffmpeg
 
 # Install backend dependencies (compiles native modules here)
 COPY backend/package.json ./
