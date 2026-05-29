@@ -23,8 +23,8 @@ services:
       test: ["CMD", "wget", "-qO-", "http://localhost:8096/api/setup/status"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 15s
+      retries: 5
+      start_period: 60s
 
 volumes:
   streamulus_data:
