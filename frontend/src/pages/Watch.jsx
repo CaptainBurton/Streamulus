@@ -56,12 +56,15 @@ export default function Watch() {
 
       if (cancelled) return;
 
-      // All files go through the /video endpoint which always transcodes to H.264/AAC.
-      // This handles MP4 (including H.265), MKV, AVI, TS — any source format.
-      const videoUrl = `/api/stream/video/${type}/${id}?token=${token}`;
+      // Safari requires HLS; all other browsers use fragmented MP4.
+      const isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|fxios|chromium/i.test(navigator.userAgent);
+      const videoUrl = isSafari
+        ? `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}`
+        : `/api/stream/video/${type}/${id}?token=${token}`;
 
       // Probe the URL first so auth/server errors surface as readable messages
       // instead of the browser's generic MEDIA_ERR_SRC_NOT_SUPPORTED (code 4).
+      // For HLS, this also warms up the transcode session before the video element requests it.
       const ctrl = new AbortController();
       try {
         const probe = await fetch(videoUrl, { signal: ctrl.signal });
