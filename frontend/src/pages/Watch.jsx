@@ -56,23 +56,22 @@ export default function Watch() {
 
       if (cancelled) return;
 
-      // Detect Safari — it natively supports H.265/HEVC, which gives better
-      // quality at lower bitrate. Chrome/Firefox get H.264 (broader compatibility).
+      // Detect Safari — use HLS (Apple's native streaming protocol) to avoid the
+      // Range-request issues that fragmented MP4 has with Safari's media pipeline.
       const ua = navigator.userAgent;
       const isSafari = /safari/i.test(ua) && !/chrome|crios|fxios|chromium/i.test(ua);
 
-      const videoUrl = isSafari
-        ? `/api/stream/video/${type}/${id}?token=${token}&h265=1`
-        : `/api/stream/video/${type}/${id}?token=${token}`;
-
       if (isSafari) {
-        // Safari: set src directly — H.265 is native and the fetch probe would
-        // kill the transcode before Safari can consume it.
+        // HLS: pass start offset to FFmpeg so resume works without browser seeking.
+        // Safari's built-in HLS player handles buffering and playback natively.
+        const startPos = media.progress?.position > 10 ? Math.floor(media.progress.position) : 0;
+        const hlsUrl = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${startPos > 0 ? `&start=${startPos}` : ''}`;
         if (cancelled) return;
-        video.src = videoUrl;
+        video.src = hlsUrl;
       } else {
-        // Non-Safari: probe first to surface HTTP errors (401/404/500) as readable
-        // messages instead of the browser's generic MEDIA_ERR_SRC_NOT_SUPPORTED (code 4).
+        // Chrome/Firefox: fragmented MP4 — probe first to surface HTTP errors
+        // as readable messages instead of the browser's generic code 4.
+        const videoUrl = `/api/stream/video/${type}/${id}?token=${token}`;
         const ctrl = new AbortController();
         try {
           const probe = await fetch(videoUrl, { signal: ctrl.signal });
@@ -93,7 +92,6 @@ export default function Watch() {
             return;
           }
         }
-
         if (cancelled) return;
         video.src = videoUrl;
       }
@@ -101,7 +99,9 @@ export default function Watch() {
       video.onloadedmetadata = () => {
         if (cancelled) return;
         setBuffering(false);
-        if (media.progress?.position > 10) video.currentTime = media.progress.position;
+        // fMP4: seek to saved position (stream starts from 0).
+        // HLS: FFmpeg already started from the right offset via ?start=.
+        if (!isSafari && media.progress?.position > 10) video.currentTime = media.progress.position;
         video.play().catch(() => {});
       };
 
