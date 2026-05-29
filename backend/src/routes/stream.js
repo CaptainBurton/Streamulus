@@ -267,7 +267,9 @@ router.get('/hls/:type/:id/segment', authenticate, async (req, res) => {
   const segPath = await getSegmentPath(key, seg);
   if (!segPath) return res.status(404).json({ error: 'Segment not found — transcode may have timed out' });
 
-  res.setHeader('Content-Type', 'video/mp2t');
+  // fMP4 init segment and .m4s fragments are video/mp4; legacy .ts is video/mp2t
+  const contentType = seg.endsWith('.m4s') || seg.endsWith('.mp4') ? 'video/mp4' : 'video/mp2t';
+  res.setHeader('Content-Type', contentType);
   res.setHeader('Cache-Control', 'public, max-age=3600');
   res.sendFile(segPath);
 });

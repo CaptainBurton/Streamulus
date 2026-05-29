@@ -71,7 +71,9 @@ export default function Watch() {
         // It downloads MPEG-TS segments and transmuxes them to fMP4 in a
         // Web Worker before feeding Safari's SourceBuffer — no native HLS
         // quirks, no Range-request pipe conflicts.
-        const hls = new Hls({ enableWorker: true });
+        // enableWorker: false — fMP4 segments need no transmuxing so no worker
+        // is needed, and disabling it avoids Safari production-build Worker issues.
+        const hls = new Hls({ enableWorker: false });
         hlsRef.current = hls;
         hls.loadSource(hlsUrl);
         hls.attachMedia(video);
