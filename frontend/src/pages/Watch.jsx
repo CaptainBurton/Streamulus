@@ -261,7 +261,8 @@ export default function Watch() {
     }
   };
 
-  const DebugLog = () => dbgLog.length > 0 ? (
+  const debugLogsEnabled = localStorage.getItem('streamulus_debug_logs') === 'true';
+  const DebugLog = () => debugLogsEnabled && dbgLog.length > 0 ? (
     <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#444', lineHeight: '1.6', textAlign: 'left', maxWidth: '620px', width: '100%' }}>
       {dbgLog.map((line, i) => <div key={i} style={{ color: line.includes('FAIL') || line.includes('fatal') || line.includes('error') ? '#f66' : '#666' }}>{line}</div>)}
     </div>

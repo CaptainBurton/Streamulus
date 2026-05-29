@@ -254,6 +254,7 @@ export default function Admin() {
   const [activeTab, setActiveTab] = useState('overview');
   const [tmdbKey, setTmdbKey] = useState('');
   const [tmdbVisible, setTmdbVisible] = useState(false);
+  const [debugLogs, setDebugLogs] = useState(() => localStorage.getItem('streamulus_debug_logs') === 'true');
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
     audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4',
@@ -690,6 +691,38 @@ export default function Admin() {
                 Re-fetch posters, backdrops, ratings, and overviews for all movies already in your library. Run this after adding your TMDB API key.
               </p>
               <RefreshMetadata />
+            </div>
+
+            {/* Player Diagnostics */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Player Diagnostics</h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
+                Debug options for troubleshooting playback issues.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Buffering Debug Log</div>
+                  <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>Show timestamped debug messages in the loading overlay and error screen</div>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = !debugLogs;
+                    setDebugLogs(next);
+                    localStorage.setItem('streamulus_debug_logs', String(next));
+                  }}
+                  style={{
+                    width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer', flexShrink: 0,
+                    background: debugLogs ? '#00c2ff' : 'rgba(255,255,255,0.1)',
+                    position: 'relative', transition: 'background 0.2s',
+                  }}
+                >
+                  <div style={{
+                    width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
+                    position: 'absolute', top: '3px', transition: 'left 0.2s',
+                    left: debugLogs ? '23px' : '3px',
+                  }} />
+                </button>
+              </div>
             </div>
           </div>
         )}
