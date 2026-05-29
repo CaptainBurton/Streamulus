@@ -104,7 +104,22 @@ export default function Watch() {
           const url = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${absolutePos > 0 ? `&start=${absolutePos}` : ''}`;
           addLog(`Loading manifest (start=${absolutePos}s)`);
 
-          const hls = new Hls({ enableWorker: false });
+          const hls = new Hls({
+            enableWorker: false,
+            // Give fragments 25 s to load (server waits 30 s for FFmpeg to write
+            // each .ts file). Default 20 s causes spurious fragLoadTimeOut errors
+            // when the next segment isn't transcoded yet.
+            fragLoadingTimeOut: 25000,
+            fragLoadingMaxRetry: 6,
+            fragLoadingRetryDelay: 500,
+            // Auto-skip buffer holes up to 0.5 s (eliminates bufferSeekOverHole
+            // warnings caused by tiny gaps between segments).
+            maxBufferHole: 0.5,
+            // Be more lenient before declaring the buffer stalled.
+            highBufferWatchdogPeriod: 5,
+            nudgeOffset: 0.3,
+            nudgeMaxRetry: 5,
+          });
           hlsRef.current = hls;
           hls.loadSource(url);
           hls.attachMedia(video);

@@ -182,18 +182,21 @@ async function getHLSSession(filePath, startTime = 0) {
     process.stderr.write(`[ffmpeg] ${msg}`);
   });
 
-  // Ready when the manifest contains at least one #EXTINF entry.
-  // FFmpeg writes the manifest entry only after finishing writing the segment file,
-  // so if the manifest has EXTINF, the corresponding .ts file is guaranteed to exist.
+  // Wait until 2 segments are ready before resolving, so hls.js starts with a
+  // buffer cushion and doesn't immediately stall waiting for the second segment.
+  // For very short videos (< 2 segments total) we accept 1 segment once FFmpeg
+  // has written #EXT-X-ENDLIST, meaning the file is fully transcoded.
   const checkInterval = setInterval(() => {
     if (!fs.existsSync(manifestPath)) return;
     try {
       const content = fs.readFileSync(manifestPath, 'utf8');
-      if (content.includes('#EXTINF')) {
+      const segCount = (content.match(/#EXTINF/g) || []).length;
+      const done = content.includes('#EXT-X-ENDLIST');
+      if (segCount >= 2 || (segCount >= 1 && done)) {
         clearInterval(checkInterval);
         clearTimeout(startTimeout);
         session.ready = true;
-        console.log(`[transcode] First segment ready for: ${path.basename(filePath)} (key=${key.slice(0, 8)})`);
+        console.log(`[transcode] ${segCount} segment(s) ready for: ${path.basename(filePath)} (key=${key.slice(0, 8)})`);
         resolveReady();
       }
     } catch { /* manifest not fully written yet, retry */ }
