@@ -231,11 +231,14 @@ function RefreshMetadata() {
           <ProgressBar percent={percent} />
         </div>
       )}
-      {done && (
-        <div style={{ marginBottom: '12px', fontSize: '14px', color: '#00c864' }}>
-          ✓ Updated {events.find(e => e.type === 'complete')?.updated} of {events.find(e => e.type === 'complete')?.total} movies
-        </div>
-      )}
+      {done && (() => {
+        const c = events.find(e => e.type === 'complete');
+        return (
+          <div style={{ marginBottom: '12px', fontSize: '14px', color: '#00c864' }}>
+            ✓ Updated {c?.moviesUpdated ?? 0} movie{c?.moviesUpdated !== 1 ? 's' : ''} and {c?.showsUpdated ?? 0} TV show{c?.showsUpdated !== 1 ? 's' : ''} (of {c?.total} total)
+          </div>
+        );
+      })()}
       <button
         onClick={start}
         disabled={running}

@@ -38,22 +38,45 @@ async function searchSeries(title) {
     });
     const hit = r.data.data?.[0];
     if (!hit) return null;
-    const tvdb_id = hit.tvdb_id ||
-      (hit.objectID?.startsWith('series/') ? parseInt(hit.objectID.split('/')[1]) : null);
+    const rawId = hit.tvdb_id ||
+      (hit.objectID?.startsWith('series/') ? hit.objectID.split('/')[1] : null);
+    const tvdb_id = rawId ? parseInt(rawId, 10) : null;
+    const poster_path = hit.image_url || hit.thumbnail || hit.poster || null;
     return {
       tvdb_id,
       name: hit.name,
       overview: hit.overview || hit.overviews?.eng || null,
-      poster_path: hit.image_url || null,
+      poster_path,
       backdrop_path: null,
       rating: null,
       genres: null,
-      status: hit.status || null,
+      status: hit.status?.name || hit.status || null,
       first_air_date: hit.year ? `${hit.year}-01-01` : null,
     };
   } catch (e) {
     console.error(`[tvdb] searchSeries "${title}": ${e.response?.data?.message || e.message}`);
     return null;
+  }
+}
+
+async function getSeriesArtwork(tvdbId) {
+  const token = await getToken();
+  if (!token) return { poster: null, backdrop: null };
+  try {
+    const r = await axios.get(`${BASE}/series/${tvdbId}/artworks`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 10000,
+    });
+    const artworks = r.data.data || [];
+    const posters = artworks.filter(a => a.type === 2).sort((a, b) => (b.score || 0) - (a.score || 0));
+    const backdrops = artworks.filter(a => a.type === 3).sort((a, b) => (b.score || 0) - (a.score || 0));
+    return {
+      poster: posters[0]?.image || null,
+      backdrop: backdrops[0]?.image || null,
+    };
+  } catch (e) {
+    console.error(`[tvdb] getSeriesArtwork ${tvdbId}: ${e.response?.data?.message || e.message}`);
+    return { poster: null, backdrop: null };
   }
 }
 
@@ -111,4 +134,4 @@ function isConfigured() {
   return !!getKey();
 }
 
-module.exports = { searchSeries, getEpisodeDetails, invalidateCache, isConfigured };
+module.exports = { searchSeries, getSeriesArtwork, getEpisodeDetails, invalidateCache, isConfigured };

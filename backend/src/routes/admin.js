@@ -181,7 +181,7 @@ router.post('/tv/deduplicate', requireAdmin, (req, res) => {
   res.json({ success: true, merged });
 });
 
-// Refresh metadata for every movie/show that has a tmdb_id (SSE)
+// Refresh metadata for every movie (TMDB) and TV show (TVDB then TMDB) — SSE
 router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -193,23 +193,74 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
   req.on('close', () => res.end());
 
   const tmdb = require('../services/tmdb');
+  const tvdb = require('../services/tvdb');
+
   const movies = db.prepare('SELECT * FROM movies').all();
-  let updated = 0;
+  const shows = db.prepare('SELECT * FROM tv_shows').all();
+  const total = movies.length + shows.length;
+  let moviesUpdated = 0;
+  let showsUpdated = 0;
+  let index = 0;
 
-  send({ type: 'start', total: movies.length });
+  send({ type: 'start', total });
 
-  for (let i = 0; i < movies.length; i++) {
-    const movie = movies[i];
-    send({ type: 'progress', index: i + 1, total: movies.length, title: movie.title, percent: Math.round(((i + 1) / movies.length) * 100) });
+  // ── Movies via TMDB ──
+  for (const movie of movies) {
+    index++;
+    send({ type: 'progress', index, total, title: movie.title, percent: Math.round((index / total) * 100) });
     const result = await tmdb.searchMovie(movie.title, movie.year);
     if (result) {
-      db.prepare(`UPDATE movies SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=? WHERE id=?`)
+      db.prepare('UPDATE movies SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=? WHERE id=?')
         .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
-      updated++;
+      moviesUpdated++;
     }
   }
 
-  send({ type: 'complete', updated, total: movies.length });
+  // ── TV shows via TVDB (fallback TMDB) ──
+  const useTVDB = tvdb.isConfigured();
+  for (const show of shows) {
+    index++;
+    send({ type: 'progress', index, total, title: show.title, percent: Math.round((index / total) * 100) });
+
+    let refreshed = false;
+
+    if (useTVDB) {
+      const tvdbMeta = await tvdb.searchSeries(show.title);
+      if (tvdbMeta?.tvdb_id) {
+        // Get full artwork (poster + backdrop) from TVDB artworks endpoint
+        const artwork = await tvdb.getSeriesArtwork(tvdbMeta.tvdb_id);
+        const poster = artwork.poster || tvdbMeta.poster_path;
+        const backdrop = artwork.backdrop || show.backdrop_path;
+
+        db.prepare('UPDATE tv_shows SET tvdb_id=?, overview=?, poster_path=?, backdrop_path=?, status=?, first_air_date=? WHERE id=?')
+          .run(tvdbMeta.tvdb_id, tvdbMeta.overview || show.overview, poster, backdrop, tvdbMeta.status || show.status, tvdbMeta.first_air_date || show.first_air_date, show.id);
+
+        // Refresh episode stills and titles via TVDB episode cache
+        const episodes = db.prepare('SELECT * FROM episodes WHERE show_id = ?').all(show.id);
+        for (const ep of episodes) {
+          const epData = await tvdb.getEpisodeDetails(tvdbMeta.tvdb_id, ep.season, ep.episode_number);
+          if (epData) {
+            db.prepare('UPDATE episodes SET title=?, overview=?, still_path=? WHERE id=?')
+              .run(epData.name || ep.title, epData.overview || ep.overview, epData.still_path || ep.still_path, ep.id);
+          }
+        }
+
+        showsUpdated++;
+        refreshed = true;
+      }
+    }
+
+    if (!refreshed) {
+      const tmdbMeta = await tmdb.searchTV(show.title);
+      if (tmdbMeta) {
+        db.prepare('UPDATE tv_shows SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=? WHERE id=?')
+          .run(tmdbMeta.id, tmdbMeta.overview, tmdbMeta.poster_path, tmdbMeta.backdrop_path, tmdbMeta.vote_average, JSON.stringify(tmdbMeta.genre_ids), show.id);
+        showsUpdated++;
+      }
+    }
+  }
+
+  send({ type: 'complete', moviesUpdated, showsUpdated, updated: moviesUpdated + showsUpdated, total });
   res.end();
 });
 
