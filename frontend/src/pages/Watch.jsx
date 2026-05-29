@@ -56,36 +56,47 @@ export default function Watch() {
 
       if (cancelled) return;
 
-      // All browsers use the fragmented MP4 path — H.264/AAC transcoded by FFmpeg.
-      // The server sets Accept-Ranges: none so Safari plays progressively without
-      // issuing Range requests it can't satisfy against a live pipe.
-      const videoUrl = `/api/stream/video/${type}/${id}?token=${token}`;
+      // Detect Safari — it natively supports H.265/HEVC, which gives better
+      // quality at lower bitrate. Chrome/Firefox get H.264 (broader compatibility).
+      const ua = navigator.userAgent;
+      const isSafari = /safari/i.test(ua) && !/chrome|crios|fxios|chromium/i.test(ua);
 
-      // Probe first to surface HTTP errors (401/404/500) as readable messages
-      // instead of the browser's generic MEDIA_ERR_SRC_NOT_SUPPORTED (code 4).
-      const ctrl = new AbortController();
-      try {
-        const probe = await fetch(videoUrl, { signal: ctrl.signal });
-        ctrl.abort();
-        if (!probe.ok) {
-          let errText = '';
-          try { errText = await probe.clone().text(); } catch {}
-          let serverMsg = '';
-          try { serverMsg = JSON.parse(errText)?.error; } catch {}
-          setError(`Stream error (HTTP ${probe.status}): ${serverMsg || errText.slice(0, 200) || 'No details from server'}`);
-          setBuffering(false);
-          return;
+      const videoUrl = isSafari
+        ? `/api/stream/video/${type}/${id}?token=${token}&h265=1`
+        : `/api/stream/video/${type}/${id}?token=${token}`;
+
+      if (isSafari) {
+        // Safari: set src directly — H.265 is native and the fetch probe would
+        // kill the transcode before Safari can consume it.
+        if (cancelled) return;
+        video.src = videoUrl;
+      } else {
+        // Non-Safari: probe first to surface HTTP errors (401/404/500) as readable
+        // messages instead of the browser's generic MEDIA_ERR_SRC_NOT_SUPPORTED (code 4).
+        const ctrl = new AbortController();
+        try {
+          const probe = await fetch(videoUrl, { signal: ctrl.signal });
+          ctrl.abort();
+          if (!probe.ok) {
+            let errText = '';
+            try { errText = await probe.clone().text(); } catch {}
+            let serverMsg = '';
+            try { serverMsg = JSON.parse(errText)?.error; } catch {}
+            setError(`Stream error (HTTP ${probe.status}): ${serverMsg || errText.slice(0, 200) || 'No details from server'}`);
+            setBuffering(false);
+            return;
+          }
+        } catch (e) {
+          if (e.name !== 'AbortError') {
+            setError(`Cannot reach server: ${e.message}`);
+            setBuffering(false);
+            return;
+          }
         }
-      } catch (e) {
-        if (e.name !== 'AbortError') {
-          setError(`Cannot reach server: ${e.message}`);
-          setBuffering(false);
-          return;
-        }
+
+        if (cancelled) return;
+        video.src = videoUrl;
       }
-
-      if (cancelled) return;
-      video.src = videoUrl;
 
       video.onloadedmetadata = () => {
         if (cancelled) return;
