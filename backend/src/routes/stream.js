@@ -4,6 +4,8 @@ const path = require('path');
 const { spawn } = require('child_process');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
+const { getHLSSession, getManifestContent, getSegmentPath } = require('../services/transcoder');
+const { posterUrl, backdropUrl } = require('../services/tmdb');
 
 const router = express.Router();
 
@@ -153,6 +155,87 @@ router.get('/progress/:mediaType/:mediaId', authenticate, (req, res) => {
     'SELECT position, completed FROM watch_history WHERE user_id=? AND media_type=? AND media_id=?'
   ).get(req.user.id, req.params.mediaType, req.params.mediaId);
   res.json(row || { position: 0, completed: false });
+});
+
+// ─── continue watching ────────────────────────────────────────────────────────
+
+router.get('/continue-watching', authenticate, (req, res) => {
+  const movies = db.prepare(`
+    SELECT 'movie' as type, wh.media_id as id, wh.position, wh.watched_at,
+           m.title, m.poster_path, m.backdrop_path, m.year, m.duration
+    FROM watch_history wh
+    JOIN movies m ON m.id = wh.media_id
+    WHERE wh.user_id=? AND wh.media_type='movie' AND wh.completed=0 AND wh.position>10
+    ORDER BY wh.watched_at DESC LIMIT 20
+  `).all(req.user.id).map(m => ({
+    ...m,
+    poster_url: posterUrl(m.poster_path),
+    backdrop_url: backdropUrl(m.backdrop_path),
+  }));
+
+  const episodes = db.prepare(`
+    SELECT 'episode' as type, wh.media_id as id, wh.position, wh.watched_at,
+           s.title, s.poster_path, s.backdrop_path, s.id as show_id,
+           e.season, e.episode_number, e.title as episode_title, e.duration
+    FROM watch_history wh
+    JOIN episodes e ON e.id = wh.media_id
+    JOIN tv_shows s ON s.id = e.show_id
+    WHERE wh.user_id=? AND wh.media_type='episode' AND wh.completed=0 AND wh.position>10
+    ORDER BY wh.watched_at DESC LIMIT 20
+  `).all(req.user.id).map(e => ({
+    ...e,
+    subtitle: `S${String(e.season).padStart(2,'0')}E${String(e.episode_number).padStart(2,'0')}${e.episode_title ? ` · ${e.episode_title}` : ''}`,
+    poster_url: posterUrl(e.poster_path),
+    backdrop_url: backdropUrl(e.backdrop_path),
+  }));
+
+  const items = [...movies, ...episodes]
+    .sort((a, b) => new Date(b.watched_at) - new Date(a.watched_at))
+    .slice(0, 20);
+
+  res.json({ items });
+});
+
+// ─── HLS streaming (Safari) ───────────────────────────────────────────────────
+//
+// Safari requires HLS for adaptive/live streams. Chrome/Firefox use /video
+// (fragmented MP4). These routes use the existing transcoder.js HLS service.
+
+router.get('/hls/:type/:id/manifest.m3u8', authenticate, async (req, res) => {
+  const { type, id } = req.params;
+  const filePath = getFilePath(type, id);
+
+  if (!filePath) return res.status(404).json({ error: 'Media not found in database' });
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: `File not found on disk: ${filePath}` });
+
+  const start = Math.max(0, parseFloat(req.query.start || '0') || 0);
+  console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s`);
+
+  try {
+    const key = await getHLSSession(filePath, start);
+    if (res.writableEnded) return; // client disconnected while transcoding
+    const segBase = `/api/stream/hls/${type}/${id}/segment?token=${req.query.token}&key=${key}`;
+    const manifest = getManifestContent(key, segBase);
+    if (!manifest) return res.status(503).json({ error: 'Manifest not ready' });
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(manifest);
+  } catch (err) {
+    console.error(`[stream] HLS error: ${err.message}`);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/hls/:type/:id/segment', authenticate, async (req, res) => {
+  const { key, seg } = req.query;
+  if (!key || !seg) return res.status(400).json({ error: 'Missing key or seg parameter' });
+
+  const segPath = await getSegmentPath(key, seg);
+  if (!segPath) return res.status(404).json({ error: 'Segment not found — transcode may have timed out' });
+
+  res.setHeader('Content-Type', 'video/mp2t');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.sendFile(segPath);
 });
 
 module.exports = router;
