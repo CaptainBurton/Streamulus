@@ -68,13 +68,12 @@ export default function Watch() {
       video.onplaying = () => { if (!cancelled) setBuffering(false); };
       video.oncanplay = () => { if (!cancelled) setBuffering(false); };
 
+      console.log('[Watch] hlsUrl:', hlsUrl, '| Hls.isSupported():', Hls.isSupported());
+
       if (Hls.isSupported()) {
-        // hls.js works on every browser including Safari (MSE).
-        // It downloads MPEG-TS segments and transmuxes them to fMP4 in a
-        // Web Worker before feeding Safari's SourceBuffer — no native HLS
-        // quirks, no Range-request pipe conflicts.
-        // enableWorker: false — fMP4 segments need no transmuxing so no worker
-        // is needed, and disabling it avoids Safari production-build Worker issues.
+        // hls.js works on every browser including modern Safari (MSE+WebKitMSE).
+        // Segments are MPEG-TS; hls.js demuxes and re-muxes to fMP4 in the main
+        // thread (enableWorker:false avoids Vite-built Worker issues in Safari).
         const hls = new Hls({ enableWorker: false });
         hlsRef.current = hls;
         hls.loadSource(hlsUrl);
@@ -82,11 +81,13 @@ export default function Watch() {
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelled) return;
+          console.log('[Watch] Manifest parsed, starting playback');
           setBuffering(false);
-          video.play().catch(() => {});
+          video.play().catch(e => console.warn('[Watch] play() rejected:', e.message));
         });
 
         hls.on(Hls.Events.ERROR, (_, data) => {
+          console.error('[Watch] hls.js error:', data.type, data.details, 'fatal:', data.fatal, 'HTTP:', data.response?.status, data.error?.message);
           if (cancelled || !data.fatal) return;
           let msg = `HLS error: ${data.details}`;
           if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
@@ -94,13 +95,15 @@ export default function Watch() {
             try { const e = JSON.parse(data.response.data); if (e?.error) msg += `\n${e.error}`; } catch {}
           }
           if (data.error?.message && !msg.includes(data.error.message)) msg += `\n${data.error.message}`;
+          msg += '\n\nOpen Safari → Develop → Show Web Inspector → Console for full details.\nOr click "Diagnose File" below.';
           setError(msg);
           setBuffering(false);
           hls.destroy();
         });
 
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Fallback: native HLS for browsers that have it but lack MSE.
+        // Fallback: native HLS for browsers that support it but not MSE.
+        console.log('[Watch] Using native HLS fallback (hls.js MSE not supported)');
         // Probe the manifest first so we surface server errors (auth, 500, etc.)
         // instead of the browser's opaque MEDIA_ERR_SRC_NOT_SUPPORTED.
         try {
@@ -130,8 +133,9 @@ export default function Watch() {
           video.play().catch(() => {});
         };
         video.onerror = () => {
+          console.error('[Watch] native video error:', video.error?.code, video.error?.message);
           if (!cancelled) {
-            setError(`Playback failed (code ${video.error?.code ?? '?'}). The file may use a codec Safari cannot decode.\n\nUse the Diagnose button below to inspect the file's codec info.`);
+            setError(`Playback failed (code ${video.error?.code ?? '?'}): ${video.error?.message || 'unknown'}\n\nOpen Safari → Develop → Show Web Inspector → Console for details.\nOr click "Diagnose File" below.`);
             setBuffering(false);
           }
         };
