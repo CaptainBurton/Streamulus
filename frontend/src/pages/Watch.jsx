@@ -94,34 +94,58 @@ export default function Watch() {
 
       if (hlsSupported) {
         addLog('Using hls.js path (MSE supported)');
-        const hls = new Hls({ enableWorker: false });
-        hlsRef.current = hls;
-        hls.loadSource(hlsUrl);
-        hls.attachMedia(video);
-        addLog('Fetching HLS manifest...');
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        // Extracted so we can restart from any absolute position (used for seeking).
+        const startHlsAt = (absolutePos) => {
           if (cancelled) return;
-          addLog('Manifest parsed — calling play()');
-          setBuffering(false);
-          video.play().catch(e => {
-            addLog(`play() rejected: ${e.message}`);
-          });
-        });
+          if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+          startPosRef.current = absolutePos;
+          const url = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${absolutePos > 0 ? `&start=${absolutePos}` : ''}`;
+          addLog(`Loading manifest (start=${absolutePos}s)`);
 
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          addLog(`hls.js ${data.fatal ? 'FATAL' : 'non-fatal'}: ${data.details} HTTP:${data.response?.status ?? '-'}`);
-          if (cancelled || !data.fatal) return;
-          let msg = `HLS error: ${data.details}`;
-          if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
-          if (data.response?.data) {
-            try { const e = JSON.parse(data.response.data); if (e?.error) msg += `\n${e.error}`; } catch {}
-          }
-          if (data.error?.message && !msg.includes(data.error.message)) msg += `\n${data.error.message}`;
-          setError(msg);
-          setBuffering(false);
-          hls.destroy();
-        });
+          const hls = new Hls({
+            enableWorker: false,
+            // Give fragments 25 s to load (server waits 30 s for FFmpeg to write
+            // each .ts file). Default 20 s causes spurious fragLoadTimeOut errors
+            // when the next segment isn't transcoded yet.
+            fragLoadingTimeOut: 25000,
+            fragLoadingMaxRetry: 6,
+            fragLoadingRetryDelay: 500,
+            // Auto-skip buffer holes up to 0.5 s (eliminates bufferSeekOverHole
+            // warnings caused by tiny gaps between segments).
+            maxBufferHole: 0.5,
+            // Be more lenient before declaring the buffer stalled.
+            highBufferWatchdogPeriod: 5,
+            nudgeOffset: 0.3,
+            nudgeMaxRetry: 5,
+          });
+          hlsRef.current = hls;
+          hls.loadSource(url);
+          hls.attachMedia(video);
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (cancelled) return;
+            addLog('Manifest parsed — calling play()');
+            setBuffering(false);
+            video.play().catch(e => addLog(`play() rejected: ${e.message}`));
+          });
+
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            addLog(`hls.js ${data.fatal ? 'FATAL' : 'non-fatal'}: ${data.details} HTTP:${data.response?.status ?? '-'}`);
+            if (cancelled || !data.fatal) return;
+            let msg = `HLS error: ${data.details}`;
+            if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
+            if (data.response?.data) {
+              try { const e = JSON.parse(data.response.data); if (e?.error) msg += `\n${e.error}`; } catch {}
+            }
+            if (data.error?.message && !msg.includes(data.error.message)) msg += `\n${data.error.message}`;
+            setError(msg);
+            setBuffering(false);
+            hls.destroy();
+          });
+        };
+
+        startHlsAt(startPos);
 
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         addLog('Using native HLS fallback (hls.js MSE not supported)');
@@ -277,7 +301,7 @@ export default function Watch() {
           <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
           <DebugLog />
           <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '400px' }}>
-            First load takes 5–30 seconds while the server transcodes the video.
+            First load takes 5–15 s. Seeking far ahead restarts the transcoder.
           </div>
         </div>
       )}

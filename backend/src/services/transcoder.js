@@ -63,6 +63,44 @@ function buildVideoFilter(resolution) {
   return limits[resolution] ? `${limits[resolution]},${even},${fmt}` : `${even},${fmt}`;
 }
 
+// Build FFmpeg args for HLS transcoding.
+// startSegIdx > 0 is used for seek restarts: it passes -start_number so FFmpeg
+// names segment files starting at that index (seg00450.ts, seg00451.ts, ...).
+// NOTE: -hls_list_size 0 causes FFmpeg to ignore -start_number (resets it to 0).
+// For seek restarts we use -hls_list_size 1 so the numbering is respected.
+// Segment files are never deleted (no delete_segments flag).
+function buildFfmpegArgs(filePath, startSec, settings, dir, startSegIdx = 0) {
+  return [
+    '-hide_banner', '-loglevel', 'warning',
+    '-fflags', '+genpts+discardcorrupt',
+    '-err_detect', 'ignore_err',
+    ...(startSec > 0 ? ['-ss', String(startSec)] : []),
+    '-i', filePath,
+    '-map', '0:v:0', '-map', '0:a:0?', '-sn',
+    '-c:v', 'libx264',
+    '-preset', settings.preset, '-tune', 'zerolatency', '-crf', settings.crf,
+    '-profile:v', 'high', '-level:v', '5.1',
+    '-pix_fmt', 'yuv420p',
+    '-vf', buildVideoFilter(settings.resolution),
+    '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    '-max_muxing_queue_size', '4096',
+    '-g', '48', '-keyint_min', '48', '-sc_threshold', '0',
+    '-c:a', 'aac', '-b:a', settings.audioBitrate,
+    ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
+    '-ar', '48000',
+    '-hls_time', String(settings.segmentDuration),
+    // hls_list_size 0 keeps all segments in FFmpeg's manifest but disables start_number.
+    // Use 1 for seek restarts so -start_number is respected for correct file naming.
+    '-hls_list_size', startSegIdx > 0 ? '1' : '0',
+    ...(startSegIdx > 0 ? ['-start_number', String(startSegIdx)] : []),
+    '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
+    '-hls_flags', 'independent_segments',
+    '-f', 'hls', '-y',
+    path.join(dir, 'index.m3u8'),
+  ];
+}
+
+
 async function getHLSSession(filePath, startTime = 0) {
   const key = makeKey(filePath, startTime);
 
@@ -90,7 +128,7 @@ async function getHLSSession(filePath, startTime = 0) {
   let resolveReady, rejectReady;
   const readyPromise = new Promise((res, rej) => { resolveReady = res; rejectReady = rej; });
 
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null };
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, settings };
 
   if (totalDuration > 0) {
     const effectiveDuration = Math.max(1, totalDuration - Math.max(0, startTime));
@@ -114,61 +152,9 @@ async function getHLSSession(filePath, startTime = 0) {
 
   sessions.set(key, session);
 
-  const ffmpegArgs = [
-    '-hide_banner',
-    '-loglevel', 'warning',
-    // Tolerate corrupt/malformed input: regenerate missing PTS, discard corrupt packets.
-    // Critical for files with bad timestamps (common in re-muxed MKVs and some MP4s).
-    '-fflags', '+genpts+discardcorrupt',
-    '-err_detect', 'ignore_err',
-    ...(startTime > 0 ? ['-ss', String(startTime)] : []),
-    '-i', filePath,
-    // Explicit stream selection: first video track + first audio track (optional).
-    // Prevents FFmpeg from picking embedded cover art (APIC) as a video stream,
-    // or choosing the wrong audio/video track in multi-track MKV files.
-    '-map', '0:v:0',
-    '-map', '0:a:0?',
-    '-sn',                   // drop subtitle streams — avoids muxing conflicts
-    '-c:v', 'libx264',
-    '-preset', settings.preset,
-    '-tune', 'zerolatency',
-    '-crf', settings.crf,
-    // profile high / level 5.1: supports up to 4K@30fps.
-    // Without explicit level, some fMP4 init segments omit AVCLevelIndication,
-    // causing Safari to reject the stream with MEDIA_ERR_SRC_NOT_SUPPORTED.
-    // Level 5.1 is supported by Safari on iOS 9+ and macOS 10.9+.
-    '-profile:v', 'high',
-    '-level:v', '5.1',
-    '-pix_fmt', 'yuv420p',
-    // scale: fix odd dimensions (required for yuv420p).
-    // format=yuv420p: explicitly convert 10-bit HDR sources (yuv420p10le etc.)
-    // to 8-bit before encoding — without this, libx264 silently fails on HDR input.
-    // colorspace/primaries/trc: tag output as BT.709 so Safari's color manager
-    // does not misinterpret HDR metadata as needing HDR tone-mapping.
-    '-vf', buildVideoFilter(settings.resolution),
-    '-colorspace', 'bt709',
-    '-color_primaries', 'bt709',
-    '-color_trc', 'bt709',
-    '-max_muxing_queue_size', '4096',  // increased from 1024 for files with long audio lead-in
-    '-g', '48',
-    '-keyint_min', '48',
-    '-sc_threshold', '0',
-    '-c:a', 'aac',
-    '-b:a', settings.audioBitrate,
-    ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
-    '-ar', '48000',          // 48 kHz is the standard for video audio (was 44100)
-    '-hls_time', String(settings.segmentDuration),
-    '-hls_list_size', '0',
-    // MPEG-TS segments: the original HLS format, universally supported by
-    // Safari (native + hls.js), no init-segment codec handshake required.
-    // hls.js demuxes/remuxes TS→fMP4 in the main thread (enableWorker:false).
-    '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
-    '-hls_flags', 'independent_segments',
-    '-f', 'hls',
-    '-y',
-    manifestPath,
-  ];
+  const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir);
 
+  const manifestPath = path.join(dir, 'index.m3u8');
   console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)} start=${startTime}s`);
   console.log(`[transcode] Command: ffmpeg ${ffmpegArgs.join(' ')}`);
   const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -182,18 +168,21 @@ async function getHLSSession(filePath, startTime = 0) {
     process.stderr.write(`[ffmpeg] ${msg}`);
   });
 
-  // Ready when the manifest contains at least one #EXTINF entry.
-  // FFmpeg writes the manifest entry only after finishing writing the segment file,
-  // so if the manifest has EXTINF, the corresponding .ts file is guaranteed to exist.
+  // Wait until 2 segments are ready before resolving, so hls.js starts with a
+  // buffer cushion and doesn't immediately stall waiting for the second segment.
+  // For very short videos (< 2 segments total) we accept 1 segment once FFmpeg
+  // has written #EXT-X-ENDLIST, meaning the file is fully transcoded.
   const checkInterval = setInterval(() => {
     if (!fs.existsSync(manifestPath)) return;
     try {
       const content = fs.readFileSync(manifestPath, 'utf8');
-      if (content.includes('#EXTINF')) {
+      const segCount = (content.match(/#EXTINF/g) || []).length;
+      const done = content.includes('#EXT-X-ENDLIST');
+      if (segCount >= 2 || (segCount >= 1 && done)) {
         clearInterval(checkInterval);
         clearTimeout(startTimeout);
         session.ready = true;
-        console.log(`[transcode] First segment ready for: ${path.basename(filePath)} (key=${key.slice(0, 8)})`);
+        console.log(`[transcode] ${segCount} segment(s) ready for: ${path.basename(filePath)} (key=${key.slice(0, 8)})`);
         resolveReady();
       }
     } catch { /* manifest not fully written yet, retry */ }
@@ -252,6 +241,12 @@ function getManifestContent(key, baseSegmentUrl) {
   return content;
 }
 
+// How many segments ahead of FFmpeg's current position counts as a "seek".
+// 10 segments = 40s (at 4s/seg). Seeks of ≤40s wait for FFmpeg to catch up
+// normally (ultrafast preset transcodes ~5x real-time, so 40s takes ~8s).
+// Seeks further than 40s restart FFmpeg at the target position immediately.
+const SEEK_THRESHOLD = 10;
+
 async function getSegmentPath(key, segmentName) {
   const session = sessions.get(key);
   if (!session) return null;
@@ -261,7 +256,39 @@ async function getSegmentPath(key, segmentName) {
 
   const segPath = path.join(session.dir, segmentName);
 
-  // Wait up to 30s for the segment to be written by FFmpeg
+  // Fast path: segment already on disk
+  if (fs.existsSync(segPath)) return segPath;
+
+  const requestedIdx = parseInt(segmentName.match(/\d+/)[0], 10);
+
+  // Find the highest segment index FFmpeg has written so far
+  let lastIdx = -1;
+  try {
+    for (const f of fs.readdirSync(session.dir)) {
+      const m = f.match(/^seg(\d{5})\.ts$/);
+      if (m) { const n = parseInt(m[1], 10); if (n > lastIdx) lastIdx = n; }
+    }
+  } catch {}
+
+  // Seek detected: restart FFmpeg at the requested position so the segment
+  // arrives in seconds rather than minutes. The manifest and video timeline
+  // are unchanged — only the FFmpeg process is replaced.
+  if (requestedIdx > lastIdx + SEEK_THRESHOLD && session.filePath) {
+    const seekSec = session.startTime + requestedIdx * session.settings.segmentDuration;
+    console.log(`[transcode] Seek: restarting FFmpeg at t=${seekSec}s (seg${String(requestedIdx).padStart(5,'0')}, was at ${lastIdx})`);
+    if (session.process) { try { session.process.kill('SIGTERM'); } catch {} session.process = null; }
+    const proc = spawn(
+      'ffmpeg',
+      buildFfmpegArgs(session.filePath, seekSec, session.settings, session.dir, requestedIdx),
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    session.process = proc;
+    proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
+    proc.on('error', err => console.error(`[transcode] seek spawn error: ${err.message}`));
+    proc.on('exit', code => { if (code) console.error(`[transcode] seek FFmpeg exit ${code}`); });
+  }
+
+  // Wait up to 30s for FFmpeg to write this segment
   let waited = 0;
   while (!fs.existsSync(segPath) && waited < 30000) {
     await new Promise(r => setTimeout(r, 250));
