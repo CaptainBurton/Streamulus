@@ -14,6 +14,7 @@ export default function Watch() {
   const startPosRef = useRef(0);
   const progressTimer = useRef(null);
   const hideTimer = useRef(null);
+  const seekHandlerRef = useRef(null);
 
   const [media, setMedia] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -94,34 +95,61 @@ export default function Watch() {
 
       if (hlsSupported) {
         addLog('Using hls.js path (MSE supported)');
-        const hls = new Hls({ enableWorker: false });
-        hlsRef.current = hls;
-        hls.loadSource(hlsUrl);
-        hls.attachMedia(video);
-        addLog('Fetching HLS manifest...');
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        // Extracted so we can restart from any absolute position (used for seeking).
+        const startHlsAt = (absolutePos) => {
           if (cancelled) return;
-          addLog('Manifest parsed — calling play()');
-          setBuffering(false);
-          video.play().catch(e => {
-            addLog(`play() rejected: ${e.message}`);
-          });
-        });
+          if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+          startPosRef.current = absolutePos;
+          const url = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${absolutePos > 0 ? `&start=${absolutePos}` : ''}`;
+          addLog(`Loading manifest (start=${absolutePos}s)`);
 
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          addLog(`hls.js ${data.fatal ? 'FATAL' : 'non-fatal'}: ${data.details} HTTP:${data.response?.status ?? '-'}`);
-          if (cancelled || !data.fatal) return;
-          let msg = `HLS error: ${data.details}`;
-          if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
-          if (data.response?.data) {
-            try { const e = JSON.parse(data.response.data); if (e?.error) msg += `\n${e.error}`; } catch {}
+          const hls = new Hls({ enableWorker: false });
+          hlsRef.current = hls;
+          hls.loadSource(url);
+          hls.attachMedia(video);
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (cancelled) return;
+            addLog('Manifest parsed — calling play()');
+            setBuffering(false);
+            video.play().catch(e => addLog(`play() rejected: ${e.message}`));
+          });
+
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            addLog(`hls.js ${data.fatal ? 'FATAL' : 'non-fatal'}: ${data.details} HTTP:${data.response?.status ?? '-'}`);
+            if (cancelled || !data.fatal) return;
+            let msg = `HLS error: ${data.details}`;
+            if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
+            if (data.response?.data) {
+              try { const e = JSON.parse(data.response.data); if (e?.error) msg += `\n${e.error}`; } catch {}
+            }
+            if (data.error?.message && !msg.includes(data.error.message)) msg += `\n${data.error.message}`;
+            setError(msg);
+            setBuffering(false);
+            hls.destroy();
+          });
+        };
+
+        startHlsAt(startPos);
+
+        // When user seeks to an unbuffered position (i.e. past what FFmpeg has
+        // generated so far), restart the transcode session from that point.
+        // hls.js handles seeks within the buffered range on its own.
+        const handleSeeked = () => {
+          if (cancelled) return;
+          const target = video.currentTime;
+          for (let i = 0; i < video.buffered.length; i++) {
+            if (target >= video.buffered.start(i) - 0.5 && target <= video.buffered.end(i) + 0.5) return;
           }
-          if (data.error?.message && !msg.includes(data.error.message)) msg += `\n${data.error.message}`;
-          setError(msg);
-          setBuffering(false);
-          hls.destroy();
-        });
+          const newPos = startPosRef.current + Math.floor(target);
+          setBuffering(true);
+          addLog(`Seek to ${newPos}s — restarting stream`);
+          startHlsAt(newPos);
+        };
+
+        seekHandlerRef.current = handleSeeked;
+        video.addEventListener('seeked', handleSeeked);
 
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         addLog('Using native HLS fallback (hls.js MSE not supported)');
@@ -172,6 +200,10 @@ export default function Watch() {
 
     return () => {
       cancelled = true;
+      if (seekHandlerRef.current && videoRef.current) {
+        videoRef.current.removeEventListener('seeked', seekHandlerRef.current);
+        seekHandlerRef.current = null;
+      }
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (videoRef.current) { videoRef.current.pause(); videoRef.current.src = ''; }
     };
@@ -277,7 +309,7 @@ export default function Watch() {
           <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
           <DebugLog />
           <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '400px' }}>
-            First load takes 5–30 seconds while the server transcodes the video.
+            Seeking starts a new transcode from that position — takes 5–15 seconds.
           </div>
         </div>
       )}
