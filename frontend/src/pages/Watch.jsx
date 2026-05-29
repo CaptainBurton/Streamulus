@@ -14,6 +14,7 @@ export default function Watch() {
   const startPosRef = useRef(0);
   const progressTimer = useRef(null);
   const hideTimer = useRef(null);
+  const bufferTimer = useRef(null);
 
   const [media, setMedia] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -88,9 +89,22 @@ export default function Watch() {
       const hlsSupported = Hls.isSupported();
       addLog(`Hls.isSupported(): ${hlsSupported} | token: ${token ? 'present' : 'MISSING'}`);
 
-      video.onwaiting = () => { if (!cancelled) setBuffering(true); };
-      video.onplaying = () => { if (!cancelled) { setBuffering(false); addLog('Playing!'); } };
-      video.oncanplay = () => { if (!cancelled) setBuffering(false); };
+      // Debounce the buffering overlay by 800 ms so brief gaps between HLS
+      // segments (including the bufferSeekOverHole auto-seek at startup) don't
+      // flash the spinner. Real stalls will still show it after 800 ms.
+      const showBuffering = () => {
+        if (cancelled) return;
+        clearTimeout(bufferTimer.current);
+        bufferTimer.current = setTimeout(() => { if (!cancelled) setBuffering(true); }, 800);
+      };
+      const hideBuffering = () => {
+        if (cancelled) return;
+        clearTimeout(bufferTimer.current);
+        setBuffering(false);
+      };
+      video.onwaiting = showBuffering;
+      video.onplaying = () => { if (!cancelled) { hideBuffering(); addLog('Playing!'); } };
+      video.oncanplay = hideBuffering;
 
       if (hlsSupported) {
         addLog('Using hls.js path (MSE supported)');
@@ -196,6 +210,7 @@ export default function Watch() {
 
     return () => {
       cancelled = true;
+      clearTimeout(bufferTimer.current);
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (videoRef.current) { videoRef.current.pause(); videoRef.current.src = ''; }
     };
