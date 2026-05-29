@@ -38,7 +38,7 @@ if (fs.existsSync(publicDir)) {
   });
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '::', () => {
   console.log(`========================================`);
   console.log(`  Streamulus running on port ${PORT}`);
   console.log(`  Build date: ${new Date().toISOString()}`);
