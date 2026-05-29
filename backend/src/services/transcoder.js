@@ -105,7 +105,8 @@ async function getHLSSession(filePath, startTime = 0) {
     manifestPath,
   ];
 
-  console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)}`);
+  console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)} start=${startTime}s`);
+  console.log(`[transcode] Command: ffmpeg ${ffmpegArgs.join(' ')}`);
   const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
   session.process = proc;
 
