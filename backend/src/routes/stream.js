@@ -230,6 +230,64 @@ router.get('/continue-watching', authenticate, (req, res) => {
   res.json({ items });
 });
 
+// ─── stream diagnostics ───────────────────────────────────────────────────────
+//
+// Runs ffprobe on the source file and returns stream/format info as JSON.
+// Accessible from the Watch page error UI so users can debug without Portainer.
+
+router.get('/diagnose/:type/:id', authenticate, (req, res) => {
+  const { type, id } = req.params;
+  const filePath = getFilePath(type, id);
+  if (!filePath) return res.status(404).json({ error: 'Media not found in database' });
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: `File not on disk: ${filePath}` });
+
+  const probe = spawn('ffprobe', [
+    '-v', 'quiet',
+    '-print_format', 'json',
+    '-show_streams',
+    '-show_format',
+    filePath,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  let out = '';
+  let err = '';
+  probe.stdout.on('data', d => { out += d.toString(); });
+  probe.stderr.on('data', d => { err += d.toString(); });
+
+  probe.on('error', e => {
+    if (!res.headersSent) res.status(500).json({ error: `ffprobe unavailable: ${e.message}` });
+  });
+
+  probe.on('exit', () => {
+    try {
+      const data = JSON.parse(out);
+      const streams = (data.streams || []).map(s => ({
+        index: s.index,
+        type: s.codec_type,
+        codec: s.codec_name,
+        profile: s.profile,
+        level: s.level,
+        resolution: s.width ? `${s.width}×${s.height}` : undefined,
+        pix_fmt: s.pix_fmt,
+        sample_rate: s.sample_rate,
+        channels: s.channels,
+        channel_layout: s.channel_layout,
+        bit_rate: s.bit_rate,
+      }));
+      res.json({
+        file: path.basename(filePath),
+        format: data.format?.format_name,
+        duration_s: data.format?.duration ? Math.round(data.format.duration) : undefined,
+        size_mb: data.format?.size ? (data.format.size / 1048576).toFixed(1) : undefined,
+        streams,
+        ffprobe_stderr: err.slice(0, 500) || undefined,
+      });
+    } catch {
+      res.status(500).json({ error: 'ffprobe parse failed', stderr: err.slice(0, 500), raw: out.slice(0, 200) });
+    }
+  });
+});
+
 // ─── HLS streaming (Safari) ───────────────────────────────────────────────────
 //
 // Safari requires HLS for adaptive/live streams. Chrome/Firefox use /video

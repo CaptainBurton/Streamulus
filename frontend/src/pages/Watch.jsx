@@ -17,6 +17,8 @@ export default function Watch() {
   const [error, setError] = useState('');
   const [buffering, setBuffering] = useState(true);
   const [showBar, setShowBar] = useState(true);
+  const [diagInfo, setDiagInfo] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
 
   const token = localStorage.getItem('streamulus_token');
 
@@ -86,13 +88,41 @@ export default function Watch() {
 
         hls.on(Hls.Events.ERROR, (_, data) => {
           if (cancelled || !data.fatal) return;
-          setError(`Playback error (${data.details}).\n\nCheck the Portainer container logs for lines starting with [ffmpeg] or [stream].`);
+          let msg = `HLS error: ${data.details}`;
+          if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
+          if (data.response?.data) {
+            try { const e = JSON.parse(data.response.data); if (e?.error) msg += `\n${e.error}`; } catch {}
+          }
+          if (data.error?.message && !msg.includes(data.error.message)) msg += `\n${data.error.message}`;
+          setError(msg);
           setBuffering(false);
           hls.destroy();
         });
 
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Fallback: native HLS for browsers that have it but lack MSE
+        // Fallback: native HLS for browsers that have it but lack MSE.
+        // Probe the manifest first so we surface server errors (auth, 500, etc.)
+        // instead of the browser's opaque MEDIA_ERR_SRC_NOT_SUPPORTED.
+        try {
+          const probe = await fetch(hlsUrl);
+          if (!probe.ok) {
+            const text = await probe.text().catch(() => '');
+            let serverMsg = '';
+            try { serverMsg = JSON.parse(text)?.error; } catch {}
+            if (!cancelled) {
+              setError(`Stream error (HTTP ${probe.status}): ${serverMsg || text.slice(0, 300) || 'Server returned no details'}`);
+              setBuffering(false);
+            }
+            return;
+          }
+        } catch (e) {
+          if (!cancelled && e.name !== 'AbortError') {
+            setError(`Cannot reach server: ${e.message}`);
+            setBuffering(false);
+            return;
+          }
+        }
+        if (cancelled) return;
         video.src = hlsUrl;
         video.onloadedmetadata = () => {
           if (cancelled) return;
@@ -101,7 +131,7 @@ export default function Watch() {
         };
         video.onerror = () => {
           if (!cancelled) {
-            setError(`Playback failed (code ${video.error?.code}).\n\nCheck Portainer container logs.`);
+            setError(`Playback failed (code ${video.error?.code ?? '?'}). The file may use a codec Safari cannot decode.\n\nUse the Diagnose button below to inspect the file's codec info.`);
             setBuffering(false);
           }
         };
@@ -152,13 +182,35 @@ export default function Watch() {
 
   if (loading) return <div style={S.center}><div className="spinner" /></div>;
 
+  const runDiag = async () => {
+    setDiagLoading(true);
+    try {
+      const r = await axios.get(`/api/stream/diagnose/${type}/${id}`);
+      setDiagInfo(r.data);
+    } catch (e) {
+      setDiagInfo({ error: e.response?.data?.error || e.message });
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
   if (error) return (
     <div style={{ ...S.center, flexDirection: 'column', gap: '20px', padding: '32px', textAlign: 'center' }}>
       <div style={{ fontSize: '40px' }}>⚠️</div>
       <div style={{ color: '#ff4444', fontSize: '16px', maxWidth: '660px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
         {error}
       </div>
-      <button onClick={() => navigate(-1)} style={S.btn}>← Go Back</button>
+      <div style={{ display: 'flex', gap: '12px' }}>
+        <button onClick={() => navigate(-1)} style={S.btn}>← Go Back</button>
+        <button onClick={runDiag} disabled={diagLoading} style={S.btn}>
+          {diagLoading ? 'Running…' : 'Diagnose File'}
+        </button>
+      </div>
+      {diagInfo && (
+        <div style={{ background: '#111', border: '1px solid #333', borderRadius: '8px', padding: '16px', maxWidth: '700px', textAlign: 'left', fontSize: '12px', color: '#ccc', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+          {JSON.stringify(diagInfo, null, 2)}
+        </div>
+      )}
     </div>
   );
 
