@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 8096;
@@ -27,5 +28,17 @@ if (fs.existsSync(publicDir)) {
 }
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Streamulus running on port ${PORT}`);
+  console.log(`========================================`);
+  console.log(`  Streamulus running on port ${PORT}`);
+  console.log(`  Build date: ${new Date().toISOString()}`);
+
+  // Check FFmpeg at startup — result appears immediately in Portainer container logs
+  try {
+    const ver = execSync('ffmpeg -version 2>&1', { timeout: 5000 }).toString().split('\n')[0];
+    console.log(`  FFmpeg: ${ver}`);
+  } catch (e) {
+    console.error(`  WARNING: FFmpeg not found or failed to run: ${e.message}`);
+    console.error(`  Video transcoding will not work until ffmpeg is installed.`);
+  }
+  console.log(`========================================`);
 });
