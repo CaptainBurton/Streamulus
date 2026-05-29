@@ -54,7 +54,11 @@ async function getHLSSession(filePath, startTime = 0) {
   const ffmpegArgs = [
     '-hide_banner',
     '-loglevel', 'warning',
-    '-ss', String(Math.max(0, startTime)),
+    // Tolerate corrupt/malformed input: regenerate missing PTS, discard corrupt packets.
+    // Critical for files with bad timestamps (common in re-muxed MKVs and some MP4s).
+    '-fflags', '+genpts+discardcorrupt',
+    '-err_detect', 'ignore_err',
+    ...(startTime > 0 ? ['-ss', String(startTime)] : []),
     '-i', filePath,
     // Explicit stream selection: first video track + first audio track (optional).
     // Prevents FFmpeg from picking embedded cover art (APIC) as a video stream,
@@ -66,11 +70,22 @@ async function getHLSSession(filePath, startTime = 0) {
     '-preset', 'ultrafast',
     '-tune', 'zerolatency',
     '-crf', '23',
+    // profile high / level 5.1: supports up to 4K@30fps.
+    // Without explicit level, some fMP4 init segments omit AVCLevelIndication,
+    // causing Safari to reject the stream with MEDIA_ERR_SRC_NOT_SUPPORTED.
+    // Level 5.1 is supported by Safari on iOS 9+ and macOS 10.9+.
+    '-profile:v', 'high',
+    '-level:v', '5.1',
     '-pix_fmt', 'yuv420p',
     // scale: fix odd dimensions (required for yuv420p).
     // format=yuv420p: explicitly convert 10-bit HDR sources (yuv420p10le etc.)
     // to 8-bit before encoding — without this, libx264 silently fails on HDR input.
+    // colorspace/primaries/trc: tag output as BT.709 so Safari's color manager
+    // does not misinterpret HDR metadata as needing HDR tone-mapping.
     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
+    '-colorspace', 'bt709',
+    '-color_primaries', 'bt709',
+    '-color_trc', 'bt709',
     '-max_muxing_queue_size', '4096',  // increased from 1024 for files with long audio lead-in
     '-g', '48',
     '-keyint_min', '48',
@@ -127,7 +142,7 @@ async function getHLSSession(filePath, startTime = 0) {
       rejectReady(new Error(`Transcoding timed out after 60s. FFmpeg output: ${detail.slice(0, 400)}`));
       destroySession(key);
     }
-  }, 60000);
+  }, 90000);
 
   proc.on('error', (err) => {
     clearInterval(checkInterval);
