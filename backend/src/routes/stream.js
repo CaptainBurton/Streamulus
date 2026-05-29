@@ -103,6 +103,10 @@ router.get('/video/:type/:id', authenticate, (req, res) => {
   res.setHeader('Content-Type', 'video/mp4');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
+  // Tell browsers (especially Safari) not to send Range requests.
+  // Our stream is a live FFmpeg pipe — there's no seekable byte range.
+  // Safari respects this and plays the fMP4 stream progressively.
+  res.setHeader('Accept-Ranges', 'none');
 
   proc.stdout.pipe(res);
 
