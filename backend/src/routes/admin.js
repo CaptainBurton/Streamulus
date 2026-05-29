@@ -128,6 +128,7 @@ router.get('/config', requireAdmin, (req, res) => {
   const get = (key) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? null;
   res.json({
     tmdbApiKey: get('tmdb_api_key'),
+    tvdbApiKey: get('tvdb_api_key'),
     videoCrf: get('video_crf') ?? '23',
     videoPreset: get('video_preset') ?? 'ultrafast',
     videoResolution: get('video_resolution') ?? 'original',
@@ -138,9 +139,13 @@ router.get('/config', requireAdmin, (req, res) => {
 });
 
 router.put('/config', requireAdmin, (req, res) => {
-  const { tmdbApiKey, videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration } = req.body;
+  const { tmdbApiKey, tvdbApiKey, videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration } = req.body;
   const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
   if (tmdbApiKey !== undefined) upsert.run('tmdb_api_key', tmdbApiKey);
+  if (tvdbApiKey !== undefined) {
+    upsert.run('tvdb_api_key', tvdbApiKey);
+    require('../services/tvdb').invalidateCache();
+  }
   if (videoCrf !== undefined) upsert.run('video_crf', videoCrf);
   if (videoPreset !== undefined) upsert.run('video_preset', videoPreset);
   if (videoResolution !== undefined) upsert.run('video_resolution', videoResolution);
@@ -148,6 +153,31 @@ router.put('/config', requireAdmin, (req, res) => {
   if (audioChannels !== undefined) upsert.run('audio_channels', audioChannels);
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   res.json({ success: true });
+});
+
+// Merge TV show rows that share the same tmdb_id or tvdb_id into the oldest record.
+// Fixes duplicates created before the ID-based dedup logic was introduced.
+router.post('/tv/deduplicate', requireAdmin, (req, res) => {
+  let merged = 0;
+  db.transaction(() => {
+    for (const col of ['tmdb_id', 'tvdb_id']) {
+      const dupes = db.prepare(`
+        SELECT ${col} as match_id, MIN(id) as keep_id
+        FROM tv_shows WHERE ${col} IS NOT NULL
+        GROUP BY ${col} HAVING COUNT(*) > 1
+      `).all();
+      for (const { match_id, keep_id } of dupes) {
+        const dupIds = db.prepare(`SELECT id FROM tv_shows WHERE ${col} = ? AND id != ?`)
+          .all(match_id, keep_id).map(r => r.id);
+        for (const dupId of dupIds) {
+          db.prepare('UPDATE episodes SET show_id = ? WHERE show_id = ?').run(keep_id, dupId);
+          db.prepare('DELETE FROM tv_shows WHERE id = ?').run(dupId);
+          merged++;
+        }
+      }
+    }
+  })();
+  res.json({ success: true, merged });
 });
 
 // Refresh metadata for every movie/show that has a tmdb_id (SSE)

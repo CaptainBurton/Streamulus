@@ -113,6 +113,10 @@ db.exec(`
   );
 `);
 
+// Incremental schema migrations — safe to run on every startup
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN tvdb_id INTEGER'); } catch {}
+
+
 const ENCODING_DEFAULTS = {
   video_crf: '23',
   video_preset: 'ultrafast',
