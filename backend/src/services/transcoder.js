@@ -12,7 +12,7 @@ fs.mkdirSync(HLS_BASE, { recursive: true });
 const sessions = new Map();
 
 setInterval(() => {
-  const cutoff = Date.now() - 30 * 60 * 1000;
+  const cutoff = Date.now() - 120 * 60 * 1000;
   for (const [key, s] of sessions) {
     if (s.lastAccess < cutoff) destroySession(key);
   }
@@ -25,17 +25,28 @@ function makeKey(filePath, startTime) {
     .slice(0, 24);
 }
 
-function probeFileDuration(filePath) {
+function probeFile(filePath) {
   return new Promise((resolve) => {
     const proc = spawn('ffprobe', [
-      '-v', 'quiet', '-print_format', 'json', '-show_format', filePath,
+      '-v', 'quiet', '-print_format', 'json',
+      '-show_format', '-show_streams', filePath,
     ], { stdio: ['ignore', 'pipe', 'ignore'] });
     let out = '';
     proc.stdout.on('data', d => { out += d.toString(); });
-    proc.on('error', () => resolve(0));
+    proc.on('error', () => resolve({ duration: 0, vCodec: null, aCodec: null }));
     proc.on('exit', () => {
-      try { resolve(parseFloat(JSON.parse(out).format?.duration) || 0); }
-      catch { resolve(0); }
+      try {
+        const parsed = JSON.parse(out);
+        const duration = parseFloat(parsed.format?.duration) || 0;
+        const streams = parsed.streams || [];
+        const vStream = streams.find(s => s.codec_type === 'video');
+        const aStream = streams.find(s => s.codec_type === 'audio');
+        resolve({
+          duration,
+          vCodec: vStream?.codec_name || null,
+          aCodec: aStream?.codec_name || null,
+        });
+      } catch { resolve({ duration: 0, vCodec: null, aCodec: null }); }
     });
   });
 }
@@ -68,30 +79,30 @@ function buildVideoFilter(resolution) {
 // Seek restarts use separate subdirectories so -start_number is not needed.
 // outputTsOffset: when set, shifts output PTS by this many seconds so hls.js
 // places the content at the correct timeline position (seek restarts only).
-function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0) {
+// copyMode: when true, source is H.264 — skip video re-encoding for speed.
+function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, copyMode = false) {
+  const gop = settings.segmentDuration * 30; // keyframe interval in frames (assuming ~30fps)
   return [
     '-hide_banner', '-loglevel', 'warning',
     '-fflags', '+genpts+discardcorrupt',
     '-err_detect', 'ignore_err',
-    // avoid_negative_ts: shifts DTS so the first timestamp is >= 0, preventing
-    // MediaSource from rejecting a segment when B-frames produce negative DTS.
     '-avoid_negative_ts', 'make_zero',
     ...(startSec > 0 ? ['-ss', String(startSec)] : []),
     '-i', filePath,
     '-map', '0:v:0', '-map', '0:a:0?', '-sn',
-    '-c:v', 'libx264',
-    '-preset', settings.preset, '-crf', settings.crf,
-    '-threads', '0',
-    '-profile:v', 'high', '-level:v', '5.1',
-    '-pix_fmt', 'yuv420p',
-    '-vf', buildVideoFilter(settings.resolution),
-    '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    ...(copyMode ? [
+      '-c:v', 'copy',
+    ] : [
+      '-c:v', 'libx264',
+      '-preset', settings.preset, '-crf', settings.crf,
+      '-threads', '0',
+      '-profile:v', 'high', '-level:v', '5.1',
+      '-pix_fmt', 'yuv420p',
+      '-vf', buildVideoFilter(settings.resolution),
+      '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+      '-g', String(gop), '-keyint_min', String(gop), '-sc_threshold', '0',
+    ]),
     '-max_muxing_queue_size', '4096',
-    // Force keyframes at exact segment boundaries (every segmentDuration seconds).
-    // This guarantees HLS can split cleanly and prevents timestamp gaps between
-    // segments from different FFmpeg seek restarts.
-    '-force_key_frames', `expr:gte(t,n_forced*${settings.segmentDuration})`,
-    '-sc_threshold', '0',
     '-c:a', 'aac', '-b:a', settings.audioBitrate,
     ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
     '-ar', '48000',
@@ -123,7 +134,10 @@ async function getHLSSession(filePath, startTime = 0) {
   }
 
   const settings = getSettings();
-  const totalDuration = await probeFileDuration(filePath);
+  const { duration: totalDuration, vCodec, aCodec } = await probeFile(filePath);
+  // Copy mode: if source is already H.264, skip video re-encoding (10-50x faster segment gen)
+  const copyMode = vCodec === 'h264';
+  if (copyMode) console.log(`[transcode] Copy mode enabled for ${path.basename(filePath)} (${vCodec}/${aCodec})`);
 
   const dir = path.join(HLS_BASE, key);
   fs.mkdirSync(dir, { recursive: true });
@@ -137,7 +151,7 @@ async function getHLSSession(filePath, startTime = 0) {
   // Each entry { fromIdx, dir } maps a range of global segment indices to a
   // local directory where FFmpeg wrote seg00000.ts, seg00001.ts, ...
   // Global segment N → seek point with highest fromIdx ≤ N → local file seg{N-fromIdx}.ts
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, settings, seekPoints: [{ fromIdx: 0, dir }] };
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, settings, copyMode, seekPoints: [{ fromIdx: 0, dir }] };
 
   if (totalDuration > 0) {
     const effectiveDuration = Math.max(1, totalDuration - Math.max(0, startTime));
@@ -161,7 +175,7 @@ async function getHLSSession(filePath, startTime = 0) {
 
   sessions.set(key, session);
 
-  const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir);
+  const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir, 0, copyMode);
 
   console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)} start=${startTime}s`);
   console.log(`[transcode] Command: ffmpeg ${ffmpegArgs.join(' ')}`);
@@ -247,8 +261,8 @@ function getManifestContent(key, baseSegmentUrl) {
 }
 
 // Seeks further than this many segments ahead of FFmpeg's current position
-// restart FFmpeg immediately. 10 segments = 40s at 4s/seg.
-const SEEK_THRESHOLD = 10;
+// restart FFmpeg immediately. 25 segments = 100s at 4s/seg.
+const SEEK_THRESHOLD = 25;
 
 // Map a global segment index to the local file path within the appropriate
 // seek sub-session directory. The seek point with the highest fromIdx that
@@ -304,7 +318,7 @@ async function getSegmentPath(key, segmentName) {
     if (session.process) { try { session.process.kill('SIGTERM'); } catch {} session.process = null; }
     session.seekPoints.push({ fromIdx: requestedIdx, dir: seekDir });
     const proc = spawn('ffmpeg',
-      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, seekSec),
+      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, seekSec, session.copyMode),
       { stdio: ['ignore', 'ignore', 'pipe'] });
     session.process = proc;
     proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
