@@ -44,6 +44,18 @@ router.get('/recent', authenticate, (req, res) => {
   res.json({ shows });
 });
 
+router.get('/episode/:id', authenticate, (req, res) => {
+  const row = db.prepare(`
+    SELECT e.season, e.episode_number, e.title as episode_title,
+           s.title as show_title, s.id as show_id
+    FROM episodes e
+    JOIN tv_shows s ON s.id = e.show_id
+    WHERE e.id = ?
+  `).get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Episode not found' });
+  res.json(row);
+});
+
 router.get('/:id', authenticate, (req, res) => {
   const show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
   if (!show) return res.status(404).json({ error: 'Show not found' });

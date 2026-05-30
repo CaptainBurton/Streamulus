@@ -121,8 +121,14 @@ export default function Watch() {
   // ── Load media metadata ───────────────────────────────────────────────────
   useEffect(() => {
     const fetch_ = type === 'episode'
-      ? axios.get(`/api/stream/progress/episode/${id}`)
-          .then(r => ({ id, type, title: 'Episode', progress: r.data }))
+      ? Promise.all([
+          axios.get(`/api/tv/episode/${id}`),
+          axios.get(`/api/stream/progress/episode/${id}`),
+        ]).then(([epRes, progRes]) => {
+          const ep = epRes.data;
+          const label = `S${String(ep.season).padStart(2,'0')} E${String(ep.episode_number).padStart(2,'0')}${ep.episode_title ? ` – ${ep.episode_title}` : ''}`;
+          return { id, type, title: ep.show_title, subtitle: label, progress: progRes.data };
+        })
       : axios.get(`/api/movies/${id}`).then(async r => {
           const m = r.data.movie;
           const p = await axios.get(`/api/stream/progress/movie/${id}`).then(x => x.data).catch(() => ({ position: 0 }));
@@ -565,9 +571,16 @@ export default function Watch() {
             opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
           }}>
             <button onClick={() => navigate(-1)} style={S.btn} className="pbtn-back">← Back</button>
-            <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', textShadow: '0 1px 4px rgba(0,0,0,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {media?.title}
-              {media?.year && <span style={{ color: '#888', marginLeft: '8px', fontWeight: '400', fontSize: '13px' }}>{media.year}</span>}
+            <div style={{ overflow: 'hidden', textShadow: '0 1px 4px rgba(0,0,0,0.8)', minWidth: 0 }}>
+              <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {media?.title}
+                {media?.year && <span style={{ color: '#888', marginLeft: '8px', fontWeight: '400', fontSize: '13px' }}>{media.year}</span>}
+              </div>
+              {media?.subtitle && (
+                <div style={{ fontSize: '12px', color: '#aaa', fontWeight: '400', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                  {media.subtitle}
+                </div>
+              )}
             </div>
           </div>
 
