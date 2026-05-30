@@ -77,7 +77,8 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0) 
     '-i', filePath,
     '-map', '0:v:0', '-map', '0:a:0?', '-sn',
     '-c:v', 'libx264',
-    '-preset', settings.preset, '-tune', 'zerolatency', '-crf', settings.crf,
+    '-preset', settings.preset, '-crf', settings.crf,
+    '-threads', '0',
     '-profile:v', 'high', '-level:v', '5.1',
     '-pix_fmt', 'yuv420p',
     '-vf', buildVideoFilter(settings.resolution),
@@ -168,25 +169,22 @@ async function getHLSSession(filePath, startTime = 0) {
     process.stderr.write(`[ffmpeg] ${msg}`);
   });
 
-  // Wait until 2 segments are ready before resolving, so hls.js starts with a
-  // buffer cushion and doesn't immediately stall waiting for the second segment.
-  // For very short videos (< 2 segments total) we accept 1 segment once FFmpeg
-  // has written #EXT-X-ENDLIST, meaning the file is fully transcoded.
+  // Resolve as soon as the first segment is on disk — the client starts playing
+  // immediately while FFmpeg continues generating the rest in the background.
   const checkInterval = setInterval(() => {
     if (!fs.existsSync(manifestPath)) return;
     try {
       const content = fs.readFileSync(manifestPath, 'utf8');
       const segCount = (content.match(/#EXTINF/g) || []).length;
-      const done = content.includes('#EXT-X-ENDLIST');
-      if (segCount >= 2 || (segCount >= 1 && done)) {
+      if (segCount >= 1) {
         clearInterval(checkInterval);
         clearTimeout(startTimeout);
         session.ready = true;
-        console.log(`[transcode] ${segCount} segment(s) ready for: ${path.basename(filePath)} (key=${key.slice(0, 8)})`);
+        console.log(`[transcode] First segment ready for: ${path.basename(filePath)} (key=${key.slice(0, 8)})`);
         resolveReady();
       }
     } catch { /* manifest not fully written yet, retry */ }
-  }, 250);
+  }, 100);
 
   const startTimeout = setTimeout(() => {
     clearInterval(checkInterval);
@@ -312,8 +310,8 @@ async function getSegmentPath(key, segmentName) {
   if (!segPath) return null;
   let waited = 0;
   while (!fs.existsSync(segPath) && waited < 30000) {
-    await new Promise(r => setTimeout(r, 250));
-    waited += 250;
+    await new Promise(r => setTimeout(r, 100));
+    waited += 100;
   }
   return fs.existsSync(segPath) ? segPath : null;
 }

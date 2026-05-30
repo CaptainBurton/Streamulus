@@ -176,9 +176,15 @@ export default function Watch() {
           addLog(`Manifest start=${absPos}s`);
 
           const hls = new Hls({
-            enableWorker: false,
-            fragLoadingTimeOut: 25000, fragLoadingMaxRetry: 6, fragLoadingRetryDelay: 500,
-            maxBufferHole: 0.5, highBufferWatchdogPeriod: 5, nudgeOffset: 0.3, nudgeMaxRetry: 5,
+            enableWorker: true,
+            lowLatencyMode: false,
+            startFragPrefetch: true,
+            maxBufferLength: 60,
+            maxMaxBufferLength: 600,
+            backBufferLength: 30,
+            maxBufferHole: 1.0,
+            fragLoadingTimeOut: 30000, fragLoadingMaxRetry: 8, fragLoadingRetryDelay: 300,
+            highBufferWatchdogPeriod: 5, nudgeOffset: 0.3, nudgeMaxRetry: 5,
           });
           hlsRef.current = hls;
           hls.loadSource(url);
@@ -359,21 +365,22 @@ export default function Watch() {
     clearTimeout(thumbTimerRef.current);
     thumbTimerRef.current = setTimeout(() => {
       const t = Math.round(previewT / 10) * 10;
+      // token in query param because <img> src can't carry Authorization header
       setThumbSrc(`/api/stream/thumbnail/${type}/${id}?t=${t}&token=${token}`);
     }, 150);
     return () => clearTimeout(thumbTimerRef.current);
-  }, [dragTime, hoverTime, type, id, token]);
+  }, [dragTime, hoverTime, type, id, token]); // token needed for img src URL
 
   // ── Pre-warm thumbnails once total duration is known ──────────────────────
-  // Fires a single background POST to generate ~40 thumbnails spread across
-  // the video. After that the disk cache makes hover requests instant.
+  // Fires a single background POST that starts one FFmpeg pass generating ALL
+  // thumbnails (fps=1/10). Frames appear incrementally on disk; the server
+  // serves them the moment they exist, so hovering near the start is instant
+  // after a few seconds and hovering anywhere becomes instant once the pass
+  // completes. The ref prevents re-firing on re-renders or seeks.
   useEffect(() => {
-    if (!totalFileDur || !type || !id || !token || prewarmFired.current) return;
+    if (!totalFileDur || !type || !id || prewarmFired.current) return;
     prewarmFired.current = true;
-    const count = Math.min(40, Math.ceil(totalFileDur / 30));
-    const step = totalFileDur / count;
-    const timestamps = Array.from({ length: count }, (_, i) => Math.round(i * step / 10) * 10);
-    axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, { timestamps }).catch(() => {});
+    axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, {}).catch(() => {});
   }, [totalFileDur, type, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-hide controls ────────────────────────────────────────────────────

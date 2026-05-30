@@ -235,39 +235,39 @@ router.get('/continue-watching', authenticate, (req, res) => {
 });
 
 // ─── thumbnail helpers ────────────────────────────────────────────────────────
+//
+// Strategy: one FFmpeg pass per video generates all thumbnails at once
+// (fps=1/10 → one frame every 10 s), writing them as a numbered sequence into
+// a sprite directory.  The GET endpoint checks the sprite dir first (instant
+// file read) and falls back to a single-frame extraction while the sprite is
+// still being generated.
 
 const THUMB_DIR = path.join(os.tmpdir(), 'streamulus-thumbs');
 try { fs.mkdirSync(THUMB_DIR, { recursive: true }); } catch {}
 
-const thumbQueue = [];
-let thumbWorkers = 0;
-const MAX_THUMB_WORKERS = 3;
+const spriteJobs = new Set(); // `${type}-${id}` keys currently being generated
 
-function thumbCacheFile(type, id, t) {
-  return path.join(THUMB_DIR, `${type}-${id}-${t}.jpg`);
+function spriteDir(type, id) {
+  return path.join(THUMB_DIR, `${type}-${id}-sprite`);
 }
 
-function spawnThumb(filePath, cacheFile, t) {
+// Map a requested time (seconds) to the numbered JPEG written by the sprite pass.
+// fps=1/10 writes: thumb00001.jpg ≈ t=0, thumb00002.jpg ≈ t=10, etc.
+function spriteFile(type, id, t) {
+  const idx = Math.floor(t / 10) + 1;
+  return path.join(spriteDir(type, id), `thumb${String(idx).padStart(5, '0')}.jpg`);
+}
+
+function spawnSingleFrame(filePath, outPath, t) {
   return new Promise((resolve) => {
-    if (fs.existsSync(cacheFile)) return resolve(true);
+    if (fs.existsSync(outPath)) return resolve(true);
     const proc = spawn('ffmpeg', [
       '-ss', String(t), '-i', filePath,
-      '-vframes', '1', '-vf', 'scale=160:90', '-q:v', '5', '-y', cacheFile,
+      '-vframes', '1', '-vf', 'scale=160:90', '-q:v', '5', '-y', outPath,
     ], { stdio: 'ignore' });
     proc.on('error', () => resolve(false));
-    proc.on('exit', (code) => resolve(code === 0 && fs.existsSync(cacheFile)));
+    proc.on('exit', (code) => resolve(code === 0 && fs.existsSync(outPath)));
   });
-}
-
-function drainThumbQueue() {
-  while (thumbWorkers < MAX_THUMB_WORKERS && thumbQueue.length > 0) {
-    const job = thumbQueue.shift();
-    thumbWorkers++;
-    spawnThumb(job.filePath, job.cacheFile, job.t).then(() => {
-      thumbWorkers--;
-      drainThumbQueue();
-    });
-  }
 }
 
 // ─── frame thumbnail (on-demand) ─────────────────────────────────────────────
@@ -278,45 +278,69 @@ router.get('/thumbnail/:type/:id', authenticate, (req, res) => {
   if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
 
   const t = Math.max(0, Math.round(parseFloat(req.query.t || 0)));
-  const cacheFile = thumbCacheFile(type, id, t);
 
-  const send = () => {
+  const serve = (p) => {
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    fs.createReadStream(cacheFile).pipe(res);
+    fs.createReadStream(p).pipe(res);
   };
 
-  if (fs.existsSync(cacheFile)) return send();
+  // Fast path: sprite frame already exists (instant disk read)
+  const sp = spriteFile(type, id, t);
+  if (fs.existsSync(sp)) return serve(sp);
 
-  spawnThumb(filePath, cacheFile, t).then((ok) => {
-    if (ok) send();
+  // Fallback: single-frame extraction (cached in flat THUMB_DIR)
+  const fallback = path.join(THUMB_DIR, `${type}-${id}-${t}.jpg`);
+  if (fs.existsSync(fallback)) return serve(fallback);
+
+  spawnSingleFrame(filePath, fallback, t).then((ok) => {
+    if (ok) serve(fallback);
     else if (!res.headersSent) res.status(500).json({ error: 'Thumbnail generation failed' });
   });
 });
 
-// ─── thumbnail pre-warm (background, fire-and-forget) ────────────────────────
+// ─── thumbnail sprite pre-warm (one FFmpeg pass, background) ─────────────────
 //
-// The frontend calls this once when the video duration is known, passing
-// ~40 evenly-spaced timestamps. Thumbnails are generated 3-at-a-time in the
-// background so hover requests hit the disk cache instead of starting FFmpeg.
+// Called once from the frontend when total duration is known.  Runs a single
+// FFmpeg process — `fps=1/10,scale=160:90` — that writes thumb00001.jpg,
+// thumb00002.jpg, … incrementally.  The GET endpoint starts serving sprite
+// frames as soon as they appear on disk, so thumbnails near the start of the
+// video become instant within seconds of the player opening.
 
 router.post('/thumbnail/prewarm/:type/:id', authenticate, (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
   if (!filePath || !fs.existsSync(filePath)) return res.json({ ok: false });
 
-  const timestamps = Array.isArray(req.body?.timestamps) ? req.body.timestamps : [];
-  let queued = 0;
-  for (const ts of timestamps.slice(0, 100)) {
-    const t = Math.max(0, Math.round(ts));
-    const cacheFile = thumbCacheFile(type, id, t);
-    if (!fs.existsSync(cacheFile)) {
-      thumbQueue.push({ filePath, cacheFile, t });
-      queued++;
+  const jobKey = `${type}-${id}`;
+  const sDir = spriteDir(type, id);
+
+  if (spriteJobs.has(jobKey)) return res.json({ ok: true, status: 'in_progress' });
+  if (fs.existsSync(sDir) && fs.readdirSync(sDir).length > 0) return res.json({ ok: true, status: 'done' });
+
+  spriteJobs.add(jobKey);
+  try { fs.mkdirSync(sDir, { recursive: true }); } catch {}
+
+  const proc = spawn('ffmpeg', [
+    '-i', filePath,
+    '-vf', 'fps=1/10,scale=160:90',
+    '-q:v', '5', '-y',
+    path.join(sDir, 'thumb%05d.jpg'),
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+  proc.stderr.on('data', d => process.stderr.write(`[thumb-sprite] ${d}`));
+  proc.on('error', () => { spriteJobs.delete(jobKey); });
+  proc.on('exit', (code) => {
+    spriteJobs.delete(jobKey);
+    if (code === 0) {
+      console.log(`[thumb-sprite] Complete: ${type}/${id}`);
+    } else {
+      console.error(`[thumb-sprite] FFmpeg exit ${code} for ${type}/${id}`);
+      try { fs.rmSync(sDir, { recursive: true, force: true }); } catch {}
     }
-  }
-  drainThumbQueue();
-  res.json({ ok: true, queued });
+  });
+
+  res.json({ ok: true, status: 'started' });
 });
 
 // ─── stream diagnostics ───────────────────────────────────────────────────────
