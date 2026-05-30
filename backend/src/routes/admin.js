@@ -127,34 +127,42 @@ router.delete('/users/:id', requireAdmin, (req, res) => {
 
 router.get('/config', requireAdmin, (req, res) => {
   const get = (key) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? null;
+  const tvdbConfigured = !!get('tvdb_api_key');
   res.json({
-    tmdbApiKey: get('tmdb_api_key'),
-    tvdbApiKey: get('tvdb_api_key'),
-    omdbApiKey: get('omdb_api_key'),
-    videoCrf: get('video_crf') ?? '23',
-    videoPreset: get('video_preset') ?? 'ultrafast',
-    videoResolution: get('video_resolution') ?? 'original',
-    audioBitrate: get('audio_bitrate') ?? '192k',
-    audioChannels: get('audio_channels') ?? '2',
-    hlsSegmentDuration: get('hls_segment_duration') ?? '4',
+    tmdbApiKey:           get('tmdb_api_key'),
+    tvdbApiKey:           get('tvdb_api_key'),
+    omdbApiKey:           get('omdb_api_key'),
+    imdbApiKey:           get('imdb_api_key'),
+    movieMetadataSource:  get('movie_metadata_source') ?? 'tmdb',
+    tvMetadataSource:     get('tv_metadata_source')    ?? (tvdbConfigured ? 'tvdb' : 'tmdb'),
+    videoCrf:             get('video_crf')             ?? '23',
+    videoPreset:          get('video_preset')          ?? 'ultrafast',
+    videoResolution:      get('video_resolution')      ?? 'original',
+    audioBitrate:         get('audio_bitrate')         ?? '192k',
+    audioChannels:        get('audio_channels')        ?? '2',
+    hlsSegmentDuration:   get('hls_segment_duration')  ?? '4',
   });
 });
 
 router.put('/config', requireAdmin, (req, res) => {
-  const { tmdbApiKey, tvdbApiKey, omdbApiKey, videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration } = req.body;
+  const {
+    tmdbApiKey, tvdbApiKey, omdbApiKey, imdbApiKey,
+    movieMetadataSource, tvMetadataSource,
+    videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration,
+  } = req.body;
   const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
-  if (tmdbApiKey !== undefined) upsert.run('tmdb_api_key', tmdbApiKey);
-  if (tvdbApiKey !== undefined) {
-    upsert.run('tvdb_api_key', tvdbApiKey);
-    require('../services/tvdb').invalidateCache();
-  }
-  if (omdbApiKey !== undefined) upsert.run('omdb_api_key', omdbApiKey);
-  if (videoCrf !== undefined) upsert.run('video_crf', videoCrf);
-  if (videoPreset !== undefined) upsert.run('video_preset', videoPreset);
-  if (videoResolution !== undefined) upsert.run('video_resolution', videoResolution);
-  if (audioBitrate !== undefined) upsert.run('audio_bitrate', audioBitrate);
-  if (audioChannels !== undefined) upsert.run('audio_channels', audioChannels);
-  if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
+  if (tmdbApiKey           !== undefined) upsert.run('tmdb_api_key',            tmdbApiKey);
+  if (tvdbApiKey           !== undefined) { upsert.run('tvdb_api_key', tvdbApiKey); require('../services/tvdb').invalidateCache(); }
+  if (omdbApiKey           !== undefined) upsert.run('omdb_api_key',             omdbApiKey);
+  if (imdbApiKey           !== undefined) upsert.run('imdb_api_key',             imdbApiKey);
+  if (movieMetadataSource  !== undefined) upsert.run('movie_metadata_source',    movieMetadataSource);
+  if (tvMetadataSource     !== undefined) upsert.run('tv_metadata_source',       tvMetadataSource);
+  if (videoCrf             !== undefined) upsert.run('video_crf',                videoCrf);
+  if (videoPreset          !== undefined) upsert.run('video_preset',             videoPreset);
+  if (videoResolution      !== undefined) upsert.run('video_resolution',         videoResolution);
+  if (audioBitrate         !== undefined) upsert.run('audio_bitrate',            audioBitrate);
+  if (audioChannels        !== undefined) upsert.run('audio_channels',           audioChannels);
+  if (hlsSegmentDuration   !== undefined) upsert.run('hls_segment_duration',     hlsSegmentDuration);
   res.json({ success: true });
 });
 
@@ -197,6 +205,11 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
   const tmdb = require('../services/tmdb');
   const tvdb = require('../services/tvdb');
   const omdb = require('../services/omdb');
+  const imdb = require('../services/imdb');
+
+  const getConf = (key) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? null;
+  const movieMdSource = getConf('movie_metadata_source') || 'tmdb';
+  const tvMdSource = getConf('tv_metadata_source') || (tvdb.isConfigured() ? 'tvdb' : 'tmdb');
 
   const movies = db.prepare('SELECT * FROM movies').all();
   const shows = db.prepare('SELECT * FROM tv_shows').all();
@@ -207,25 +220,34 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
 
   send({ type: 'start', total });
 
-  // ── Movies via TMDB + OMDb ──
+  // ── Movies ──
   for (const movie of movies) {
     index++;
     send({ type: 'progress', index, total, title: movie.title, percent: Math.round((index / total) * 100) });
-    const result = await tmdb.searchMovie(movie.title, movie.year);
-    if (result) {
-      db.prepare('UPDATE movies SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=? WHERE id=?')
-        .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
-      moviesUpdated++;
-    }
-    if (omdb.isConfigured()) {
-      const od = await omdb.searchMovie(movie.title, movie.year);
-      if (od) db.prepare('UPDATE movies SET imdb_id=?, imdb_rating=?, content_rating=? WHERE id=?')
-        .run(od.imdb_id, od.imdb_rating, od.content_rating, movie.id);
+
+    if (movieMdSource === 'imdb' && imdb.isConfigured()) {
+      const result = await imdb.searchMovie(movie.title, movie.year);
+      if (result) {
+        db.prepare('UPDATE movies SET imdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=?, imdb_rating=?, content_rating=? WHERE id=?')
+          .run(result.imdb_id, result.overview, result.poster_path, result.backdrop_path, result.rating, result.genres, result.imdb_rating, result.content_rating, movie.id);
+        moviesUpdated++;
+      }
+    } else {
+      const result = await tmdb.searchMovie(movie.title, movie.year);
+      if (result) {
+        db.prepare('UPDATE movies SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=? WHERE id=?')
+          .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
+        moviesUpdated++;
+      }
+      if (omdb.isConfigured()) {
+        const od = await omdb.searchMovie(movie.title, movie.year);
+        if (od) db.prepare('UPDATE movies SET imdb_id=?, imdb_rating=?, content_rating=? WHERE id=?')
+          .run(od.imdb_id, od.imdb_rating, od.content_rating, movie.id);
+      }
     }
   }
 
-  // ── TV shows via TVDB (fallback TMDB) + OMDb + season posters ──
-  const useTVDB = tvdb.isConfigured();
+  // ── TV shows ──
   for (const show of shows) {
     index++;
     send({ type: 'progress', index, total, title: show.title, percent: Math.round((index / total) * 100) });
@@ -233,7 +255,17 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
     let refreshed = false;
     let resolvedTvdbId = show.tvdb_id || null;
 
-    if (useTVDB) {
+    if (tvMdSource === 'imdb' && imdb.isConfigured()) {
+      const result = await imdb.searchSeries(show.title);
+      if (result) {
+        db.prepare('UPDATE tv_shows SET imdb_id=?, overview=?, poster_path=?, rating=?, genres=?, imdb_rating=?, content_rating=? WHERE id=?')
+          .run(result.imdb_id, result.overview, result.poster_path, result.rating, result.genres, result.imdb_rating, result.content_rating, show.id);
+        showsUpdated++;
+        refreshed = true;
+      }
+    }
+
+    if (!refreshed && (tvMdSource === 'tvdb' || tvMdSource !== 'tmdb') && tvdb.isConfigured()) {
       const tvdbMeta = await tvdb.searchSeries(show.title);
       if (tvdbMeta?.tvdb_id) {
         resolvedTvdbId = tvdbMeta.tvdb_id;

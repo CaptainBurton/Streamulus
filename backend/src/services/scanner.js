@@ -3,6 +3,11 @@ const path = require('path');
 const db = require('../database/db');
 const tmdb = require('./tmdb');
 const tvdb = require('./tvdb');
+const imdb = require('./imdb');
+
+function getSource(key, fallback) {
+  return db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value || fallback;
+}
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.m2ts']);
 
@@ -49,29 +54,58 @@ function parseTVFilename(filename) {
 
 // Returns { status: 'added'|'skipped', title }
 async function processMovieFile(filePath, libraryId) {
-  // Check first to avoid an unnecessary TMDB API call for files already in the library
   const existing = db.prepare('SELECT id, title FROM movies WHERE file_path = ?').get(filePath);
   if (existing) return { status: 'skipped', title: existing.title };
 
   const { title, year } = parseMovieFilename(filePath);
-  const tmdbData = await tmdb.searchMovie(title, year);
-  const resolvedTitle = tmdbData?.title || title;
+  const source = getSource('movie_metadata_source', 'tmdb');
 
-  // INSERT OR IGNORE means a concurrent scan that already inserted this file causes no error
+  let meta = null;
+
+  if (source === 'imdb' && imdb.isConfigured()) {
+    const d = await imdb.searchMovie(title, year);
+    if (d) meta = {
+      resolvedTitle: d.title || title,
+      year:          d.year  || year,
+      tmdb_id:       null,
+      overview:      d.overview,
+      poster_path:   d.poster_path,   // full URL from Amazon CDN
+      backdrop_path: d.backdrop_path,
+      rating:        d.rating,
+      genres:        d.genres,
+      imdb_id:       d.imdb_id,
+      imdb_rating:   d.imdb_rating,
+      content_rating: d.content_rating,
+    };
+  } else {
+    const d = await tmdb.searchMovie(title, year);
+    if (d) meta = {
+      resolvedTitle: d.title || title,
+      year:          d.release_date?.split('-')[0] || year,
+      tmdb_id:       d.id,
+      overview:      d.overview,
+      poster_path:   d.poster_path,
+      backdrop_path: d.backdrop_path,
+      rating:        d.vote_average,
+      genres:        d.genre_ids ? JSON.stringify(d.genre_ids) : null,
+      imdb_id:       null,
+      imdb_rating:   null,
+      content_rating: null,
+    };
+  }
+
+  const resolvedTitle = meta?.resolvedTitle || title;
   const r = db.prepare(`
     INSERT OR IGNORE INTO movies
-      (library_id, file_path, title, year, tmdb_id, overview, poster_path, backdrop_path, rating, genres)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (library_id, file_path, title, year, tmdb_id, overview, poster_path, backdrop_path,
+       rating, genres, imdb_id, imdb_rating, content_rating)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    libraryId, filePath,
-    resolvedTitle,
-    tmdbData?.release_date?.split('-')[0] || year,
-    tmdbData?.id || null,
-    tmdbData?.overview || null,
-    tmdbData?.poster_path || null,
-    tmdbData?.backdrop_path || null,
-    tmdbData?.vote_average || null,
-    tmdbData?.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null
+    libraryId, filePath, resolvedTitle, meta?.year || year,
+    meta?.tmdb_id || null, meta?.overview || null,
+    meta?.poster_path || null, meta?.backdrop_path || null,
+    meta?.rating || null, meta?.genres || null,
+    meta?.imdb_id || null, meta?.imdb_rating || null, meta?.content_rating || null,
   );
   return { status: r.changes > 0 ? 'added' : 'skipped', title: resolvedTitle };
 }
@@ -86,16 +120,21 @@ async function processTVFile(filePath, libraryId) {
 
   const { showTitle, season, episode } = parsed;
 
-  // Fetch show metadata — prefer TVDB if configured, fall back to TMDB.
+  // Fetch show metadata using the configured source.
   // Fetching metadata BEFORE the DB lookup is critical: it gives us the
   // canonical show ID so we can find existing rows even when filenames parse
   // to slightly different title strings (e.g. "American Dad" vs "American Dad!").
   let showMeta = null;
-  const useTVDB = tvdb.isConfigured();
+  const tvSource = getSource('tv_metadata_source', tvdb.isConfigured() ? 'tvdb' : 'tmdb');
 
-  if (useTVDB) {
-    const tvdbData = await tvdb.searchSeries(showTitle);
-    if (tvdbData) showMeta = { ...tvdbData, source: 'tvdb' };
+  if (tvSource === 'imdb' && imdb.isConfigured()) {
+    const d = await imdb.searchSeries(showTitle);
+    if (d) showMeta = { ...d, source: 'imdb' };
+  }
+
+  if (!showMeta && (tvSource === 'tvdb' || tvSource !== 'tmdb') && tvdb.isConfigured()) {
+    const d = await tvdb.searchSeries(showTitle);
+    if (d) showMeta = { ...d, source: 'tvdb' };
   }
 
   if (!showMeta) {
@@ -166,7 +205,7 @@ async function processTVFile(filePath, libraryId) {
 
   // Fetch episode metadata from whichever service has a match
   let epData = null;
-  if (show.tvdb_id && useTVDB) {
+  if (show.tvdb_id && tvdb.isConfigured()) {
     epData = await tvdb.getEpisodeDetails(show.tvdb_id, season, episode);
   }
   if (!epData && show.tmdb_id) {

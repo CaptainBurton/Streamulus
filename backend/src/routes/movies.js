@@ -5,14 +5,27 @@ const { posterUrl, backdropUrl, resolveGenreNames, getMovieCredits, getSimilarMo
 
 const router = express.Router();
 
+const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://'));
+
 function formatMovie(m) {
-  const genreIds = m.genres ? JSON.parse(m.genres) : [];
+  // genres may be stored as TMDB integer IDs ["28","12"] or IMDb name strings ["Action","Crime"]
+  let genres = [];
+  if (m.genres) {
+    try {
+      const parsed = JSON.parse(m.genres);
+      if (Array.isArray(parsed)) {
+        genres = typeof parsed[0] === 'number' || (parsed[0] && !isNaN(Number(parsed[0])))
+          ? resolveGenreNames(parsed.map(Number))
+          : parsed; // already name strings
+      }
+    } catch {}
+  }
   return {
     ...m,
-    genre_ids: genreIds,
-    genres: resolveGenreNames(genreIds),
-    poster_url: posterUrl(m.poster_path),
-    backdrop_url: backdropUrl(m.backdrop_path),
+    genres,
+    // IMDb stores full Amazon CDN URLs; TMDB stores relative paths that need the base prepended
+    poster_url:   isFullUrl(m.poster_path)   ? m.poster_path   : posterUrl(m.poster_path),
+    backdrop_url: isFullUrl(m.backdrop_path) ? m.backdrop_path : backdropUrl(m.backdrop_path),
   };
 }
 
