@@ -301,8 +301,8 @@ export default function Admin() {
   const [omdbVisible, setOmdbVisible] = useState(false);
   const [imdbKey, setImdbKey] = useState('');
   const [imdbVisible, setImdbVisible] = useState(false);
-  const [movieSource, setMovieSource] = useState('tmdb');
-  const [tvSource, setTvSource] = useState('tmdb');
+  const [movieSourceOrder, setMovieSourceOrder] = useState(['tmdb', 'imdb']);
+  const [tvSourceOrder, setTvSourceOrder] = useState(['tvdb', 'tmdb', 'imdb']);
   const [debugLogs, setDebugLogs] = useState(() => localStorage.getItem('streamulus_debug_logs') === 'true');
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
@@ -338,8 +338,8 @@ export default function Admin() {
       setTvdbKey(configRes.data.tvdbApiKey || '');
       setOmdbKey(configRes.data.omdbApiKey || '');
       setImdbKey(configRes.data.imdbApiKey || '');
-      setMovieSource(configRes.data.movieMetadataSource || 'tmdb');
-      setTvSource(configRes.data.tvMetadataSource || 'tmdb');
+      setMovieSourceOrder(configRes.data.movieSourceOrder || ['tmdb', 'imdb']);
+      setTvSourceOrder(configRes.data.tvSourceOrder || ['tvdb', 'tmdb', 'imdb']);
       setEncSettings({
         videoCrf: configRes.data.videoCrf || '23',
         videoPreset: configRes.data.videoPreset || 'ultrafast',
@@ -416,7 +416,7 @@ export default function Admin() {
 
   const handleSaveSources = async () => {
     try {
-      await axios.put('/api/admin/config', { movieMetadataSource: movieSource, tvMetadataSource: tvSource });
+      await axios.put('/api/admin/config', { movieSourceOrder, tvSourceOrder });
       flash('Metadata sources saved!');
       loadData();
     } catch { flash('Failed to save metadata sources', true); }
@@ -813,53 +813,76 @@ export default function Admin() {
               </div>
             </div>
 
-            {/* Metadata Sources */}
+            {/* Metadata Source Priority */}
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Metadata Sources</h3>
-              <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
-                Choose which service to use as the primary source when scanning libraries or refreshing metadata. IMDb requires an IMDb API key above; TVDB requires a TVDB key.
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Metadata Source Priority</h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>
+                Sources are tried top-to-bottom. If the first source returns no result, the next is tried automatically. OMDb always runs as a supplement to add IMDb ratings.
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-                {[
-                  {
-                    label: 'Movies',
-                    value: movieSource,
-                    onChange: setMovieSource,
-                    options: [
-                      { value: 'tmdb', label: 'TMDB', desc: 'The Movie Database (recommended)' },
-                      { value: 'imdb', label: 'IMDb', desc: 'IMDb via imdb-api.com (requires IMDb key)' },
-                    ],
-                  },
-                  {
-                    label: 'TV Shows',
-                    value: tvSource,
-                    onChange: setTvSource,
-                    options: [
-                      { value: 'tvdb', label: 'TVDB', desc: 'TheTVDB (recommended when key is set)' },
-                      { value: 'tmdb', label: 'TMDB', desc: 'The Movie Database' },
-                      { value: 'imdb', label: 'IMDb', desc: 'IMDb via imdb-api.com (requires IMDb key)' },
-                    ],
-                  },
-                ].map(({ label, value, onChange, options }, i, arr) => (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>{label}</span>
-                    <select
-                      value={value}
-                      onChange={e => onChange(e.target.value)}
-                      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '240px', cursor: 'pointer', outline: 'none' }}
-                    >
-                      {options.map(o => (
-                        <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
-                      ))}
-                    </select>
+
+              {(() => {
+                const SOURCE_INFO = {
+                  tmdb: { label: 'TMDB', sub: 'The Movie Database', configured: !!config.tmdbApiKey },
+                  tvdb: { label: 'TVDB', sub: 'TheTVDB', configured: !!config.tvdbApiKey },
+                  imdb: { label: 'IMDb', sub: 'imdb-api.com', configured: !!config.imdbApiKey },
+                };
+                const btnBase = { width: '28px', height: '28px', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', color: '#888', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+                const move = (arr, setArr, idx, dir) => {
+                  const next = [...arr];
+                  const t = idx + dir;
+                  if (t < 0 || t >= next.length) return;
+                  [next[idx], next[t]] = [next[t], next[idx]];
+                  setArr(next);
+                };
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {[
+                      { label: 'Movies', order: movieSourceOrder, setOrder: setMovieSourceOrder },
+                      { label: 'TV Shows', order: tvSourceOrder, setOrder: setTvSourceOrder },
+                    ].map(({ label, order, setOrder }) => (
+                      <div key={label}>
+                        <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '10px' }}>{label}</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {order.map((src, i) => {
+                            const info = SOURCE_INFO[src];
+                            return (
+                              <div key={src} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '8px' }}>
+                                <span style={{ fontSize: '12px', color: '#444', width: '18px', textAlign: 'center', fontWeight: '800', flexShrink: 0 }}>{i + 1}</span>
+                                <div style={{ flex: 1 }}>
+                                  <span style={{ fontSize: '14px', fontWeight: '700', color: info.configured ? '#fff' : '#555' }}>{info.label}</span>
+                                  <span style={{ fontSize: '12px', color: '#444', marginLeft: '8px' }}>{info.sub}</span>
+                                  {!info.configured && <span style={{ fontSize: '11px', color: '#c04', marginLeft: '8px', fontWeight: '600' }}>no key set</span>}
+                                </div>
+                                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                  <button
+                                    onClick={() => move(order, setOrder, i, -1)}
+                                    disabled={i === 0}
+                                    style={{ ...btnBase, opacity: i === 0 ? 0.25 : 1 }}
+                                    title="Move up"
+                                  >↑</button>
+                                  <button
+                                    onClick={() => move(order, setOrder, i, 1)}
+                                    disabled={i === order.length - 1}
+                                    style={{ ...btnBase, opacity: i === order.length - 1 ? 0.25 : 1 }}
+                                    title="Move down"
+                                  >↓</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                );
+              })()}
+
               <button
                 onClick={handleSaveSources}
-                style={{ marginTop: '20px', padding: '10px 24px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
+                style={{ marginTop: '24px', padding: '10px 24px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
               >
-                Save Sources
+                Save Priority
               </button>
             </div>
 

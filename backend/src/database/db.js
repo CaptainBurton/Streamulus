@@ -130,6 +130,11 @@ try {
     UNIQUE(show_id, season_number)
   )`);
 } catch {}
+// Clear malformed episode still_path values: relative TVDB paths that were incorrectly
+// prefixed with the TMDB CDN URL before the toFullUrl() fix was introduced.
+try {
+  db.prepare(`UPDATE episodes SET still_path = NULL WHERE still_path LIKE 'https://image.tmdb.org/t/p/%/banners/%'`).run();
+} catch {}
 
 
 const ENCODING_DEFAULTS = {
