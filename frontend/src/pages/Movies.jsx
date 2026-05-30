@@ -13,36 +13,65 @@ function MovieGrid({ movies }) {
       gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
       gap: '16px',
     }}>
-      {movies.map(movie => (
-        <div
-          key={movie.id}
-          onClick={() => navigate(`/movie/${movie.id}`)}
-          style={{ cursor: 'pointer', position: 'relative', borderRadius: '8px', overflow: 'hidden', transition: 'transform 0.2s, box-shadow 0.2s' }}
-          onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.7)'; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
-        >
-          <img
-            src={movie.poster_url || PLACEHOLDER}
-            alt={movie.title}
-            onError={e => { e.target.src = PLACEHOLDER; }}
-            style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
-          />
-          <div style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            padding: '12px 10px 10px',
-            background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)',
-          }}>
-            <div style={{ fontSize: '12px', fontWeight: '600', color: '#fff', lineHeight: 1.3 }}>{movie.title}</div>
-            <div style={{ display: 'flex', gap: '6px', marginTop: '3px', alignItems: 'center' }}>
-              {movie.year && <span style={{ fontSize: '10px', color: '#888' }}>{movie.year}</span>}
-              {movie.rating && <span style={{ fontSize: '10px', color: '#00c2ff', fontWeight: '600' }}>★ {movie.rating.toFixed(1)}</span>}
+      {movies.map(movie => {
+        const watched = !!movie.watch_completed;
+        const hasProgress = !watched && movie.watch_position > 0;
+        const progressRatio = hasProgress
+          ? (movie.runtime > 0 ? Math.min(movie.watch_position / (movie.runtime * 60), 1) : 0.15)
+          : 0;
+        return (
+          <div
+            key={movie.id}
+            onClick={() => navigate(`/movie/${movie.id}`)}
+            style={{ cursor: 'pointer', position: 'relative', borderRadius: '8px', overflow: 'hidden', transition: 'transform 0.2s, box-shadow 0.2s' }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.7)'; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
+          >
+            <img
+              src={movie.poster_url || PLACEHOLDER}
+              alt={movie.title}
+              onError={e => { e.target.src = PLACEHOLDER; }}
+              style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
+            />
+
+            {/* Watched checkmark badge */}
+            {watched && (
+              <div style={{
+                position: 'absolute', top: '8px', right: '8px',
+                width: '22px', height: '22px', borderRadius: '50%',
+                background: '#00c864', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.6)',
+              }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            )}
+
+            <div style={{
+              position: 'absolute',
+              bottom: hasProgress ? '4px' : 0,
+              left: 0,
+              right: 0,
+              padding: '12px 10px 10px',
+              background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)',
+            }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: '#fff', lineHeight: 1.3 }}>{movie.title}</div>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '3px', alignItems: 'center' }}>
+                {movie.year && <span style={{ fontSize: '10px', color: '#888' }}>{movie.year}</span>}
+                {movie.rating && <span style={{ fontSize: '10px', color: '#00c2ff', fontWeight: '600' }}>★ {movie.rating.toFixed(1)}</span>}
+              </div>
             </div>
+
+            {/* In-progress bar */}
+            {hasProgress && (
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '4px', background: 'rgba(0,0,0,0.5)' }}>
+                <div style={{ width: `${progressRatio * 100}%`, height: '100%', background: '#00c2ff', minWidth: '6px' }} />
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

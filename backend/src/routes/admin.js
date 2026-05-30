@@ -141,6 +141,7 @@ router.get('/config', requireAdmin, (req, res) => {
     audioBitrate:       get('audio_bitrate')        ?? '192k',
     audioChannels:      get('audio_channels')       ?? '2',
     hlsSegmentDuration: get('hls_segment_duration') ?? '4',
+    progressMinSeconds: get('progress_min_seconds') ?? '10',
   });
 });
 
@@ -149,6 +150,7 @@ router.put('/config', requireAdmin, (req, res) => {
     tmdbApiKey, tvdbApiKey, omdbApiKey, imdbApiKey,
     movieSourceOrder, tvSourceOrder,
     videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration,
+    progressMinSeconds,
   } = req.body;
   const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
   if (tmdbApiKey       !== undefined) upsert.run('tmdb_api_key',       tmdbApiKey);
@@ -163,6 +165,7 @@ router.put('/config', requireAdmin, (req, res) => {
   if (audioBitrate     !== undefined) upsert.run('audio_bitrate',      audioBitrate);
   if (audioChannels    !== undefined) upsert.run('audio_channels',     audioChannels);
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
+  if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
   res.json({ success: true });
 });
 

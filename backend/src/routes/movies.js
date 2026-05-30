@@ -31,19 +31,24 @@ function formatMovie(m) {
 
 router.get('/', authenticate, (req, res) => {
   const { search, sort = 'added_at', order = 'DESC', limit = 50, offset = 0 } = req.query;
-  let query = 'SELECT * FROM movies WHERE 1=1';
-  const params = [];
+  let query = `
+    SELECT m.*, wh.completed AS watch_completed, wh.position AS watch_position
+    FROM movies m
+    LEFT JOIN watch_history wh ON wh.media_id = m.id AND wh.user_id = ? AND wh.media_type = 'movie'
+    WHERE 1=1
+  `;
+  const params = [req.user.id];
 
-  if (search) { query += ' AND title LIKE ?'; params.push(`%${search}%`); }
+  if (search) { query += ' AND m.title LIKE ?'; params.push(`%${search}%`); }
 
-  const validSorts = { title: 'title', year: 'year', rating: 'rating', added: 'added_at' };
-  const sortCol = validSorts[sort] || 'added_at';
+  const validSorts = { title: 'm.title', year: 'm.year', rating: 'm.rating', added: 'm.added_at' };
+  const sortCol = validSorts[sort] || 'm.added_at';
   const sortDir = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   query += ` ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`;
   params.push(parseInt(limit), parseInt(offset));
 
   const movies = db.prepare(query).all(...params).map(formatMovie);
-  const total = db.prepare('SELECT COUNT(*) as count FROM movies').get().count;
+  const total = db.prepare('SELECT COUNT(*) as count FROM movies' + (search ? ' WHERE title LIKE ?' : '')).get(...(search ? [`%${search}%`] : [])).count;
   res.json({ movies, total });
 });
 

@@ -306,7 +306,7 @@ export default function Admin() {
   const [debugLogs, setDebugLogs] = useState(() => localStorage.getItem('streamulus_debug_logs') === 'true');
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
-    audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4',
+    audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4', progressMinSeconds: '10',
   });
   const [newLib, setNewLib] = useState({ name: '', path: '', type: 'movies' });
   const [newUser, setNewUser] = useState({ username: '', password: '', email: '', role: 'user' });
@@ -347,6 +347,7 @@ export default function Admin() {
         audioBitrate: configRes.data.audioBitrate || '192k',
         audioChannels: configRes.data.audioChannels || '2',
         hlsSegmentDuration: configRes.data.hlsSegmentDuration || '4',
+        progressMinSeconds: configRes.data.progressMinSeconds || '10',
       });
     } catch { }
   };
@@ -965,7 +966,7 @@ export default function Admin() {
 
               {/* STREAMING section */}
               <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '12px', marginTop: '16px' }}>Streaming</div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Segment Size</span>
                 <select
                   value={encSettings.hlsSegmentDuration}
@@ -975,6 +976,24 @@ export default function Admin() {
                   <option value="2">2 seconds (precise seeking)</option>
                   <option value="4">4 seconds (default)</option>
                   <option value="6">6 seconds (fewer requests)</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>
+                <div>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Resume Threshold</span>
+                  <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>Minimum seconds watched before adding to Continue Watching</div>
+                </div>
+                <select
+                  value={encSettings.progressMinSeconds}
+                  onChange={e => setEncSettings(s => ({ ...s, progressMinSeconds: e.target.value }))}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none', flexShrink: 0 }}
+                >
+                  <option value="5">5 seconds</option>
+                  <option value="10">10 seconds (default)</option>
+                  <option value="15">15 seconds</option>
+                  <option value="20">20 seconds</option>
+                  <option value="25">25 seconds</option>
+                  <option value="30">30 seconds</option>
                 </select>
               </div>
 
