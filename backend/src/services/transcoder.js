@@ -77,7 +77,6 @@ function buildVideoFilter(resolution) {
 // copyMode: when true, source is H.264 — skip video re-encoding for speed.
 // audioCopy: when true, source audio is AAC — copy it too (zero transcoding).
 function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, copyMode = false, audioCopy = false) {
-  const gop = settings.segmentDuration * 30; // keyframe interval in frames (assuming ~30fps)
   return [
     '-hide_banner', '-loglevel', 'warning',
     '-fflags', '+genpts+discardcorrupt',
@@ -96,7 +95,10 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
       '-pix_fmt', 'yuv420p',
       '-vf', buildVideoFilter(settings.resolution),
       '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
-      '-g', String(gop), '-keyint_min', String(gop), '-sc_threshold', '0',
+      // Force keyframes at exact segment boundaries regardless of source framerate.
+      // -g/-keyint_min depends on fps (e.g. -g 120 at 24fps = 5s GOPs, wrong for 4s segments).
+      '-force_key_frames', `expr:gte(t,n_forced*${settings.segmentDuration})`,
+      '-sc_threshold', '0',
     ]),
     '-max_muxing_queue_size', '4096',
     ...(audioCopy ? [
