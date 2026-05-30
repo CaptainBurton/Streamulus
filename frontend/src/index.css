@@ -54,6 +54,16 @@ input, textarea, select {
 }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35); }
 
+/* Suppress Safari's native video overlay controls (play button, pip, AirPlay) */
+video::-webkit-media-controls,
+video::-webkit-media-controls-panel,
+video::-webkit-media-controls-play-button,
+video::-webkit-media-controls-start-playback-button,
+video::-webkit-media-controls-overlay-play-button {
+  display: none !important;
+  -webkit-appearance: none;
+}
+
 .page-container {
   min-height: 100vh;
   padding-top: 70px;

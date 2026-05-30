@@ -297,6 +297,8 @@ export default function Admin() {
   const [tmdbVisible, setTmdbVisible] = useState(false);
   const [tvdbKey, setTvdbKey] = useState('');
   const [tvdbVisible, setTvdbVisible] = useState(false);
+  const [omdbKey, setOmdbKey] = useState('');
+  const [omdbVisible, setOmdbVisible] = useState(false);
   const [debugLogs, setDebugLogs] = useState(() => localStorage.getItem('streamulus_debug_logs') === 'true');
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
@@ -330,6 +332,7 @@ export default function Admin() {
       setConfig(configRes.data);
       setTmdbKey(configRes.data.tmdbApiKey || '');
       setTvdbKey(configRes.data.tvdbApiKey || '');
+      setOmdbKey(configRes.data.omdbApiKey || '');
       setEncSettings({
         videoCrf: configRes.data.videoCrf || '23',
         videoPreset: configRes.data.videoPreset || 'ultrafast',
@@ -386,6 +389,14 @@ export default function Admin() {
       flash('TVDB key saved!');
       loadData();
     } catch { flash('Failed to save TVDB key', true); }
+  };
+
+  const handleSaveOMDb = async () => {
+    try {
+      await axios.put('/api/admin/config', { omdbApiKey: omdbKey });
+      flash('OMDb key saved!');
+      loadData();
+    } catch { flash('Failed to save OMDb key', true); }
   };
 
   const handleSaveEncoding = async () => {
@@ -694,6 +705,47 @@ export default function Admin() {
                   </button>
                 </div>
                 <button onClick={handleSaveTVDB} style={{ padding: '10px 20px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>Save</button>
+              </div>
+            </div>
+
+            {/* OMDb / IMDb API Key */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>OMDb API Key <span style={{ fontSize: '12px', color: '#f5c518', fontWeight: '600', marginLeft: '8px' }}>IMDb</span></h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
+                Current status: <strong style={{ color: config.omdbApiKey ? '#00c864' : '#ff4444' }}>{config.omdbApiKey ? 'Configured' : 'Not set'}</strong>
+                <br /><span style={{ fontSize: '12px' }}>Used to fetch IMDb ratings, content ratings (PG-13, TV-MA), and IMDb IDs for movies and TV shows. Free key (1000 req/day) at <span style={{ color: '#00c2ff' }}>omdbapi.com</span>. Run Refresh Metadata after adding key.</span>
+              </p>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    style={{ ...inputStyle, paddingRight: '44px', width: '100%', boxSizing: 'border-box' }}
+                    type={omdbVisible ? 'text' : 'password'}
+                    placeholder="Enter OMDb API key"
+                    value={omdbKey}
+                    onChange={e => setOmdbKey(e.target.value)}
+                    onFocus={e => { e.target.style.borderColor = '#00c2ff'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setOmdbVisible(v => !v)}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px', color: '#666', display: 'flex', alignItems: 'center' }}
+                    title={omdbVisible ? 'Hide key' : 'Show key'}
+                  >
+                    {omdbVisible ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                      </svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                <button onClick={handleSaveOMDb} style={{ padding: '10px 20px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>Save</button>
               </div>
             </div>
 

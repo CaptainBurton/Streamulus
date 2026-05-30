@@ -337,6 +337,12 @@ export default function Watch() {
   }, []);
   useEffect(() => () => clearTimeout(hideTimerRef.current), []);
 
+  // Prevent Safari from ever re-enabling native controls
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) { v.controls = false; v.disablePictureInPicture = true; }
+  }, []);
+
   // ── Control handlers ──────────────────────────────────────────────────────
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -439,10 +445,12 @@ export default function Watch() {
       style={{ minHeight: '100vh', background: '#000', position: 'relative', cursor: showBar ? 'default' : 'none', userSelect: 'none' }}
       onMouseMove={showControls}
     >
-      {/* Video */}
+      {/* Video — no controls attribute; native UI suppressed via CSS + disablePictureInPicture */}
       <video
         ref={videoRef}
         playsInline
+        disablePictureInPicture
+        x-webkit-airplay="deny"
         onClick={togglePlay}
         style={{ width: '100%', height: '100vh', background: '#000', display: 'block' }}
       />

@@ -49,9 +49,12 @@ router.get('/:id', authenticate, (req, res) => {
   if (!show) return res.status(404).json({ error: 'Show not found' });
 
   const seasons = db.prepare(`
-    SELECT season, COUNT(*) as episode_count
-    FROM episodes WHERE show_id = ?
-    GROUP BY season ORDER BY season
+    SELECT e.season, COUNT(*) as episode_count,
+           s.poster_path as season_poster
+    FROM episodes e
+    LEFT JOIN seasons s ON s.show_id = e.show_id AND s.season_number = e.season
+    WHERE e.show_id = ?
+    GROUP BY e.season ORDER BY e.season
   `).all(req.params.id);
 
   res.json({ show: formatShow(show), seasons });
