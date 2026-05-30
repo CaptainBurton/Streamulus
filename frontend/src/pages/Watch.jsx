@@ -152,6 +152,9 @@ export default function Watch() {
         const r = await axios.get(`/api/stream/check/${type}/${id}`);
         if (!r.data.ok) { setError(r.data.error); setBuffering(false); return; }
         addLog(`File OK: ${r.data.filePath}`);
+        // Start thumbnail sprite generation early so frames are ready by the time
+        // the user hovers over the progress bar (takes several seconds for a full file).
+        if (!prewarmFired.current) { prewarmFired.current = true; axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, {}).catch(() => {}); }
       } catch { addLog('File check failed — continuing'); }
       if (cancelled) return;
 
@@ -199,7 +202,8 @@ export default function Watch() {
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             if (cancelled) return;
             addLog('Manifest parsed');
-            setBuffering(false);
+            // Don't hide spinner here — keep it until canplay/playing so the user
+            // never sees a black screen between manifest load and first segment.
             video.play().catch(e => addLog(`play() rejected: ${e.message}`));
           });
 
@@ -396,18 +400,6 @@ export default function Watch() {
     }, 150);
     return () => clearTimeout(thumbTimerRef.current);
   }, [dragTime, hoverTime, type, id, token]); // token needed for img src URL
-
-  // ── Pre-warm thumbnails once total duration is known ──────────────────────
-  // Fires a single background POST that starts one FFmpeg pass generating ALL
-  // thumbnails (fps=1/10). Frames appear incrementally on disk; the server
-  // serves them the moment they exist, so hovering near the start is instant
-  // after a few seconds and hovering anywhere becomes instant once the pass
-  // completes. The ref prevents re-firing on re-renders or seeks.
-  useEffect(() => {
-    if (!totalFileDur || !type || !id || prewarmFired.current) return;
-    prewarmFired.current = true;
-    axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, {}).catch(() => {});
-  }, [totalFileDur, type, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-hide controls ────────────────────────────────────────────────────
   const showControls = useCallback(() => {

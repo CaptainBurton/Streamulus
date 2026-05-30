@@ -74,13 +74,9 @@ function buildVideoFilter(resolution) {
   return limits[resolution] ? `${limits[resolution]},${even},${fmt}` : `${even},${fmt}`;
 }
 
-// Build FFmpeg args for HLS transcoding into the given output directory.
-// Segments are always named seg00000.ts, seg00001.ts, ... within that dir.
-// Seek restarts use separate subdirectories so -start_number is not needed.
-// outputTsOffset: when set, shifts output PTS by this many seconds so hls.js
-// places the content at the correct timeline position (seek restarts only).
 // copyMode: when true, source is H.264 — skip video re-encoding for speed.
-function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, copyMode = false) {
+// audioCopy: when true, source audio is AAC — copy it too (zero transcoding).
+function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, copyMode = false, audioCopy = false) {
   const gop = settings.segmentDuration * 30; // keyframe interval in frames (assuming ~30fps)
   return [
     '-hide_banner', '-loglevel', 'warning',
@@ -103,9 +99,13 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
       '-g', String(gop), '-keyint_min', String(gop), '-sc_threshold', '0',
     ]),
     '-max_muxing_queue_size', '4096',
-    '-c:a', 'aac', '-b:a', settings.audioBitrate,
-    ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
-    '-ar', '48000',
+    ...(audioCopy ? [
+      '-c:a', 'copy',
+    ] : [
+      '-c:a', 'aac', '-b:a', settings.audioBitrate,
+      ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
+      '-ar', '48000',
+    ]),
     ...(outputTsOffset > 0 ? ['-output_ts_offset', String(outputTsOffset)] : []),
     '-hls_time', String(settings.segmentDuration),
     '-hls_list_size', '0',
@@ -137,7 +137,9 @@ async function getHLSSession(filePath, startTime = 0) {
   const { duration: totalDuration, vCodec, aCodec } = await probeFile(filePath);
   // Copy mode: if source is already H.264, skip video re-encoding (10-50x faster segment gen)
   const copyMode = vCodec === 'h264';
-  if (copyMode) console.log(`[transcode] Copy mode enabled for ${path.basename(filePath)} (${vCodec}/${aCodec})`);
+  // Only copy audio when both video AND audio can be passthrough — AAC in TS is universally supported.
+  const audioCopy = copyMode && aCodec === 'aac';
+  if (copyMode) console.log(`[transcode] Copy mode: ${path.basename(filePath)} video=${vCodec} audio=${aCodec} audioCopy=${audioCopy}`);
 
   const dir = path.join(HLS_BASE, key);
   fs.mkdirSync(dir, { recursive: true });
@@ -151,9 +153,13 @@ async function getHLSSession(filePath, startTime = 0) {
   // Each entry { fromIdx, dir } maps a range of global segment indices to a
   // local directory where FFmpeg wrote seg00000.ts, seg00001.ts, ...
   // Global segment N → seek point with highest fromIdx ≤ N → local file seg{N-fromIdx}.ts
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, settings, copyMode, seekPoints: [{ fromIdx: 0, dir }] };
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, settings, copyMode, audioCopy, seekPoints: [{ fromIdx: 0, dir }] };
 
-  if (totalDuration > 0) {
+  // Precompute manifest only for transcode mode where we control keyframe placement
+  // and therefore know exact segment boundaries. In copy mode, actual segment
+  // boundaries depend on source keyframes; serving the live FFmpeg manifest avoids
+  // a segment-count mismatch that would cause phantom 404s near the end of the file.
+  if (totalDuration > 0 && !copyMode) {
     const effectiveDuration = Math.max(1, totalDuration - Math.max(0, startTime));
     const segCount = Math.ceil(effectiveDuration / settings.segmentDuration);
     const lines = [
@@ -175,7 +181,7 @@ async function getHLSSession(filePath, startTime = 0) {
 
   sessions.set(key, session);
 
-  const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir, 0, copyMode);
+  const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir, 0, copyMode, audioCopy);
 
   console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)} start=${startTime}s`);
   console.log(`[transcode] Command: ffmpeg ${ffmpegArgs.join(' ')}`);
@@ -318,7 +324,7 @@ async function getSegmentPath(key, segmentName) {
     if (session.process) { try { session.process.kill('SIGTERM'); } catch {} session.process = null; }
     session.seekPoints.push({ fromIdx: requestedIdx, dir: seekDir });
     const proc = spawn('ffmpeg',
-      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, seekSec, session.copyMode),
+      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, seekSec, session.copyMode, session.audioCopy),
       { stdio: ['ignore', 'ignore', 'pipe'] });
     session.process = proc;
     proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
