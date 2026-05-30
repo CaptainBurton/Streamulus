@@ -62,9 +62,10 @@ export default function Watch() {
   // Stable callback refs (used inside keyboard / drag handlers to avoid stale closures)
   const startHlsAtRef = useRef(null);
   const skipRef       = useRef(null);
-  const fsRef         = useRef(null);
-  const isDragging    = useRef(false);
-  const totalDurRef   = useRef(0);
+  const fsRef          = useRef(null);
+  const isDragging     = useRef(false);
+  const totalDurRef    = useRef(0);
+  const prewarmFired   = useRef(false);
 
   // UI state
   const [media,       setMedia]       = useState(null);
@@ -107,8 +108,12 @@ export default function Watch() {
 
   // Derived
   const absTime = startPosRef.current + curTime;
-  // Use the cached total file duration (survives seeks without inflating)
-  const totalDur = totalFileDur || (startPosRef.current + (duration || 0));
+  // Only compute totalDur once we have a real segment duration from durationchange.
+  // Without this guard: resuming from saved position sets startPosRef > 0 but
+  // duration=0, giving totalDur=savedPos and progress=savedPos/savedPos=1 (100%).
+  const totalDur = totalFileDur > 0
+    ? totalFileDur
+    : (duration > 0 ? startPosRef.current + duration : 0);
   totalDurRef.current = totalDur;
   const displayTime = dragTime ?? absTime;
   const progress = totalDur > 0 ? Math.min(displayTime / totalDur, 1) : 0;
@@ -163,6 +168,7 @@ export default function Watch() {
 
         const startHlsAt = (absPos) => {
           if (cancelled) return;
+          setBuffering(true);
           if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
           startPosRef.current = absPos;
           setCurTime(0);
@@ -346,17 +352,29 @@ export default function Watch() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // ── Seek thumbnail (debounced 120 ms, snapped to 5 s intervals) ──────────
+  // ── Seek thumbnail (debounced 150 ms, snapped to 10 s intervals) ─────────
   useEffect(() => {
     const previewT = dragTime ?? hoverTime;
     if (previewT === null) { setThumbSrc(null); return; }
     clearTimeout(thumbTimerRef.current);
     thumbTimerRef.current = setTimeout(() => {
-      const t = Math.round(previewT / 5) * 5;
+      const t = Math.round(previewT / 10) * 10;
       setThumbSrc(`/api/stream/thumbnail/${type}/${id}?t=${t}&token=${token}`);
-    }, 120);
+    }, 150);
     return () => clearTimeout(thumbTimerRef.current);
   }, [dragTime, hoverTime, type, id, token]);
+
+  // ── Pre-warm thumbnails once total duration is known ──────────────────────
+  // Fires a single background POST to generate ~40 thumbnails spread across
+  // the video. After that the disk cache makes hover requests instant.
+  useEffect(() => {
+    if (!totalFileDur || !type || !id || !token || prewarmFired.current) return;
+    prewarmFired.current = true;
+    const count = Math.min(40, Math.ceil(totalFileDur / 30));
+    const step = totalFileDur / count;
+    const timestamps = Array.from({ length: count }, (_, i) => Math.round(i * step / 10) * 10);
+    axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, { timestamps }).catch(() => {});
+  }, [totalFileDur, type, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-hide controls ────────────────────────────────────────────────────
   const showControls = useCallback(() => {
@@ -547,7 +565,7 @@ export default function Watch() {
                 const previewRatio = totalDur > 0 ? Math.min(previewTime / totalDur, 1) : 0;
                 const barWidth = progressRef.current?.offsetWidth ?? 300;
                 const rawX = previewRatio * barWidth;
-                const thumbW = 224;
+                const thumbW = 160;
                 const clampedX = Math.min(Math.max(rawX, thumbW / 2), barWidth - thumbW / 2);
                 return (
                   <>
@@ -567,7 +585,7 @@ export default function Watch() {
                     }}>
                       {/* Thumbnail image */}
                       <div style={{
-                        width: `${thumbW}px`, height: '126px',
+                        width: `${thumbW}px`, height: '90px',
                         background: '#111', borderRadius: '6px 6px 0 0',
                         border: '1.5px solid rgba(255,255,255,0.15)',
                         borderBottom: 'none', overflow: 'hidden',
