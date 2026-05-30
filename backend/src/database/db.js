@@ -121,6 +121,7 @@ try { db.exec('ALTER TABLE movies ADD COLUMN content_rating TEXT'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN imdb_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN imdb_rating REAL'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN content_rating TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN intro_end_time INTEGER'); } catch {}
 try {
   db.exec(`CREATE TABLE IF NOT EXISTS seasons (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
