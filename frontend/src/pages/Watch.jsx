@@ -188,12 +188,15 @@ export default function Watch() {
             enableWorker: true,
             lowLatencyMode: false,
             startFragPrefetch: true,
-            maxBufferLength: 60,
-            maxMaxBufferLength: 600,
-            backBufferLength: 30,
-            maxBufferHole: 1.0,
+            // Keep forward buffer short to avoid MSE QuotaExceededError on high-bitrate
+            // content. Chrome's MSE limit is typically 50-150 MB; at 8 Mbps a 60s buffer
+            // is ~60 MB which can overflow and cause bufferAppendError ~30s into playback.
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            backBufferLength: 10,
+            maxBufferHole: 0.5,
             fragLoadingTimeOut: 30000, fragLoadingMaxRetry: 8, fragLoadingRetryDelay: 300,
-            highBufferWatchdogPeriod: 5, nudgeOffset: 0.3, nudgeMaxRetry: 5,
+            highBufferWatchdogPeriod: 4, nudgeOffset: 0.5, nudgeMaxRetry: 3,
           });
           hlsRef.current = hls;
           hls.loadSource(url);
@@ -220,9 +223,24 @@ export default function Watch() {
 
           // Recovery counter is per-HLS-instance (reset on every startHlsAt call).
           let mediaRecoveries = 0;
+          let lastNonFatalRecovery = 0;
           hls.on(Hls.Events.ERROR, (_, data) => {
             addLog(`hls ${data.fatal ? 'FATAL' : 'non-fatal'}: ${data.details}`);
-            if (cancelled || !data.fatal) return;
+            if (cancelled) return;
+
+            if (!data.fatal) {
+              // bufferAppendError is non-fatal at first but indicates MSE pressure.
+              // Recover proactively (max once per 3s) to prevent it escalating to fatal.
+              if (data.details === 'bufferAppendError' || data.details === 'bufferStalledError') {
+                const now = Date.now();
+                if (now - lastNonFatalRecovery > 3000) {
+                  lastNonFatalRecovery = now;
+                  addLog(`Non-fatal ${data.details} — proactive recovery`);
+                  hls.recoverMediaError();
+                }
+              }
+              return;
+            }
 
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
               // bufferAppendError / bufferStalledError / mediaError:
