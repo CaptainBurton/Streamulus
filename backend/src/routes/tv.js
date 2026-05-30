@@ -47,13 +47,20 @@ router.get('/recent', authenticate, (req, res) => {
 router.get('/episode/:id', authenticate, (req, res) => {
   const row = db.prepare(`
     SELECT e.season, e.episode_number, e.title as episode_title,
-           s.title as show_title, s.id as show_id
+           s.title as show_title, s.id as show_id, s.intro_end_time
     FROM episodes e
     JOIN tv_shows s ON s.id = e.show_id
     WHERE e.id = ?
   `).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Episode not found' });
   res.json(row);
+});
+
+router.patch('/:id/intro', authenticate, (req, res) => {
+  const { introEndTime } = req.body;
+  const val = introEndTime != null ? Math.max(0, Math.floor(Number(introEndTime))) : null;
+  db.prepare('UPDATE tv_shows SET intro_end_time = ? WHERE id = ?').run(val, req.params.id);
+  res.json({ ok: true, intro_end_time: val });
 });
 
 router.get('/:id', authenticate, (req, res) => {

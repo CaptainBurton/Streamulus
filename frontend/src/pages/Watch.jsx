@@ -93,6 +93,9 @@ export default function Watch() {
   // Seek thumbnail
   const [thumbSrc,    setThumbSrc]    = useState(null);
 
+  // Skip Intro
+  const [introDismissed, setIntroDismissed] = useState(false);
+
   // Diag
   const [diagInfo,    setDiagInfo]    = useState(null);
   const [diagLoad,    setDiagLoad]    = useState(false);
@@ -127,12 +130,12 @@ export default function Watch() {
         ]).then(([epRes, progRes]) => {
           const ep = epRes.data;
           const label = `S${String(ep.season).padStart(2,'0')} E${String(ep.episode_number).padStart(2,'0')}${ep.episode_title ? ` – ${ep.episode_title}` : ''}`;
-          return { id, type, title: ep.show_title, subtitle: label, progress: progRes.data };
+          return { id, type, title: ep.show_title, subtitle: label, progress: progRes.data, introEndTime: ep.intro_end_time || 0, showId: ep.show_id };
         })
       : axios.get(`/api/movies/${id}`).then(async r => {
           const m = r.data.movie;
           const p = await axios.get(`/api/stream/progress/movie/${id}`).then(x => x.data).catch(() => ({ position: 0 }));
-          return { ...m, progress: p };
+          return { ...m, progress: p, introEndTime: 0 };
         });
     fetch_.then(setMedia).catch(() => setError('Media not found.')).finally(() => setLoading(false));
   }, [type, id]);
@@ -179,6 +182,11 @@ export default function Watch() {
           if (cancelled) return;
           setBuffering(true);
           if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+          // After hls.destroy() the video element's currentTime is NOT reset.
+          // If the new session's segments start at t=0 but currentTime is still
+          // at the old position (e.g. 1200s), hls.js will try to buffer from
+          // that offset, find nothing, and stall. Reset explicitly.
+          try { video.currentTime = 0; } catch {}
           startPosRef.current = absPos;
           setCurTime(0);
           const url = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${absPos > 0 ? `&start=${absPos}` : ''}`;
@@ -502,6 +510,28 @@ export default function Watch() {
     setHoverX(e.clientX - rect.left);
   };
 
+  // ── Skip Intro ────────────────────────────────────────────────────────────
+  const handleSetIntroEnd = useCallback(async () => {
+    if (!media?.showId) return;
+    const t = Math.max(1, Math.floor(startPosRef.current + (videoRef.current?.currentTime || 0)));
+    try {
+      await axios.patch(`/api/tv/shows/${media.showId}/intro`, { introEndTime: t });
+      setMedia(m => ({ ...m, introEndTime: t }));
+      setIntroDismissed(false);
+    } catch (e) { console.error('Set intro end failed', e); }
+  }, [media]);
+
+  const handleClearIntro = useCallback(async () => {
+    if (!media?.showId) return;
+    try {
+      await axios.patch(`/api/tv/shows/${media.showId}/intro`, { introEndTime: null });
+      setMedia(m => ({ ...m, introEndTime: 0 }));
+    } catch (e) { console.error('Clear intro failed', e); }
+  }, [media]);
+
+  const showSkipIntro = type === 'episode' && !introDismissed
+    && (media?.introEndTime || 0) > 0 && absTime >= 2 && absTime < (media?.introEndTime || 0);
+
   // ── Diag / debug helpers ──────────────────────────────────────────────────
   const runDiag = async () => {
     setDiagLoad(true);
@@ -604,6 +634,26 @@ export default function Watch() {
               )}
             </div>
           </div>
+
+          {/* ── Skip Intro button ─────────────────────────────────────────────── */}
+          {showSkipIntro && (
+            <button
+              onClick={() => { setIntroDismissed(true); startHlsAtRef.current?.(media.introEndTime); }}
+              style={{
+                position: 'fixed', bottom: '95px', right: '28px', zIndex: 101,
+                padding: '10px 22px',
+                background: 'rgba(15,15,15,0.85)', backdropFilter: 'blur(10px)',
+                border: '2px solid rgba(255,255,255,0.45)',
+                color: '#fff', borderRadius: '4px', fontSize: '15px', fontWeight: '700',
+                cursor: 'pointer', letterSpacing: '0.3px',
+                opacity: showBar ? 1 : 0.7, transition: 'opacity 0.35s, transform 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(40,40,40,0.9)'; e.currentTarget.style.transform = 'scale(1.04)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(15,15,15,0.85)'; e.currentTarget.style.transform = 'scale(1)'; }}
+            >
+              Skip Intro →
+            </button>
+          )}
 
           {/* ── Bottom controls ──────────────────────────────────────────────── */}
           <div
