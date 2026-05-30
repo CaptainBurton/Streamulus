@@ -247,6 +247,8 @@ export default function Watch() {
   }, [type, id]);
 
   // ── Video events → player state ───────────────────────────────────────────
+  // NOTE: deps intentionally empty — the video element is always in the DOM
+  // from first render, so videoRef.current is guaranteed non-null here.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -269,7 +271,7 @@ export default function Watch() {
       v.removeEventListener('pause', onPause);
       v.removeEventListener('volumechange', onVol);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fullscreen ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -401,9 +403,7 @@ export default function Watch() {
     setHoverX(e.clientX - rect.left);
   };
 
-  // ── Early returns ──────────────────────────────────────────────────────────
-  if (loading) return <div style={S.center}><div className="spinner" /></div>;
-
+  // ── Diag / debug helpers ──────────────────────────────────────────────────
   const runDiag = async () => {
     setDiagLoad(true);
     try { const r = await axios.get(`/api/stream/diagnose/${type}/${id}`); setDiagInfo(r.data); }
@@ -418,24 +418,10 @@ export default function Watch() {
     </div>
   ) : null;
 
-  if (error) return (
-    <div style={{ ...S.center, flexDirection: 'column', gap: '16px', padding: '32px', textAlign: 'center' }}>
-      <div style={{ fontSize: '40px' }}>⚠️</div>
-      <div style={{ color: '#ff4444', fontSize: '16px', maxWidth: '660px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>{error}</div>
-      <DebugLog />
-      <div style={{ display: 'flex', gap: '12px' }}>
-        <button onClick={() => navigate(-1)} style={S.btn}>← Go Back</button>
-        <button onClick={runDiag} disabled={diagLoad} style={S.btn}>{diagLoad ? 'Running…' : 'Diagnose File'}</button>
-      </div>
-      {diagInfo && (
-        <pre style={{ background: '#111', border: '1px solid #333', borderRadius: '8px', padding: '16px', maxWidth: '700px', textAlign: 'left', fontSize: '12px', color: '#ccc', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-          {JSON.stringify(diagInfo, null, 2)}
-        </pre>
-      )}
-    </div>
-  );
-
   // ── Main render ────────────────────────────────────────────────────────────
+  // The <video> element is ALWAYS rendered so that useEffect hooks with []
+  // deps can attach event listeners on first mount. Loading/error states are
+  // rendered as overlays on top of the video element instead of early returns.
   const volIcon = muted || volume === 0 ? D.volMute : volume < 0.5 ? D.volLo : D.volHi;
   const barH = progHover || isDragging.current ? '7px' : '4px';
 
@@ -445,7 +431,7 @@ export default function Watch() {
       style={{ minHeight: '100vh', background: '#000', position: 'relative', cursor: showBar ? 'default' : 'none', userSelect: 'none' }}
       onMouseMove={showControls}
     >
-      {/* Video — no controls attribute; native UI suppressed via CSS + disablePictureInPicture */}
+      {/* Video — always in DOM from first render so event listeners attach correctly */}
       <video
         ref={videoRef}
         playsInline
@@ -455,136 +441,166 @@ export default function Watch() {
         style={{ width: '100%', height: '100vh', background: '#000', display: 'block' }}
       />
 
-      {/* ── Top bar ────────────────────────────────────────────────────────── */}
-      <div style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-        padding: '20px 28px', display: 'flex', alignItems: 'center', gap: '16px',
-        background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%)',
-        opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
-      }}>
-        <button onClick={() => navigate(-1)} style={S.btn}>← Back</button>
-        <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', textShadow: '0 1px 4px rgba(0,0,0,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {media?.title}
-          {media?.year && <span style={{ color: '#888', marginLeft: '8px', fontWeight: '400', fontSize: '13px' }}>{media.year}</span>}
+      {/* ── Loading overlay ─────────────────────────────────────────────────── */}
+      {loading && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, ...S.center, background: '#000' }}>
+          <div className="spinner" />
         </div>
-      </div>
+      )}
 
-      {/* ── Bottom controls ─────────────────────────────────────────────────── */}
-      <div
-        style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
-          padding: '0 28px 24px',
-          background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 55%, transparent 100%)',
-          opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Progress bar */}
-        <div style={{ marginBottom: '16px', paddingTop: '16px', position: 'relative', cursor: 'pointer' }}
-          onMouseEnter={() => setProgHover(true)}
-          onMouseLeave={() => { setProgHover(false); if (!isDragging.current) setHoverTime(null); }}
-        >
-          {/* Time tooltip */}
-          {(hoverTime !== null || dragTime !== null) && (
-            <div style={{
-              position: 'absolute', bottom: '22px', pointerEvents: 'none',
-              left: `${Math.min(Math.max(hoverX, 28), (progressRef.current?.offsetWidth ?? 200) - 28)}px`,
-              transform: 'translateX(-50%)',
-              background: 'rgba(20,20,20,0.92)', color: '#fff', fontSize: '12px', fontWeight: '700',
-              padding: '4px 9px', borderRadius: '6px', whiteSpace: 'nowrap',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-            }}>
-              {fmt(dragTime ?? hoverTime)}
+      {/* ── Error overlay ───────────────────────────────────────────────────── */}
+      {!loading && error && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, ...S.center, flexDirection: 'column', gap: '16px', padding: '32px', textAlign: 'center', background: '#000' }}>
+          <div style={{ fontSize: '40px' }}>⚠️</div>
+          <div style={{ color: '#ff4444', fontSize: '16px', maxWidth: '660px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>{error}</div>
+          <DebugLog />
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button onClick={() => navigate(-1)} style={S.btn}>← Go Back</button>
+            <button onClick={runDiag} disabled={diagLoad} style={S.btn}>{diagLoad ? 'Running…' : 'Diagnose File'}</button>
+          </div>
+          {diagInfo && (
+            <pre style={{ background: '#111', border: '1px solid #333', borderRadius: '8px', padding: '16px', maxWidth: '700px', textAlign: 'left', fontSize: '12px', color: '#ccc', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              {JSON.stringify(diagInfo, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {/* Player controls — hidden during loading/error */}
+      {!loading && !error && (
+        <>
+          {/* ── Top bar ──────────────────────────────────────────────────────── */}
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+            padding: '20px 28px', display: 'flex', alignItems: 'center', gap: '16px',
+            background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%)',
+            opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
+          }}>
+            <button onClick={() => navigate(-1)} style={S.btn}>← Back</button>
+            <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', textShadow: '0 1px 4px rgba(0,0,0,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {media?.title}
+              {media?.year && <span style={{ color: '#888', marginLeft: '8px', fontWeight: '400', fontSize: '13px' }}>{media.year}</span>}
+            </div>
+          </div>
+
+          {/* ── Bottom controls ──────────────────────────────────────────────── */}
+          <div
+            style={{
+              position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
+              padding: '0 28px 24px',
+              background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 55%, transparent 100%)',
+              opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Progress bar */}
+            <div style={{ marginBottom: '16px', paddingTop: '16px', position: 'relative', cursor: 'pointer' }}
+              onMouseEnter={() => setProgHover(true)}
+              onMouseLeave={() => { setProgHover(false); if (!isDragging.current) setHoverTime(null); }}
+            >
+              {/* Time tooltip */}
+              {(hoverTime !== null || dragTime !== null) && (
+                <div style={{
+                  position: 'absolute', bottom: '22px', pointerEvents: 'none',
+                  left: `${Math.min(Math.max(hoverX, 28), (progressRef.current?.offsetWidth ?? 200) - 28)}px`,
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(20,20,20,0.92)', color: '#fff', fontSize: '12px', fontWeight: '700',
+                  padding: '4px 9px', borderRadius: '6px', whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                }}>
+                  {fmt(dragTime ?? hoverTime)}
+                </div>
+              )}
+
+              {/* Track */}
+              <div
+                ref={progressRef}
+                style={{ height: barH, background: 'rgba(255,255,255,0.18)', borderRadius: '4px', position: 'relative', transition: 'height 0.15s' }}
+                onMouseDown={handleProgDown}
+                onMouseMove={handleProgMove}
+                onTouchStart={(e) => { e.preventDefault(); isDragging.current = true; showControls(); }}
+              >
+                {/* Buffered indicator (subtle) */}
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '4px', background: 'rgba(255,255,255,0.12)' }} />
+                {/* Played */}
+                <div style={{ width: `${progress * 100}%`, height: '100%', background: '#00c2ff', borderRadius: '4px', position: 'relative', transition: isDragging.current ? 'none' : 'width 0.25s linear' }}>
+                  {/* Thumb */}
+                  <div style={{
+                    position: 'absolute', right: '-8px', top: '50%', transform: 'translateY(-50%)',
+                    width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 0 8px rgba(0,194,255,0.6)',
+                    opacity: progHover || isDragging.current ? 1 : 0,
+                    transition: 'opacity 0.15s',
+                  }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Controls row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+
+              {/* Play / Pause */}
+              <button onClick={togglePlay} style={S.iBtn} title={paused ? 'Play (Space)' : 'Pause (Space)'}>
+                <Ico d={paused ? D.play : D.pause} size={30} />
+              </button>
+
+              {/* Skip back */}
+              <button onClick={() => handleSkip(-10)} style={S.iBtn} title="Back 10s (←)">
+                <ReplayIcon n={10} />
+              </button>
+
+              {/* Skip forward */}
+              <button onClick={() => handleSkip(10)} style={S.iBtn} title="Forward 10s (→)">
+                <ForwardIcon n={10} />
+              </button>
+
+              {/* Time */}
+              <span style={{ fontSize: '13px', color: '#ccc', fontVariantNumeric: 'tabular-nums', marginLeft: '8px', flexShrink: 0, letterSpacing: '0.3px' }}>
+                {fmt(displayTime)}
+                {totalDur > 0 && <span style={{ color: '#555' }}> / {fmt(totalDur)}</span>}
+              </span>
+
+              {/* Spacer */}
+              <div style={{ flex: 1 }} />
+
+              {/* Volume */}
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                onMouseEnter={() => setShowVol(true)}
+                onMouseLeave={() => setShowVol(false)}
+              >
+                <button onClick={toggleMute} style={S.iBtn} title="Mute (M)">
+                  <Ico d={volIcon} size={22} />
+                </button>
+                <div style={{ width: showVol ? '84px' : '0px', overflow: 'hidden', transition: 'width 0.2s', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="range" min="0" max="1" step="0.05"
+                    value={muted ? 0 : volume}
+                    onChange={handleVolChange}
+                    style={{ width: '84px', accentColor: '#00c2ff', cursor: 'pointer' }}
+                  />
+                </div>
+              </div>
+
+              {/* Fullscreen */}
+              <button onClick={toggleFS} style={S.iBtn} title="Fullscreen (F)">
+                <Ico d={isFS ? D.fsOut : D.fsIn} size={22} />
+              </button>
+            </div>
+          </div>
+
+          {/* ── Buffering overlay ────────────────────────────────────────────── */}
+          {buffering && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
+              <div className="spinner" />
+              <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
+              <DebugLog />
+              <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '380px' }}>
+                First load takes 5–15 s. Seeking far ahead restarts the transcoder.
+              </div>
             </div>
           )}
-
-          {/* Track */}
-          <div
-            ref={progressRef}
-            style={{ height: barH, background: 'rgba(255,255,255,0.18)', borderRadius: '4px', position: 'relative', transition: 'height 0.15s' }}
-            onMouseDown={handleProgDown}
-            onMouseMove={handleProgMove}
-            onTouchStart={(e) => { e.preventDefault(); isDragging.current = true; showControls(); }}
-          >
-            {/* Buffered indicator (subtle) */}
-            <div style={{ position: 'absolute', inset: 0, borderRadius: '4px', background: 'rgba(255,255,255,0.12)' }} />
-            {/* Played */}
-            <div style={{ width: `${progress * 100}%`, height: '100%', background: '#00c2ff', borderRadius: '4px', position: 'relative', transition: isDragging.current ? 'none' : 'width 0.25s linear' }}>
-              {/* Thumb */}
-              <div style={{
-                position: 'absolute', right: '-8px', top: '50%', transform: 'translateY(-50%)',
-                width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
-                boxShadow: '0 0 8px rgba(0,194,255,0.6)',
-                opacity: progHover || isDragging.current ? 1 : 0,
-                transition: 'opacity 0.15s',
-              }} />
-            </div>
-          </div>
-        </div>
-
-        {/* Controls row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-
-          {/* Play / Pause */}
-          <button onClick={togglePlay} style={S.iBtn} title={paused ? 'Play (Space)' : 'Pause (Space)'}>
-            <Ico d={paused ? D.play : D.pause} size={30} />
-          </button>
-
-          {/* Skip back */}
-          <button onClick={() => handleSkip(-10)} style={S.iBtn} title="Back 10s (←)">
-            <ReplayIcon n={10} />
-          </button>
-
-          {/* Skip forward */}
-          <button onClick={() => handleSkip(10)} style={S.iBtn} title="Forward 10s (→)">
-            <ForwardIcon n={10} />
-          </button>
-
-          {/* Time */}
-          <span style={{ fontSize: '13px', color: '#ccc', fontVariantNumeric: 'tabular-nums', marginLeft: '8px', flexShrink: 0, letterSpacing: '0.3px' }}>
-            {fmt(displayTime)}
-            {totalDur > 0 && <span style={{ color: '#555' }}> / {fmt(totalDur)}</span>}
-          </span>
-
-          {/* Spacer */}
-          <div style={{ flex: 1 }} />
-
-          {/* Volume */}
-          <div
-            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-            onMouseEnter={() => setShowVol(true)}
-            onMouseLeave={() => setShowVol(false)}
-          >
-            <button onClick={toggleMute} style={S.iBtn} title="Mute (M)">
-              <Ico d={volIcon} size={22} />
-            </button>
-            <div style={{ width: showVol ? '84px' : '0px', overflow: 'hidden', transition: 'width 0.2s', display: 'flex', alignItems: 'center' }}>
-              <input
-                type="range" min="0" max="1" step="0.05"
-                value={muted ? 0 : volume}
-                onChange={handleVolChange}
-                style={{ width: '84px', accentColor: '#00c2ff', cursor: 'pointer' }}
-              />
-            </div>
-          </div>
-
-          {/* Fullscreen */}
-          <button onClick={toggleFS} style={S.iBtn} title="Fullscreen (F)">
-            <Ico d={isFS ? D.fsOut : D.fsIn} size={22} />
-          </button>
-        </div>
-      </div>
-
-      {/* ── Buffering overlay ───────────────────────────────────────────────── */}
-      {buffering && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
-          <div className="spinner" />
-          <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
-          <DebugLog />
-          <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '380px' }}>
-            First load takes 5–15 s. Seeking far ahead restarts the transcoder.
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
