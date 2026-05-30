@@ -194,6 +194,91 @@ function PathValidator({ value, onChange, placeholder }) {
   );
 }
 
+function DetectIntros() {
+  const [running, setRunning] = useState(false);
+  const [log, setLog] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [force, setForce] = useState(false);
+  const esRef = useRef(null);
+  const logRef = useRef(null);
+
+  const start = () => {
+    setRunning(true);
+    setSummary(null);
+    setLog([]);
+    const token = localStorage.getItem('streamulus_token');
+    const url = `/api/admin/detect-intros/stream?token=${token}${force ? '&force=1' : ''}`;
+    const es = new EventSource(url);
+    esRef.current = es;
+    es.onmessage = (e) => {
+      const ev = JSON.parse(e.data);
+      if (ev.type === 'complete') {
+        setRunning(false);
+        setSummary({ total: ev.total });
+        es.close();
+      } else if (ev.type === 'show_done') {
+        setLog(prev => [...prev, {
+          show: ev.show,
+          result: ev.introEnd != null ? `intro ends at ${ev.introEnd}s` : 'no intro detected',
+          ok: ev.introEnd != null,
+        }]);
+      } else if (ev.type === 'show_error') {
+        setLog(prev => [...prev, { show: ev.show, result: ev.message, ok: false, err: true }]);
+      }
+    };
+    es.onerror = () => { setRunning(false); es.close(); };
+  };
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [log.length]);
+
+  useEffect(() => () => esRef.current?.close(), []);
+
+  const current = running ? log[log.length - 1] : null;
+
+  return (
+    <div>
+      <p style={{ color: '#666', fontSize: '13px', marginBottom: '16px' }}>
+        Analyzes audio fingerprints across episodes of each TV show to automatically find where the intro ends, then saves the result so "Skip Intro" appears in the player. Requires <code style={{ color: '#00c2ff' }}>fpcalc</code> (chromaprint) — included in the updated Docker image.
+      </p>
+
+      {log.length > 0 && (
+        <div ref={logRef} style={{ maxHeight: '200px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '12px', lineHeight: 1.7, background: 'rgba(0,0,0,0.2)', borderRadius: '6px', padding: '10px 12px', marginBottom: '16px' }}>
+          {log.map((l, i) => (
+            <div key={i} style={{ color: l.err ? '#ff4444' : l.ok ? '#ccc' : '#555', display: 'flex', gap: '8px' }}>
+              <span style={{ color: l.err ? '#ff4444' : l.ok ? '#00c864' : '#444', flexShrink: 0 }}>{l.err ? '✕' : l.ok ? '✓' : '–'}</span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.show}</span>
+              <span style={{ color: l.ok ? '#00c864' : '#444', flexShrink: 0 }}>{l.result}</span>
+            </div>
+          ))}
+          {running && !current && <div style={{ color: '#555' }}>Starting…</div>}
+        </div>
+      )}
+
+      {summary && (
+        <div style={{ marginBottom: '12px', fontSize: '14px', color: '#00c864' }}>
+          ✓ Detection complete — checked {summary.total} show{summary.total !== 1 ? 's' : ''}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+        <button
+          onClick={start}
+          disabled={running}
+          style={{ padding: '10px 24px', background: running ? '#333' : 'rgba(0,194,255,0.15)', color: running ? '#555' : '#00c2ff', border: '1px solid', borderColor: running ? '#333' : 'rgba(0,194,255,0.3)', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: running ? 'not-allowed' : 'pointer' }}
+        >
+          {running ? '⟳ Detecting…' : '⟳ Detect TV Intros'}
+        </button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#666', cursor: 'pointer' }}>
+          <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} />
+          Re-analyze shows already detected
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function RefreshMetadata() {
   const [running, setRunning] = useState(false);
   const [events, setEvents] = useState([]);
@@ -1012,6 +1097,12 @@ export default function Admin() {
                 Re-fetch posters, backdrops, ratings, and overviews for all movies already in your library. Run this after adding your TMDB API key.
               </p>
               <RefreshMetadata />
+            </div>
+
+            {/* Intro Detection */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>TV Intro Detection</h3>
+              <DetectIntros />
             </div>
 
             {/* Player Diagnostics */}

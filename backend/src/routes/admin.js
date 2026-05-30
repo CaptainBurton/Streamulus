@@ -4,6 +4,7 @@ const fs = require('fs');
 const db = require('../database/db');
 const { requireAdmin } = require('../middleware/auth');
 const { scanAllWithProgress, validatePath } = require('../services/scanner');
+const { detectAllIntros } = require('../services/intro-detector');
 
 const router = express.Router();
 
@@ -349,6 +350,31 @@ router.post('/movies/:id/refresh', requireAdmin, async (req, res) => {
       .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
   }
   res.json({ success: true, found: !!result });
+});
+
+// SSE — streams intro detection progress in real time
+router.get('/detect-intros/stream', requireAdmin, async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (data) => {
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  req.on('close', () => { res.end(); });
+
+  const force = req.query.force === '1';
+  const showId = req.query.showId ? parseInt(req.query.showId) : null;
+
+  try {
+    await detectAllIntros(send, { showId, force });
+  } catch (err) {
+    send({ type: 'error', message: err.message });
+  }
+  res.end();
 });
 
 module.exports = router;

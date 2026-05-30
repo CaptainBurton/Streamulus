@@ -18,8 +18,9 @@ WORKDIR /app
 
 # Build tools for better-sqlite3 native addon + ffmpeg for video transcoding.
 # Alpine's ffmpeg includes libx264, libx265, libvpx, libopus, libvorbis, AAC, etc.
+# chromaprint provides fpcalc, used for audio fingerprint-based intro detection.
 # wget is provided by busybox (built into Alpine base — no extra install needed).
-RUN apk add --no-cache python3 make g++ ffmpeg
+RUN apk add --no-cache python3 make g++ ffmpeg chromaprint
 
 # Install backend dependencies (compiles native modules here)
 COPY backend/package.json ./

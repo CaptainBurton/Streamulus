@@ -622,7 +622,7 @@ export default function Watch() {
             opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
           }}>
             <button onClick={() => navigate(-1)} style={S.btn} className="pbtn-back">← Back</button>
-            <div style={{ overflow: 'hidden', textShadow: '0 1px 4px rgba(0,0,0,0.8)', minWidth: 0, flex: 1 }}>
+            <div style={{ overflow: 'hidden', textShadow: '0 1px 4px rgba(0,0,0,0.8)', minWidth: 0 }}>
               <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {media?.title}
                 {media?.year && <span style={{ color: '#888', marginLeft: '8px', fontWeight: '400', fontSize: '13px' }}>{media.year}</span>}
@@ -633,25 +633,6 @@ export default function Watch() {
                 </div>
               )}
             </div>
-            {/* Intro end marker controls — TV episodes only */}
-            {type === 'episode' && (
-              <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                <button
-                  onClick={handleSetIntroEnd}
-                  style={{ ...S.btn, fontSize: '11px', padding: '5px 10px', color: '#aaa', borderColor: 'rgba(255,255,255,0.12)' }}
-                  title="Mark the current playback position as where the intro ends"
-                >
-                  {media?.introEndTime > 0 ? `Intro: ${fmt(media.introEndTime)}` : 'Set intro end'}
-                </button>
-                {media?.introEndTime > 0 && (
-                  <button
-                    onClick={handleClearIntro}
-                    style={{ ...S.btn, fontSize: '11px', padding: '5px 10px', color: '#666', borderColor: 'rgba(255,255,255,0.08)' }}
-                    title="Remove intro skip for this show"
-                  >✕</button>
-                )}
-              </div>
-            )}
           </div>
 
           {/* ── Skip Intro button ─────────────────────────────────────────────── */}
