@@ -195,6 +195,7 @@ router.get('/progress/:mediaType/:mediaId', authenticate, (req, res) => {
 // ─── continue watching ────────────────────────────────────────────────────────
 
 router.get('/continue-watching', authenticate, (req, res) => {
+  const minSecs = parseInt(db.prepare("SELECT value FROM config WHERE key = 'progress_min_seconds'").get()?.value || '10');
   const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://'));
   const resolveImg = (p, fn) => isFullUrl(p) ? p : fn(p);
 
@@ -203,9 +204,9 @@ router.get('/continue-watching', authenticate, (req, res) => {
            m.title, m.poster_path, m.backdrop_path, m.year, m.duration
     FROM watch_history wh
     JOIN movies m ON m.id = wh.media_id
-    WHERE wh.user_id=? AND wh.media_type='movie' AND wh.completed=0 AND wh.position>10
+    WHERE wh.user_id=? AND wh.media_type='movie' AND wh.completed=0 AND wh.position>?
     ORDER BY wh.watched_at DESC LIMIT 20
-  `).all(req.user.id).map(m => ({
+  `).all(req.user.id, minSecs).map(m => ({
     ...m,
     poster_url: resolveImg(m.poster_path, posterUrl),
     backdrop_url: resolveImg(m.backdrop_path, backdropUrl),
@@ -218,9 +219,9 @@ router.get('/continue-watching', authenticate, (req, res) => {
     FROM watch_history wh
     JOIN episodes e ON e.id = wh.media_id
     JOIN tv_shows s ON s.id = e.show_id
-    WHERE wh.user_id=? AND wh.media_type='episode' AND wh.completed=0 AND wh.position>10
+    WHERE wh.user_id=? AND wh.media_type='episode' AND wh.completed=0 AND wh.position>?
     ORDER BY wh.watched_at DESC LIMIT 20
-  `).all(req.user.id).map(e => ({
+  `).all(req.user.id, minSecs).map(e => ({
     ...e,
     subtitle: `S${String(e.season).padStart(2,'0')}E${String(e.episode_number).padStart(2,'0')}${e.episode_title ? ` · ${e.episode_title}` : ''}`,
     poster_url: resolveImg(e.poster_path, posterUrl),

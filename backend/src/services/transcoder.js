@@ -155,7 +155,7 @@ async function getHLSSession(filePath, startTime = 0) {
   // Each entry { fromIdx, dir } maps a range of global segment indices to a
   // local directory where FFmpeg wrote seg00000.ts, seg00001.ts, ...
   // Global segment N → seek point with highest fromIdx ≤ N → local file seg{N-fromIdx}.ts
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, totalDuration, settings, copyMode, audioCopy, seekPoints: [{ fromIdx: 0, dir }] };
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, totalDuration, settings, copyMode, audioCopy, ffmpegDone: false, seekPoints: [{ fromIdx: 0, dir }] };
 
   // Precompute manifest only for transcode mode where we control keyframe placement
   // and therefore know exact segment boundaries. In copy mode, actual segment
@@ -236,6 +236,7 @@ async function getHLSSession(filePath, startTime = 0) {
   proc.on('exit', (code) => {
     clearInterval(checkInterval);
     clearTimeout(startTimeout);
+    session.ffmpegDone = true;
     if (!session.ready) {
       const msg = `FFmpeg exited with code ${code}. Output: ${ffmpegOutput.slice(-300)}`;
       console.error(`[transcode] ${msg}`);
@@ -325,13 +326,14 @@ async function getSegmentPath(key, segmentName) {
     console.log(`[transcode] Seek: t=${seekSec}s → seg${String(requestedIdx).padStart(5,'0')} (prev lastGlobal=${lastGlobalIdx})`);
     if (session.process) { try { session.process.kill('SIGTERM'); } catch {} session.process = null; }
     session.seekPoints.push({ fromIdx: requestedIdx, dir: seekDir });
+    session.ffmpegDone = false;
     const proc = spawn('ffmpeg',
       buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, seekSec, session.copyMode, session.audioCopy),
       { stdio: ['ignore', 'ignore', 'pipe'] });
     session.process = proc;
     proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
     proc.on('error', err => console.error(`[transcode] seek spawn error: ${err.message}`));
-    proc.on('exit', code => { if (code) console.error(`[transcode] seek FFmpeg exit ${code}`); });
+    proc.on('exit', code => { session.ffmpegDone = true; if (code) console.error(`[transcode] seek FFmpeg exit ${code}`); });
   }
 
   // Wait up to 30s for FFmpeg to write the segment
@@ -339,6 +341,7 @@ async function getSegmentPath(key, segmentName) {
   if (!segPath) return null;
   let waited = 0;
   while (!fs.existsSync(segPath) && waited < 30000) {
+    if (session.ffmpegDone) break;
     await new Promise(r => setTimeout(r, 100));
     waited += 100;
   }

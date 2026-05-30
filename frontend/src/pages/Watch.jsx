@@ -724,6 +724,18 @@ export default function Watch() {
               {/* Spacer */}
               <div style={{ flex: 1 }} />
 
+              {/* Start from beginning */}
+              <button
+                onClick={() => startHlsAtRef.current?.(0)}
+                style={{ ...S.iBtn, marginRight: showVol ? '0px' : '4px', transition: 'margin 0.2s' }}
+                className="pbtn"
+                title="Start from beginning"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" width={22} height={22} style={{ display: 'block' }}>
+                  <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
+                </svg>
+              </button>
+
               {/* Volume */}
               <div
                 style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
