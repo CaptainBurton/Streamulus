@@ -2,10 +2,19 @@ const axios = require('axios');
 const db = require('../database/db');
 
 const BASE = 'https://api4.thetvdb.com/v4';
+const TVDB_CDN = 'https://artworks.thetvdb.com';
 
 let _token = null;
 let _tokenExp = 0;
 const _epCache = new Map(); // tvdbId → Map<'season:ep', epObj>
+
+// Ensure image paths are returned as full URLs — TVDB sometimes returns relative paths
+function toFullUrl(path) {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  if (path.startsWith('/')) return `${TVDB_CDN}${path}`;
+  return `${TVDB_CDN}/${path}`;
+}
 
 function getKey() {
   return db.prepare('SELECT value FROM config WHERE key = ?').get('tvdb_api_key')?.value || null;
@@ -41,7 +50,7 @@ async function searchSeries(title) {
     const rawId = hit.tvdb_id ||
       (hit.objectID?.startsWith('series/') ? hit.objectID.split('/')[1] : null);
     const tvdb_id = rawId ? parseInt(rawId, 10) : null;
-    const poster_path = hit.image_url || hit.thumbnail || hit.poster || null;
+    const poster_path = toFullUrl(hit.image_url || hit.thumbnail || hit.poster || null);
     return {
       tvdb_id,
       name: hit.name,
@@ -67,22 +76,22 @@ async function getSeriesArtwork(tvdbId) {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 10000,
     });
-    // TVDB v4 returns { data: { id, name, artworks: [...] } }
+    // TVDB v4: { data: { id, name, artworks: [...] } }
     const raw = r.data.data;
     const artworks = Array.isArray(raw) ? raw : (raw?.artworks || []);
     const byScore = (a, b) => (b.score || 0) - (a.score || 0);
     const banners   = artworks.filter(a => a.type === 1).sort(byScore);
     const posters   = artworks.filter(a => a.type === 2).sort(byScore);
     const backdrops = artworks.filter(a => a.type === 3).sort(byScore);
-    // Type 7 = season poster (has a `season` field with the season number)
+    // Type 7 = season poster — each has a `season` field (the season number)
     const seasonPosters = new Map();
     for (const art of artworks.filter(a => a.type === 7 && a.season > 0).sort(byScore)) {
-      if (!seasonPosters.has(art.season)) seasonPosters.set(art.season, art.image);
+      if (!seasonPosters.has(art.season)) seasonPosters.set(art.season, toFullUrl(art.image));
     }
-    console.log(`[tvdb] getSeriesArtwork ${tvdbId}: ${artworks.length} artworks, ${posters.length} posters, ${backdrops.length} fanart, ${banners.length} banners, ${seasonPosters.size} season posters`);
+    console.log(`[tvdb] artwork ${tvdbId}: ${artworks.length} total — ${posters.length} poster, ${backdrops.length} fanart, ${banners.length} banner, ${seasonPosters.size} season`);
     return {
-      poster:   posters[0]?.image   || null,
-      backdrop: backdrops[0]?.image || banners[0]?.image || null,
+      poster:   toFullUrl(posters[0]?.image) || null,
+      backdrop: toFullUrl(backdrops[0]?.image || banners[0]?.image) || null,
       seasonPosters,
     };
   } catch (e) {
@@ -94,6 +103,31 @@ async function getSeriesArtwork(tvdbId) {
 async function getSeasonPosters(tvdbId) {
   const token = await getToken();
   if (!token) return new Map();
+
+  // Strategy 1: artworks endpoint filtered to type=7 (season poster)
+  // Each artwork has a `season` field with the season number
+  try {
+    const r = await axios.get(`${BASE}/series/${tvdbId}/artworks`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { type: 7 },
+      timeout: 10000,
+    });
+    const raw = r.data.data;
+    const artworks = Array.isArray(raw) ? raw : (raw?.artworks || []);
+    const byScore = (a, b) => (b.score || 0) - (a.score || 0);
+    const map = new Map();
+    for (const art of artworks.filter(a => a.season > 0).sort(byScore)) {
+      if (!map.has(art.season)) map.set(art.season, toFullUrl(art.image));
+    }
+    if (map.size > 0) {
+      console.log(`[tvdb] seasonPosters ${tvdbId}: ${map.size} via artworks?type=7`);
+      return map;
+    }
+  } catch (e) {
+    console.error(`[tvdb] getSeasonPosters artworks ${tvdbId}: ${e.message}`);
+  }
+
+  // Strategy 2: seasons/official — each season object has an `image` field when a poster exists
   try {
     const r = await axios.get(`${BASE}/series/${tvdbId}/seasons/official`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -102,12 +136,12 @@ async function getSeasonPosters(tvdbId) {
     const seasons = r.data.data || [];
     const map = new Map();
     for (const s of seasons) {
-      if (s.number > 0 && s.image) map.set(s.number, s.image);
+      if (s.number > 0 && s.image) map.set(s.number, toFullUrl(s.image));
     }
-    console.log(`[tvdb] getSeasonPosters ${tvdbId}: ${seasons.length} seasons, ${map.size} with posters`);
+    console.log(`[tvdb] seasonPosters ${tvdbId}: ${map.size}/${seasons.length} via seasons/official`);
     return map;
   } catch (e) {
-    console.error(`[tvdb] getSeasonPosters ${tvdbId}: ${e.response?.data?.message || e.message}`);
+    console.error(`[tvdb] getSeasonPosters seasons/official ${tvdbId}: ${e.message}`);
     return new Map();
   }
 }
@@ -138,7 +172,10 @@ async function _fetchEpisodes(tvdbId) {
     for (const ep of eps) {
       map.set(`${ep.seasonNumber}:${ep.number}`, ep);
     }
-    if (page === 0) console.log(`[tvdb] _fetchEpisodes ${tvdbId}: page 0 → ${eps.length} episodes`);
+    if (page === 0) {
+      const withImage = eps.filter(e => e.image).length;
+      console.log(`[tvdb] episodes ${tvdbId}: page 0 → ${eps.length} eps, ${withImage} with stills`);
+    }
     if (eps.length < 100) break;
   }
   return map;
@@ -153,7 +190,8 @@ async function getEpisodeDetails(tvdbId, season, episodeNumber) {
   return {
     name: ep.name || null,
     overview: ep.overview || null,
-    still_path: ep.image || null,
+    // Normalize to full URL — TVDB sometimes returns relative paths like /banners/...
+    still_path: toFullUrl(ep.image),
   };
 }
 
