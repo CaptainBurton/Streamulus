@@ -5,7 +5,7 @@ const os = require('os');
 const { spawn } = require('child_process');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
-const { getHLSSession, getManifestContent, getSegmentPath } = require('../services/transcoder');
+const { getHLSSession, getManifestContent, getSegmentPath, getSessionTotalDuration } = require('../services/transcoder');
 const { posterUrl, backdropUrl } = require('../services/tmdb');
 
 const router = express.Router();
@@ -422,8 +422,11 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, async (req, res) => {
     const segBase = `/api/stream/hls/${type}/${id}/segment?token=${req.query.token}&key=${key}`;
     const manifest = getManifestContent(key, segBase);
     if (!manifest) return res.status(503).json({ error: 'Manifest not ready' });
+    const totalDur = getSessionTotalDuration(key);
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Total-Duration');
+    if (totalDur > 0) res.setHeader('X-Total-Duration', String(Math.round(totalDur)));
     res.send(manifest);
   } catch (err) {
     console.error(`[stream] HLS error: ${err.message}`);

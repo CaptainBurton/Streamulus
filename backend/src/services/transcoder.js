@@ -153,7 +153,7 @@ async function getHLSSession(filePath, startTime = 0) {
   // Each entry { fromIdx, dir } maps a range of global segment indices to a
   // local directory where FFmpeg wrote seg00000.ts, seg00001.ts, ...
   // Global segment N → seek point with highest fromIdx ≤ N → local file seg{N-fromIdx}.ts
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, settings, copyMode, audioCopy, seekPoints: [{ fromIdx: 0, dir }] };
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, totalDuration, settings, copyMode, audioCopy, seekPoints: [{ fromIdx: 0, dir }] };
 
   // Precompute manifest only for transcode mode where we control keyframe placement
   // and therefore know exact segment boundaries. In copy mode, actual segment
@@ -356,4 +356,8 @@ function canDirectPlay(filePath) {
   return DIRECT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
-module.exports = { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay };
+function getSessionTotalDuration(key) {
+  return sessions.get(key)?.totalDuration ?? 0;
+}
+
+module.exports = { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay, getSessionTotalDuration };
