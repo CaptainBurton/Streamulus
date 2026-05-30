@@ -130,6 +130,7 @@ router.get('/config', requireAdmin, (req, res) => {
   res.json({
     tmdbApiKey: get('tmdb_api_key'),
     tvdbApiKey: get('tvdb_api_key'),
+    omdbApiKey: get('omdb_api_key'),
     videoCrf: get('video_crf') ?? '23',
     videoPreset: get('video_preset') ?? 'ultrafast',
     videoResolution: get('video_resolution') ?? 'original',
@@ -140,13 +141,14 @@ router.get('/config', requireAdmin, (req, res) => {
 });
 
 router.put('/config', requireAdmin, (req, res) => {
-  const { tmdbApiKey, tvdbApiKey, videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration } = req.body;
+  const { tmdbApiKey, tvdbApiKey, omdbApiKey, videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration } = req.body;
   const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
   if (tmdbApiKey !== undefined) upsert.run('tmdb_api_key', tmdbApiKey);
   if (tvdbApiKey !== undefined) {
     upsert.run('tvdb_api_key', tvdbApiKey);
     require('../services/tvdb').invalidateCache();
   }
+  if (omdbApiKey !== undefined) upsert.run('omdb_api_key', omdbApiKey);
   if (videoCrf !== undefined) upsert.run('video_crf', videoCrf);
   if (videoPreset !== undefined) upsert.run('video_preset', videoPreset);
   if (videoResolution !== undefined) upsert.run('video_resolution', videoResolution);
@@ -194,6 +196,7 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
 
   const tmdb = require('../services/tmdb');
   const tvdb = require('../services/tvdb');
+  const omdb = require('../services/omdb');
 
   const movies = db.prepare('SELECT * FROM movies').all();
   const shows = db.prepare('SELECT * FROM tv_shows').all();
@@ -204,7 +207,7 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
 
   send({ type: 'start', total });
 
-  // ── Movies via TMDB ──
+  // ── Movies via TMDB + OMDb ──
   for (const movie of movies) {
     index++;
     send({ type: 'progress', index, total, title: movie.title, percent: Math.round((index / total) * 100) });
@@ -214,28 +217,42 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
         .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
       moviesUpdated++;
     }
+    if (omdb.isConfigured()) {
+      const od = await omdb.searchMovie(movie.title, movie.year);
+      if (od) db.prepare('UPDATE movies SET imdb_id=?, imdb_rating=?, content_rating=? WHERE id=?')
+        .run(od.imdb_id, od.imdb_rating, od.content_rating, movie.id);
+    }
   }
 
-  // ── TV shows via TVDB (fallback TMDB) ──
+  // ── TV shows via TVDB (fallback TMDB) + OMDb + season posters ──
   const useTVDB = tvdb.isConfigured();
   for (const show of shows) {
     index++;
     send({ type: 'progress', index, total, title: show.title, percent: Math.round((index / total) * 100) });
 
     let refreshed = false;
+    let resolvedTvdbId = show.tvdb_id || null;
 
     if (useTVDB) {
       const tvdbMeta = await tvdb.searchSeries(show.title);
       if (tvdbMeta?.tvdb_id) {
-        // Get full artwork (poster + backdrop) from TVDB artworks endpoint
+        resolvedTvdbId = tvdbMeta.tvdb_id;
         const artwork = await tvdb.getSeriesArtwork(tvdbMeta.tvdb_id);
-        const poster = artwork.poster || tvdbMeta.poster_path;
+        const poster = artwork.poster || tvdbMeta.poster_path || show.poster_path;
         const backdrop = artwork.backdrop || show.backdrop_path;
 
         db.prepare('UPDATE tv_shows SET tvdb_id=?, overview=?, poster_path=?, backdrop_path=?, status=?, first_air_date=? WHERE id=?')
-          .run(tvdbMeta.tvdb_id, tvdbMeta.overview || show.overview, poster, backdrop, tvdbMeta.status || show.status, tvdbMeta.first_air_date || show.first_air_date, show.id);
+          .run(tvdbMeta.tvdb_id, tvdbMeta.overview || show.overview, poster, backdrop,
+               tvdbMeta.status || show.status, tvdbMeta.first_air_date || show.first_air_date, show.id);
 
-        // Refresh episode stills and titles via TVDB episode cache
+        // Season posters
+        const seasonPosters = await tvdb.getSeasonPosters(tvdbMeta.tvdb_id);
+        for (const [seasonNum, posterUrl] of seasonPosters) {
+          db.prepare('INSERT OR REPLACE INTO seasons (show_id, season_number, poster_path) VALUES (?, ?, ?)')
+            .run(show.id, seasonNum, posterUrl);
+        }
+
+        // Episode metadata (stills, titles, overviews)
         const episodes = db.prepare('SELECT * FROM episodes WHERE show_id = ?').all(show.id);
         for (const ep of episodes) {
           const epData = await tvdb.getEpisodeDetails(tvdbMeta.tvdb_id, ep.season, ep.episode_number);
@@ -254,9 +271,16 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
       const tmdbMeta = await tmdb.searchTV(show.title);
       if (tmdbMeta) {
         db.prepare('UPDATE tv_shows SET tmdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=? WHERE id=?')
-          .run(tmdbMeta.id, tmdbMeta.overview, tmdbMeta.poster_path, tmdbMeta.backdrop_path, tmdbMeta.vote_average, JSON.stringify(tmdbMeta.genre_ids), show.id);
+          .run(tmdbMeta.id, tmdbMeta.overview, tmdbMeta.poster_path, tmdbMeta.backdrop_path,
+               tmdbMeta.vote_average, JSON.stringify(tmdbMeta.genre_ids), show.id);
         showsUpdated++;
       }
+    }
+
+    if (omdb.isConfigured()) {
+      const od = await omdb.searchSeries(show.title);
+      if (od) db.prepare('UPDATE tv_shows SET imdb_id=?, imdb_rating=?, content_rating=? WHERE id=?')
+        .run(od.imdb_id, od.imdb_rating, od.content_rating, show.id);
     }
   }
 

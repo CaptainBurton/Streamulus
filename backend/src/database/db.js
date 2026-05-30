@@ -115,6 +115,21 @@ db.exec(`
 
 // Incremental schema migrations — safe to run on every startup
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN tvdb_id INTEGER'); } catch {}
+try { db.exec('ALTER TABLE movies ADD COLUMN imdb_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE movies ADD COLUMN imdb_rating REAL'); } catch {}
+try { db.exec('ALTER TABLE movies ADD COLUMN content_rating TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN imdb_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN imdb_rating REAL'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN content_rating TEXT'); } catch {}
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS seasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    show_id INTEGER NOT NULL,
+    season_number INTEGER NOT NULL,
+    poster_path TEXT,
+    UNIQUE(show_id, season_number)
+  )`);
+} catch {}
 
 
 const ENCODING_DEFAULTS = {

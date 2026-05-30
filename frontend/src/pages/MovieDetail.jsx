@@ -77,12 +77,28 @@ export default function MovieDetail() {
             </h1>
 
             {/* Meta row */}
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
               {movie.year && <span style={{ color: '#aaa', fontSize: '15px' }}>{movie.year}</span>}
+              {movie.content_rating && (
+                <span style={{ padding: '2px 8px', border: '1px solid #555', borderRadius: '4px', color: '#888', fontSize: '12px', fontWeight: '600' }}>{movie.content_rating}</span>
+              )}
               {movie.rating && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#f5c518', fontSize: '15px', fontWeight: '700' }}>
                   ★ {movie.rating.toFixed(1)}
                 </span>
+              )}
+              {movie.imdb_rating && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', fontWeight: '700', color: '#f5c518', background: 'rgba(245,197,24,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                  IMDb {movie.imdb_rating.toFixed(1)}
+                </span>
+              )}
+              {movie.imdb_id && (
+                <a href={`https://www.imdb.com/title/${movie.imdb_id}/`} target="_blank" rel="noopener noreferrer"
+                   style={{ fontSize: '12px', color: '#555', textDecoration: 'none' }}
+                   onMouseEnter={e => { e.currentTarget.style.color = '#aaa'; }}
+                   onMouseLeave={e => { e.currentTarget.style.color = '#555'; }}>
+                  ↗ IMDb
+                </a>
               )}
               {director && <span style={{ color: '#888', fontSize: '14px' }}>Dir. {director}</span>}
             </div>

@@ -68,15 +68,37 @@ async function getSeriesArtwork(tvdbId) {
       timeout: 10000,
     });
     const artworks = r.data.data || [];
-    const posters = artworks.filter(a => a.type === 2).sort((a, b) => (b.score || 0) - (a.score || 0));
-    const backdrops = artworks.filter(a => a.type === 3).sort((a, b) => (b.score || 0) - (a.score || 0));
+    const byScore = (a, b) => (b.score || 0) - (a.score || 0);
+    const banners  = artworks.filter(a => a.type === 1).sort(byScore); // wide banner strips
+    const posters  = artworks.filter(a => a.type === 2).sort(byScore); // portrait posters
+    const backdrops = artworks.filter(a => a.type === 3).sort(byScore); // 16:9 fanart
     return {
       poster: posters[0]?.image || null,
-      backdrop: backdrops[0]?.image || null,
+      // Use fanart if available; fall back to wide banner (TVDB has more banners than fanart)
+      backdrop: backdrops[0]?.image || banners[0]?.image || null,
     };
   } catch (e) {
     console.error(`[tvdb] getSeriesArtwork ${tvdbId}: ${e.response?.data?.message || e.message}`);
     return { poster: null, backdrop: null };
+  }
+}
+
+async function getSeasonPosters(tvdbId) {
+  const token = await getToken();
+  if (!token) return new Map();
+  try {
+    const r = await axios.get(`${BASE}/series/${tvdbId}/seasons/official`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 10000,
+    });
+    const map = new Map();
+    for (const s of (r.data.data || [])) {
+      if (s.number > 0 && s.image) map.set(s.number, s.image);
+    }
+    return map;
+  } catch (e) {
+    console.error(`[tvdb] getSeasonPosters ${tvdbId}: ${e.response?.data?.message || e.message}`);
+    return new Map();
   }
 }
 
@@ -134,4 +156,4 @@ function isConfigured() {
   return !!getKey();
 }
 
-module.exports = { searchSeries, getSeriesArtwork, getEpisodeDetails, invalidateCache, isConfigured };
+module.exports = { searchSeries, getSeriesArtwork, getSeasonPosters, getEpisodeDetails, invalidateCache, isConfigured };
