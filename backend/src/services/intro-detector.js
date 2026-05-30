@@ -116,8 +116,13 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
 
   // ── Phase 2 ──────────────────────────────────────────────────────────────
   // Start walking from just after the probe window.
+  // Require 2 consecutive bad chunks before declaring the intro over.
+  // A single bad chunk can be a momentary variation (sound effect, compression
+  // difference) that still belongs to the intro — two in a row means we're
+  // definitely into the unique main content.
   let a = bestA + probeLen, b = bestB + probeLen;
   let endA = a, endB = b;
+  let consecutiveMisses = 0;
 
   while (
     a + chunkLen <= fpA.length &&
@@ -126,10 +131,16 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
   ) {
     let bits = 0;
     for (let k = 0; k < chunkLen; k++) bits += popcount32(fpA[a + k] ^ fpB[b + k]);
-    // Stop at FIRST chunk that doesn't match — prevents overrunning into main content
-    if (bits / chunkLen / 32 > END_THRESHOLD) break;
-    endA = a + chunkLen;
-    endB = b + chunkLen;
+    const chunkErr = bits / chunkLen / 32;
+
+    if (chunkErr > END_THRESHOLD) {
+      consecutiveMisses++;
+      if (consecutiveMisses >= 2) break; // two bad chunks in a row = past intro
+    } else {
+      consecutiveMisses = 0;
+      endA = a + chunkLen;
+      endB = b + chunkLen;
+    }
     a += chunkLen;
     b += chunkLen;
   }
