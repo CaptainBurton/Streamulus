@@ -58,40 +58,30 @@ async function processMovieFile(filePath, libraryId) {
   if (existing) return { status: 'skipped', title: existing.title };
 
   const { title, year } = parseMovieFilename(filePath);
-  const source = getSource('movie_metadata_source', 'tmdb');
+  const sourceOrder = JSON.parse(getSource('movie_source_order', '["tmdb","imdb"]'));
 
   let meta = null;
-
-  if (source === 'imdb' && imdb.isConfigured()) {
-    const d = await imdb.searchMovie(title, year);
-    if (d) meta = {
-      resolvedTitle: d.title || title,
-      year:          d.year  || year,
-      tmdb_id:       null,
-      overview:      d.overview,
-      poster_path:   d.poster_path,   // full URL from Amazon CDN
-      backdrop_path: d.backdrop_path,
-      rating:        d.rating,
-      genres:        d.genres,
-      imdb_id:       d.imdb_id,
-      imdb_rating:   d.imdb_rating,
-      content_rating: d.content_rating,
-    };
-  } else {
-    const d = await tmdb.searchMovie(title, year);
-    if (d) meta = {
-      resolvedTitle: d.title || title,
-      year:          d.release_date?.split('-')[0] || year,
-      tmdb_id:       d.id,
-      overview:      d.overview,
-      poster_path:   d.poster_path,
-      backdrop_path: d.backdrop_path,
-      rating:        d.vote_average,
-      genres:        d.genre_ids ? JSON.stringify(d.genre_ids) : null,
-      imdb_id:       null,
-      imdb_rating:   null,
-      content_rating: null,
-    };
+  for (const src of sourceOrder) {
+    if (meta) break;
+    if (src === 'imdb' && imdb.isConfigured()) {
+      const d = await imdb.searchMovie(title, year);
+      if (d) meta = {
+        resolvedTitle: d.title || title, year: d.year || year,
+        tmdb_id: null, overview: d.overview,
+        poster_path: d.poster_path, backdrop_path: d.backdrop_path,
+        rating: d.rating, genres: d.genres,
+        imdb_id: d.imdb_id, imdb_rating: d.imdb_rating, content_rating: d.content_rating,
+      };
+    } else if (src === 'tmdb') {
+      const d = await tmdb.searchMovie(title, year);
+      if (d) meta = {
+        resolvedTitle: d.title || title, year: d.release_date?.split('-')[0] || year,
+        tmdb_id: d.id, overview: d.overview,
+        poster_path: d.poster_path, backdrop_path: d.backdrop_path,
+        rating: d.vote_average, genres: d.genre_ids ? JSON.stringify(d.genre_ids) : null,
+        imdb_id: null, imdb_rating: null, content_rating: null,
+      };
+    }
   }
 
   const resolvedTitle = meta?.resolvedTitle || title;
@@ -125,34 +115,25 @@ async function processTVFile(filePath, libraryId) {
   // canonical show ID so we can find existing rows even when filenames parse
   // to slightly different title strings (e.g. "American Dad" vs "American Dad!").
   let showMeta = null;
-  const tvSource = getSource('tv_metadata_source', tvdb.isConfigured() ? 'tvdb' : 'tmdb');
+  const tvSourceOrder = JSON.parse(getSource('tv_source_order', '["tvdb","tmdb","imdb"]'));
 
-  if (tvSource === 'imdb' && imdb.isConfigured()) {
-    const d = await imdb.searchSeries(showTitle);
-    if (d) showMeta = { ...d, source: 'imdb' };
-  }
-
-  if (!showMeta && (tvSource === 'tvdb' || tvSource !== 'tmdb') && tvdb.isConfigured()) {
-    const d = await tvdb.searchSeries(showTitle);
-    if (d) showMeta = { ...d, source: 'tvdb' };
-  }
-
-  if (!showMeta) {
-    const tmdbData = await tmdb.searchTV(showTitle);
-    if (tmdbData) {
-      showMeta = {
-        source: 'tmdb',
-        tvdb_id: null,
-        tmdb_id: tmdbData.id,
-        name: tmdbData.name,
-        overview: tmdbData.overview,
-        poster_path: tmdbData.poster_path,
-        backdrop_path: tmdbData.backdrop_path,
-        rating: tmdbData.vote_average,
+  for (const src of tvSourceOrder) {
+    if (showMeta) break;
+    if (src === 'tvdb' && tvdb.isConfigured()) {
+      const d = await tvdb.searchSeries(showTitle);
+      if (d) showMeta = { ...d, source: 'tvdb' };
+    } else if (src === 'tmdb') {
+      const tmdbData = await tmdb.searchTV(showTitle);
+      if (tmdbData) showMeta = {
+        source: 'tmdb', tvdb_id: null, tmdb_id: tmdbData.id, name: tmdbData.name,
+        overview: tmdbData.overview, poster_path: tmdbData.poster_path,
+        backdrop_path: tmdbData.backdrop_path, rating: tmdbData.vote_average,
         genres: tmdbData.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null,
-        status: tmdbData.status,
-        first_air_date: tmdbData.first_air_date,
+        status: tmdbData.status, first_air_date: tmdbData.first_air_date,
       };
+    } else if (src === 'imdb' && imdb.isConfigured()) {
+      const d = await imdb.searchSeries(showTitle);
+      if (d) showMeta = { ...d, source: 'imdb' };
     }
   }
 
