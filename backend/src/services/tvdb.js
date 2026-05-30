@@ -61,25 +61,33 @@ async function searchSeries(title) {
 
 async function getSeriesArtwork(tvdbId) {
   const token = await getToken();
-  if (!token) return { poster: null, backdrop: null };
+  if (!token) return { poster: null, backdrop: null, seasonPosters: new Map() };
   try {
     const r = await axios.get(`${BASE}/series/${tvdbId}/artworks`, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 10000,
     });
-    const artworks = r.data.data || [];
+    // TVDB v4 returns { data: { id, name, artworks: [...] } }
+    const raw = r.data.data;
+    const artworks = Array.isArray(raw) ? raw : (raw?.artworks || []);
     const byScore = (a, b) => (b.score || 0) - (a.score || 0);
-    const banners  = artworks.filter(a => a.type === 1).sort(byScore); // wide banner strips
-    const posters  = artworks.filter(a => a.type === 2).sort(byScore); // portrait posters
-    const backdrops = artworks.filter(a => a.type === 3).sort(byScore); // 16:9 fanart
+    const banners   = artworks.filter(a => a.type === 1).sort(byScore);
+    const posters   = artworks.filter(a => a.type === 2).sort(byScore);
+    const backdrops = artworks.filter(a => a.type === 3).sort(byScore);
+    // Type 7 = season poster (has a `season` field with the season number)
+    const seasonPosters = new Map();
+    for (const art of artworks.filter(a => a.type === 7 && a.season > 0).sort(byScore)) {
+      if (!seasonPosters.has(art.season)) seasonPosters.set(art.season, art.image);
+    }
+    console.log(`[tvdb] getSeriesArtwork ${tvdbId}: ${artworks.length} artworks, ${posters.length} posters, ${backdrops.length} fanart, ${banners.length} banners, ${seasonPosters.size} season posters`);
     return {
-      poster: posters[0]?.image || null,
-      // Use fanart if available; fall back to wide banner (TVDB has more banners than fanart)
+      poster:   posters[0]?.image   || null,
       backdrop: backdrops[0]?.image || banners[0]?.image || null,
+      seasonPosters,
     };
   } catch (e) {
     console.error(`[tvdb] getSeriesArtwork ${tvdbId}: ${e.response?.data?.message || e.message}`);
-    return { poster: null, backdrop: null };
+    return { poster: null, backdrop: null, seasonPosters: new Map() };
   }
 }
 
@@ -91,10 +99,12 @@ async function getSeasonPosters(tvdbId) {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 10000,
     });
+    const seasons = r.data.data || [];
     const map = new Map();
-    for (const s of (r.data.data || [])) {
+    for (const s of seasons) {
       if (s.number > 0 && s.image) map.set(s.number, s.image);
     }
+    console.log(`[tvdb] getSeasonPosters ${tvdbId}: ${seasons.length} seasons, ${map.size} with posters`);
     return map;
   } catch (e) {
     console.error(`[tvdb] getSeasonPosters ${tvdbId}: ${e.response?.data?.message || e.message}`);
@@ -128,6 +138,7 @@ async function _fetchEpisodes(tvdbId) {
     for (const ep of eps) {
       map.set(`${ep.seasonNumber}:${ep.number}`, ep);
     }
+    if (page === 0) console.log(`[tvdb] _fetchEpisodes ${tvdbId}: page 0 → ${eps.length} episodes`);
     if (eps.length < 100) break;
   }
   return map;
