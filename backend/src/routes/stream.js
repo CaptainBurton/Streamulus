@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
@@ -231,6 +232,51 @@ router.get('/continue-watching', authenticate, (req, res) => {
     .slice(0, 20);
 
   res.json({ items });
+});
+
+// ─── frame thumbnail ─────────────────────────────────────────────────────────
+//
+// Extract a single video frame at ?t=SECONDS and return JPEG.
+// Results are written to os.tmpdir()/streamulus-thumbs/ so repeated requests
+// at the same timestamp are served instantly from the cached file.
+
+router.get('/thumbnail/:type/:id', authenticate, (req, res) => {
+  const { type, id } = req.params;
+  const filePath = getFilePath(type, id);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  const t = Math.max(0, Math.round(parseFloat(req.query.t || 0)));
+  const cacheDir = path.join(os.tmpdir(), 'streamulus-thumbs');
+  const cacheFile = path.join(cacheDir, `${type}-${id}-${t}.jpg`);
+
+  const send = () => {
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    fs.createReadStream(cacheFile).pipe(res);
+  };
+
+  if (fs.existsSync(cacheFile)) return send();
+
+  try { fs.mkdirSync(cacheDir, { recursive: true }); } catch {}
+
+  const proc = spawn('ffmpeg', [
+    '-ss', String(t),
+    '-i', filePath,
+    '-vframes', '1',
+    '-vf', 'scale=224:126',
+    '-q:v', '5',
+    '-y', cacheFile,
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+  proc.on('error', (e) => {
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  });
+  proc.on('exit', (code) => {
+    if (code === 0 && fs.existsSync(cacheFile)) send();
+    else if (!res.headersSent) res.status(500).json({ error: 'Thumbnail generation failed' });
+  });
 });
 
 // ─── stream diagnostics ───────────────────────────────────────────────────────

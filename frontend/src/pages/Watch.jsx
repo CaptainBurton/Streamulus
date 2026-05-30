@@ -57,6 +57,7 @@ export default function Watch() {
   const progressTimerRef = useRef(null);
   const hideTimerRef     = useRef(null);
   const bufferTimerRef   = useRef(null);
+  const thumbTimerRef    = useRef(null);
 
   // Stable callback refs (used inside keyboard / drag handlers to avoid stale closures)
   const startHlsAtRef = useRef(null);
@@ -87,6 +88,9 @@ export default function Watch() {
   // Total file duration, derived as max(startPos + segmentDur) across all seeks.
   // Kept separate so seeking doesn't inflate totalDur with stale segment durations.
   const [totalFileDur, setTotalFileDur] = useState(0);
+
+  // Seek thumbnail
+  const [thumbSrc,    setThumbSrc]    = useState(null);
 
   // Diag
   const [diagInfo,    setDiagInfo]    = useState(null);
@@ -342,6 +346,18 @@ export default function Watch() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // ── Seek thumbnail (debounced 120 ms, snapped to 5 s intervals) ──────────
+  useEffect(() => {
+    const previewT = dragTime ?? hoverTime;
+    if (previewT === null) { setThumbSrc(null); return; }
+    clearTimeout(thumbTimerRef.current);
+    thumbTimerRef.current = setTimeout(() => {
+      const t = Math.round(previewT / 5) * 5;
+      setThumbSrc(`/api/stream/thumbnail/${type}/${id}?t=${t}&token=${token}`);
+    }, 120);
+    return () => clearTimeout(thumbTimerRef.current);
+  }, [dragTime, hoverTime, type, id, token]);
+
   // ── Auto-hide controls ────────────────────────────────────────────────────
   const showControls = useCallback(() => {
     setShowBar(true);
@@ -437,6 +453,22 @@ export default function Watch() {
   const barH = progHover || isDragging.current ? '7px' : '4px';
 
   return (
+    <>
+    <style>{`
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .pbtn {
+        transition: background 0.15s ease, transform 0.12s ease, opacity 0.15s ease !important;
+      }
+      .pbtn:hover { background: rgba(255,255,255,0.13) !important; transform: scale(1.14) !important; }
+      .pbtn:active { transform: scale(0.88) !important; transition-duration: 0.06s !important; }
+      .pbtn-play:hover { transform: scale(1.2) !important; }
+      .pbtn-play:active { transform: scale(0.9) !important; }
+      .pbtn-back {
+        transition: background 0.15s ease, transform 0.12s ease, opacity 0.15s ease !important;
+      }
+      .pbtn-back:hover { background: rgba(255,255,255,0.15) !important; transform: translateX(-2px) scale(1.04) !important; }
+      .pbtn-back:active { transform: translateX(0) scale(0.97) !important; }
+    `}</style>
     <div
       ref={containerRef}
       style={{ minHeight: '100vh', background: '#000', position: 'relative', cursor: showBar ? 'default' : 'none', userSelect: 'none' }}
@@ -487,7 +519,7 @@ export default function Watch() {
             background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%)',
             opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
           }}>
-            <button onClick={() => navigate(-1)} style={S.btn}>← Back</button>
+            <button onClick={() => navigate(-1)} style={S.btn} className="pbtn-back">← Back</button>
             <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', textShadow: '0 1px 4px rgba(0,0,0,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {media?.title}
               {media?.year && <span style={{ color: '#888', marginLeft: '8px', fontWeight: '400', fontSize: '13px' }}>{media.year}</span>}
@@ -509,33 +541,54 @@ export default function Watch() {
               onMouseEnter={() => setProgHover(true)}
               onMouseLeave={() => { setProgHover(false); if (!isDragging.current) setHoverTime(null); }}
             >
-              {/* Hover / drag preview tooltip + tick */}
+              {/* Hover / drag preview — thumbnail card + tick */}
               {(hoverTime !== null || dragTime !== null) && (() => {
                 const previewTime = dragTime ?? hoverTime;
                 const previewRatio = totalDur > 0 ? Math.min(previewTime / totalDur, 1) : 0;
                 const barWidth = progressRef.current?.offsetWidth ?? 300;
                 const rawX = previewRatio * barWidth;
-                const clampedX = Math.min(Math.max(rawX, 32), barWidth - 32);
+                const thumbW = 224;
+                const clampedX = Math.min(Math.max(rawX, thumbW / 2), barWidth - thumbW / 2);
                 return (
                   <>
-                    {/* Vertical tick on the track */}
+                    {/* Vertical tick line */}
                     <div style={{
-                      position: 'absolute', bottom: '0', pointerEvents: 'none',
+                      position: 'absolute', bottom: 0, pointerEvents: 'none',
                       left: `${rawX}px`, transform: 'translateX(-50%)',
                       width: '2px', height: `${parseInt(barH) + 10}px`,
-                      background: 'rgba(255,255,255,0.55)', borderRadius: '1px',
+                      background: 'rgba(255,255,255,0.6)', borderRadius: '1px',
                     }} />
-                    {/* Time bubble */}
+                    {/* Thumbnail card */}
                     <div style={{
-                      position: 'absolute', bottom: `${parseInt(barH) + 16}px`, pointerEvents: 'none',
+                      position: 'absolute', bottom: `${parseInt(barH) + 14}px`,
                       left: `${clampedX}px`, transform: 'translateX(-50%)',
-                      background: 'rgba(15,15,15,0.95)', color: '#fff',
-                      fontSize: '13px', fontWeight: '700', letterSpacing: '0.5px',
-                      padding: '5px 10px', borderRadius: '6px', whiteSpace: 'nowrap',
-                      boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
-                      border: '1px solid rgba(255,255,255,0.1)',
+                      pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center',
+                      filter: 'drop-shadow(0 4px 18px rgba(0,0,0,0.85))',
                     }}>
-                      {fmt(previewTime)}
+                      {/* Thumbnail image */}
+                      <div style={{
+                        width: `${thumbW}px`, height: '126px',
+                        background: '#111', borderRadius: '6px 6px 0 0',
+                        border: '1.5px solid rgba(255,255,255,0.15)',
+                        borderBottom: 'none', overflow: 'hidden',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {thumbSrc
+                          ? <img src={thumbSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          : <div style={{ width: '32px', height: '32px', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#00c2ff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                        }
+                      </div>
+                      {/* Time label */}
+                      <div style={{
+                        background: 'rgba(10,10,10,0.97)',
+                        border: '1.5px solid rgba(255,255,255,0.15)', borderTop: 'none',
+                        borderRadius: '0 0 6px 6px',
+                        color: '#fff', fontSize: '13px', fontWeight: '700',
+                        letterSpacing: '0.6px', padding: '5px 14px',
+                        width: '100%', textAlign: 'center', boxSizing: 'border-box',
+                      }}>
+                        {fmt(previewTime)}
+                      </div>
                     </div>
                   </>
                 );
@@ -569,17 +622,17 @@ export default function Watch() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
 
               {/* Play / Pause */}
-              <button onClick={togglePlay} style={S.iBtn} title={paused ? 'Play (Space)' : 'Pause (Space)'}>
+              <button onClick={togglePlay} style={S.iBtn} className="pbtn pbtn-play" title={paused ? 'Play (Space)' : 'Pause (Space)'}>
                 <Ico d={paused ? D.play : D.pause} size={30} />
               </button>
 
               {/* Skip back */}
-              <button onClick={() => handleSkip(-10)} style={S.iBtn} title="Back 10s (←)">
+              <button onClick={() => handleSkip(-10)} style={S.iBtn} className="pbtn" title="Back 10s (←)">
                 <ReplayIcon n={10} />
               </button>
 
               {/* Skip forward */}
-              <button onClick={() => handleSkip(10)} style={S.iBtn} title="Forward 10s (→)">
+              <button onClick={() => handleSkip(10)} style={S.iBtn} className="pbtn" title="Forward 10s (→)">
                 <ForwardIcon n={10} />
               </button>
 
@@ -598,7 +651,7 @@ export default function Watch() {
                 onMouseEnter={() => setShowVol(true)}
                 onMouseLeave={() => setShowVol(false)}
               >
-                <button onClick={toggleMute} style={S.iBtn} title="Mute (M)">
+                <button onClick={toggleMute} style={S.iBtn} className="pbtn" title="Mute (M)">
                   <Ico d={volIcon} size={22} />
                 </button>
                 <div style={{ width: showVol ? '84px' : '0px', overflow: 'hidden', transition: 'width 0.2s', display: 'flex', alignItems: 'center' }}>
@@ -612,7 +665,7 @@ export default function Watch() {
               </div>
 
               {/* Fullscreen */}
-              <button onClick={toggleFS} style={S.iBtn} title="Fullscreen (F)">
+              <button onClick={toggleFS} style={S.iBtn} className="pbtn" title="Fullscreen (F)">
                 <Ico d={isFS ? D.fsOut : D.fsIn} size={22} />
               </button>
             </div>
@@ -632,6 +685,7 @@ export default function Watch() {
         </>
       )}
     </div>
+    </>
   );
 }
 
