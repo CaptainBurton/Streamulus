@@ -199,6 +199,17 @@ export default function Watch() {
           hls.loadSource(url);
           hls.attachMedia(video);
 
+          hls.on(Hls.Events.MANIFEST_LOADED, (_, data) => {
+            if (cancelled) return;
+            // Read the probed total duration from the server header so the
+            // progress bar shows the correct full length from the very first frame,
+            // even in copy mode where the live manifest only lists segments written so far.
+            try {
+              const d = parseFloat(data.networkDetails?.getResponseHeader?.('X-Total-Duration') || '0');
+              if (d > 0) setTotalFileDur(prev => d > prev ? d : prev);
+            } catch {}
+          });
+
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             if (cancelled) return;
             addLog('Manifest parsed');
