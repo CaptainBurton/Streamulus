@@ -234,22 +234,51 @@ router.get('/continue-watching', authenticate, (req, res) => {
   res.json({ items });
 });
 
-// ─── frame thumbnail ─────────────────────────────────────────────────────────
-//
-// Extract a single video frame at ?t=SECONDS and return JPEG.
-// Results are written to os.tmpdir()/streamulus-thumbs/ so repeated requests
-// at the same timestamp are served instantly from the cached file.
+// ─── thumbnail helpers ────────────────────────────────────────────────────────
+
+const THUMB_DIR = path.join(os.tmpdir(), 'streamulus-thumbs');
+try { fs.mkdirSync(THUMB_DIR, { recursive: true }); } catch {}
+
+const thumbQueue = [];
+let thumbWorkers = 0;
+const MAX_THUMB_WORKERS = 3;
+
+function thumbCacheFile(type, id, t) {
+  return path.join(THUMB_DIR, `${type}-${id}-${t}.jpg`);
+}
+
+function spawnThumb(filePath, cacheFile, t) {
+  return new Promise((resolve) => {
+    if (fs.existsSync(cacheFile)) return resolve(true);
+    const proc = spawn('ffmpeg', [
+      '-ss', String(t), '-i', filePath,
+      '-vframes', '1', '-vf', 'scale=160:90', '-q:v', '5', '-y', cacheFile,
+    ], { stdio: 'ignore' });
+    proc.on('error', () => resolve(false));
+    proc.on('exit', (code) => resolve(code === 0 && fs.existsSync(cacheFile)));
+  });
+}
+
+function drainThumbQueue() {
+  while (thumbWorkers < MAX_THUMB_WORKERS && thumbQueue.length > 0) {
+    const job = thumbQueue.shift();
+    thumbWorkers++;
+    spawnThumb(job.filePath, job.cacheFile, job.t).then(() => {
+      thumbWorkers--;
+      drainThumbQueue();
+    });
+  }
+}
+
+// ─── frame thumbnail (on-demand) ─────────────────────────────────────────────
 
 router.get('/thumbnail/:type/:id', authenticate, (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
-  if (!filePath || !fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'File not found' });
-  }
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
 
   const t = Math.max(0, Math.round(parseFloat(req.query.t || 0)));
-  const cacheDir = path.join(os.tmpdir(), 'streamulus-thumbs');
-  const cacheFile = path.join(cacheDir, `${type}-${id}-${t}.jpg`);
+  const cacheFile = thumbCacheFile(type, id, t);
 
   const send = () => {
     res.setHeader('Content-Type', 'image/jpeg');
@@ -259,24 +288,35 @@ router.get('/thumbnail/:type/:id', authenticate, (req, res) => {
 
   if (fs.existsSync(cacheFile)) return send();
 
-  try { fs.mkdirSync(cacheDir, { recursive: true }); } catch {}
-
-  const proc = spawn('ffmpeg', [
-    '-ss', String(t),
-    '-i', filePath,
-    '-vframes', '1',
-    '-vf', 'scale=224:126',
-    '-q:v', '5',
-    '-y', cacheFile,
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
-
-  proc.on('error', (e) => {
-    if (!res.headersSent) res.status(500).json({ error: e.message });
-  });
-  proc.on('exit', (code) => {
-    if (code === 0 && fs.existsSync(cacheFile)) send();
+  spawnThumb(filePath, cacheFile, t).then((ok) => {
+    if (ok) send();
     else if (!res.headersSent) res.status(500).json({ error: 'Thumbnail generation failed' });
   });
+});
+
+// ─── thumbnail pre-warm (background, fire-and-forget) ────────────────────────
+//
+// The frontend calls this once when the video duration is known, passing
+// ~40 evenly-spaced timestamps. Thumbnails are generated 3-at-a-time in the
+// background so hover requests hit the disk cache instead of starting FFmpeg.
+
+router.post('/thumbnail/prewarm/:type/:id', authenticate, (req, res) => {
+  const { type, id } = req.params;
+  const filePath = getFilePath(type, id);
+  if (!filePath || !fs.existsSync(filePath)) return res.json({ ok: false });
+
+  const timestamps = Array.isArray(req.body?.timestamps) ? req.body.timestamps : [];
+  let queued = 0;
+  for (const ts of timestamps.slice(0, 100)) {
+    const t = Math.max(0, Math.round(ts));
+    const cacheFile = thumbCacheFile(type, id, t);
+    if (!fs.existsSync(cacheFile)) {
+      thumbQueue.push({ filePath, cacheFile, t });
+      queued++;
+    }
+  }
+  drainThumbQueue();
+  res.json({ ok: true, queued });
 });
 
 // ─── stream diagnostics ───────────────────────────────────────────────────────
