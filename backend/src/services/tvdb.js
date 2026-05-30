@@ -104,8 +104,30 @@ async function getSeasonPosters(tvdbId) {
   const token = await getToken();
   if (!token) return new Map();
 
-  // Strategy 1: artworks endpoint filtered to type=7 (season poster)
-  // Each artwork has a `season` field with the season number
+  // Strategy 1: extended series record — each season object has an `image` field
+  // and a `type` that identifies Aired Order vs DVD Order vs Absolute etc.
+  try {
+    const r = await axios.get(`${BASE}/series/${tvdbId}/extended`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 15000,
+    });
+    const allSeasons = r.data.data?.seasons || [];
+    // Keep only "official" (aired order) seasons; type.id===1 or type.type==='official'
+    const official = allSeasons.filter(s =>
+      s.type?.id === 1 || s.type?.type === 'official' || s.type?.name === 'Aired Order'
+    );
+    const map = new Map();
+    for (const s of official) {
+      if (s.number > 0 && s.image) map.set(s.number, toFullUrl(s.image));
+    }
+    console.log(`[tvdb] seasonPosters ${tvdbId}: ${map.size}/${allSeasons.length} via extended (${official.length} official seasons)`);
+    if (map.size > 0) return map;
+  } catch (e) {
+    console.error(`[tvdb] getSeasonPosters extended ${tvdbId}: ${e.message}`);
+  }
+
+  // Strategy 2: artworks endpoint filtered to type=7 (season poster)
+  // Handle both `art.season` and `art.seasonNumber` field names (TVDB API inconsistency)
   try {
     const r = await axios.get(`${BASE}/series/${tvdbId}/artworks`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -116,18 +138,17 @@ async function getSeasonPosters(tvdbId) {
     const artworks = Array.isArray(raw) ? raw : (raw?.artworks || []);
     const byScore = (a, b) => (b.score || 0) - (a.score || 0);
     const map = new Map();
-    for (const art of artworks.filter(a => a.season > 0).sort(byScore)) {
-      if (!map.has(art.season)) map.set(art.season, toFullUrl(art.image));
+    for (const art of artworks.sort(byScore)) {
+      const sNum = art.season || art.seasonNumber;
+      if (sNum > 0 && !map.has(sNum)) map.set(sNum, toFullUrl(art.image));
     }
-    if (map.size > 0) {
-      console.log(`[tvdb] seasonPosters ${tvdbId}: ${map.size} via artworks?type=7`);
-      return map;
-    }
+    console.log(`[tvdb] seasonPosters ${tvdbId}: ${map.size} via artworks?type=7`);
+    if (map.size > 0) return map;
   } catch (e) {
     console.error(`[tvdb] getSeasonPosters artworks ${tvdbId}: ${e.message}`);
   }
 
-  // Strategy 2: seasons/official — each season object has an `image` field when a poster exists
+  // Strategy 3: seasons/official endpoint
   try {
     const r = await axios.get(`${BASE}/series/${tvdbId}/seasons/official`, {
       headers: { Authorization: `Bearer ${token}` },

@@ -293,7 +293,7 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
           const epData = await tvdb.getEpisodeDetails(tvdbMeta.tvdb_id, ep.season, ep.episode_number);
           if (epData) {
             db.prepare('UPDATE episodes SET title=?, overview=?, still_path=? WHERE id=?')
-              .run(epData.name || ep.title, epData.overview || ep.overview, epData.still_path || ep.still_path, ep.id);
+              .run(epData.name || ep.title, epData.overview || ep.overview, epData.still_path, ep.id);
           }
         }
 
