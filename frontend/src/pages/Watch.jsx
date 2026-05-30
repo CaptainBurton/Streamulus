@@ -197,12 +197,32 @@ export default function Watch() {
             video.play().catch(e => addLog(`play() rejected: ${e.message}`));
           });
 
+          // Recovery counter is per-HLS-instance (reset on every startHlsAt call).
+          let mediaRecoveries = 0;
           hls.on(Hls.Events.ERROR, (_, data) => {
             addLog(`hls ${data.fatal ? 'FATAL' : 'non-fatal'}: ${data.details}`);
             if (cancelled || !data.fatal) return;
-            let msg = `HLS error: ${data.details}`;
-            if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
-            setError(msg); setBuffering(false); hls.destroy();
+
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              // bufferAppendError / bufferStalledError / mediaError:
+              // try hls.recoverMediaError() up to 3 times, then restart the
+              // stream from the current playback position.
+              mediaRecoveries += 1;
+              if (mediaRecoveries <= 3) {
+                addLog(`Media error — recovery attempt ${mediaRecoveries}`);
+                setBuffering(true);
+                hls.recoverMediaError();
+              } else {
+                const pos = startPosRef.current + Math.floor(video.currentTime || 0);
+                addLog(`Restarting HLS at ${pos}s after repeated media errors`);
+                startHlsAt(Math.max(0, pos));
+              }
+            } else {
+              // Network or other fatal error — no automatic recovery possible.
+              let msg = `HLS error: ${data.details}`;
+              if (data.response?.status) msg += ` (HTTP ${data.response.status})`;
+              setError(msg); setBuffering(false); hls.destroy();
+            }
           });
         };
 

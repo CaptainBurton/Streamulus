@@ -73,6 +73,9 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0) 
     '-hide_banner', '-loglevel', 'warning',
     '-fflags', '+genpts+discardcorrupt',
     '-err_detect', 'ignore_err',
+    // avoid_negative_ts: shifts DTS so the first timestamp is >= 0, preventing
+    // MediaSource from rejecting a segment when B-frames produce negative DTS.
+    '-avoid_negative_ts', 'make_zero',
     ...(startSec > 0 ? ['-ss', String(startSec)] : []),
     '-i', filePath,
     '-map', '0:v:0', '-map', '0:a:0?', '-sn',
@@ -84,7 +87,11 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0) 
     '-vf', buildVideoFilter(settings.resolution),
     '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
     '-max_muxing_queue_size', '4096',
-    '-g', '48', '-keyint_min', '48', '-sc_threshold', '0',
+    // Force keyframes at exact segment boundaries (every segmentDuration seconds).
+    // This guarantees HLS can split cleanly and prevents timestamp gaps between
+    // segments from different FFmpeg seek restarts.
+    '-force_key_frames', `expr:gte(t,n_forced*${settings.segmentDuration})`,
+    '-sc_threshold', '0',
     '-c:a', 'aac', '-b:a', settings.audioBitrate,
     ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
     '-ar', '48000',
