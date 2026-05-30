@@ -277,8 +277,11 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
           .run(tvdbMeta.tvdb_id, tvdbMeta.overview || show.overview, poster, backdrop,
                tvdbMeta.status || show.status, tvdbMeta.first_air_date || show.first_air_date, show.id);
 
-        // Season posters
-        const seasonPosters = await tvdb.getSeasonPosters(tvdbMeta.tvdb_id);
+        // Season posters: prefer type-7 artworks from getSeriesArtwork; fall back to seasons/official
+        let seasonPosters = artwork.seasonPosters;
+        if (seasonPosters.size === 0) {
+          seasonPosters = await tvdb.getSeasonPosters(tvdbMeta.tvdb_id);
+        }
         for (const [seasonNum, posterUrl] of seasonPosters) {
           db.prepare('INSERT OR REPLACE INTO seasons (show_id, season_number, poster_path) VALUES (?, ?, ?)')
             .run(show.id, seasonNum, posterUrl);
