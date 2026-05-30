@@ -84,6 +84,9 @@ export default function Watch() {
   const [hoverTime,   setHoverTime]   = useState(null);
   const [hoverX,      setHoverX]      = useState(0);
   const [dragTime,    setDragTime]    = useState(null);
+  // Total file duration, derived as max(startPos + segmentDur) across all seeks.
+  // Kept separate so seeking doesn't inflate totalDur with stale segment durations.
+  const [totalFileDur, setTotalFileDur] = useState(0);
 
   // Diag
   const [diagInfo,    setDiagInfo]    = useState(null);
@@ -100,8 +103,9 @@ export default function Watch() {
 
   // Derived
   const absTime = startPosRef.current + curTime;
-  totalDurRef.current = startPosRef.current + (duration || 0);
-  const totalDur = totalDurRef.current;
+  // Use the cached total file duration (survives seeks without inflating)
+  const totalDur = totalFileDur || (startPosRef.current + (duration || 0));
+  totalDurRef.current = totalDur;
   const displayTime = dragTime ?? absTime;
   const progress = totalDur > 0 ? Math.min(displayTime / totalDur, 1) : 0;
 
@@ -253,7 +257,14 @@ export default function Watch() {
     const v = videoRef.current;
     if (!v) return;
     const onTime  = () => setCurTime(v.currentTime);
-    const onDur   = () => { if (isFinite(v.duration) && v.duration > 0) setDuration(v.duration); };
+    const onDur   = () => {
+      if (isFinite(v.duration) && v.duration > 0) {
+        setDuration(v.duration);
+        // Keep the true total file duration; startPosRef + segmentDur = total
+        const computed = startPosRef.current + v.duration;
+        setTotalFileDur(prev => computed > prev ? computed : prev);
+      }
+    };
     const onPlay  = () => setPaused(false);
     const onPause = () => setPaused(true);
     const onVol   = () => { setVolume(v.volume); setMuted(v.muted); };
@@ -494,23 +505,41 @@ export default function Watch() {
             onClick={e => e.stopPropagation()}
           >
             {/* Progress bar */}
-            <div style={{ marginBottom: '16px', paddingTop: '16px', position: 'relative', cursor: 'pointer' }}
+            <div style={{ marginBottom: '16px', paddingTop: '20px', position: 'relative', cursor: 'pointer' }}
               onMouseEnter={() => setProgHover(true)}
               onMouseLeave={() => { setProgHover(false); if (!isDragging.current) setHoverTime(null); }}
             >
-              {/* Time tooltip */}
-              {(hoverTime !== null || dragTime !== null) && (
-                <div style={{
-                  position: 'absolute', bottom: '22px', pointerEvents: 'none',
-                  left: `${Math.min(Math.max(hoverX, 28), (progressRef.current?.offsetWidth ?? 200) - 28)}px`,
-                  transform: 'translateX(-50%)',
-                  background: 'rgba(20,20,20,0.92)', color: '#fff', fontSize: '12px', fontWeight: '700',
-                  padding: '4px 9px', borderRadius: '6px', whiteSpace: 'nowrap',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-                }}>
-                  {fmt(dragTime ?? hoverTime)}
-                </div>
-              )}
+              {/* Hover / drag preview tooltip + tick */}
+              {(hoverTime !== null || dragTime !== null) && (() => {
+                const previewTime = dragTime ?? hoverTime;
+                const previewRatio = totalDur > 0 ? Math.min(previewTime / totalDur, 1) : 0;
+                const barWidth = progressRef.current?.offsetWidth ?? 300;
+                const rawX = previewRatio * barWidth;
+                const clampedX = Math.min(Math.max(rawX, 32), barWidth - 32);
+                return (
+                  <>
+                    {/* Vertical tick on the track */}
+                    <div style={{
+                      position: 'absolute', bottom: '0', pointerEvents: 'none',
+                      left: `${rawX}px`, transform: 'translateX(-50%)',
+                      width: '2px', height: `${parseInt(barH) + 10}px`,
+                      background: 'rgba(255,255,255,0.55)', borderRadius: '1px',
+                    }} />
+                    {/* Time bubble */}
+                    <div style={{
+                      position: 'absolute', bottom: `${parseInt(barH) + 16}px`, pointerEvents: 'none',
+                      left: `${clampedX}px`, transform: 'translateX(-50%)',
+                      background: 'rgba(15,15,15,0.95)', color: '#fff',
+                      fontSize: '13px', fontWeight: '700', letterSpacing: '0.5px',
+                      padding: '5px 10px', borderRadius: '6px', whiteSpace: 'nowrap',
+                      boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                    }}>
+                      {fmt(previewTime)}
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Track */}
               <div
