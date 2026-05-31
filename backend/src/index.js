@@ -18,6 +18,11 @@ app.use('/api/tv', require('./routes/tv'));
 app.use('/api/stream', require('./routes/stream'));
 app.use('/api/admin', require('./routes/admin'));
 
+// Serve user-uploaded artwork stored in /data/uploads/
+const uploadsDir = path.join(process.env.DATA_DIR || '/data', 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir));
+
 // Serve React frontend in production
 const publicDir = path.join(__dirname, '../public');
 if (fs.existsSync(publicDir)) {
