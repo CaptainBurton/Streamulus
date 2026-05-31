@@ -286,6 +286,22 @@ function getManifestContent(key, baseSegmentUrl) {
     const manifestPath = path.join(session.dir, 'index.m3u8');
     if (!fs.existsSync(manifestPath)) return null;
     content = fs.readFileSync(manifestPath, 'utf8');
+
+    // Copy-mode: FFmpeg writes a "live" manifest with no #EXT-X-PLAYLIST-TYPE.
+    // Safari treats that as a live stream — no scrubber, AirPlay shows "Live".
+    // Inject EVENT while FFmpeg is still running, then upgrade to VOD+ENDLIST
+    // once encoding is complete so the scrubber and AirPlay timer work correctly.
+    if (!content.includes('#EXT-X-PLAYLIST-TYPE')) {
+      if (session.ffmpegDone) {
+        let vod = content;
+        if (!vod.includes('#EXT-X-ENDLIST')) vod += '#EXT-X-ENDLIST\n';
+        vod = vod.replace(/(#EXT-X-VERSION:\d+\n)/, '$1#EXT-X-PLAYLIST-TYPE:VOD\n');
+        session.precomputedManifest = vod;
+        content = vod;
+      } else {
+        content = content.replace(/(#EXT-X-VERSION:\d+\n)/, '$1#EXT-X-PLAYLIST-TYPE:EVENT\n');
+      }
+    }
   }
   // Rewrite .ts segment lines so browsers fetch them through our auth endpoint
   content = content.replace(/^[^\n#]*?(seg\d{5}\.ts)\s*$/gm, `${baseSegmentUrl}&seg=$1`);

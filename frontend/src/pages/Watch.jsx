@@ -316,6 +316,10 @@ export default function Watch() {
             if (!cancelled) { setError(`Stream error (HTTP ${probe.status}): ${msg || text.slice(0,300)}`); setBuffering(false); }
             return;
           }
+          // Read total duration from server header so the timer shows the full
+          // length immediately even in copy mode (where native HLS metadata loads slowly).
+          const d = parseFloat(probe.headers.get('X-Total-Duration') || '0');
+          if (d > 0 && !cancelled) setTotalFileDur(d);
         } catch (e) {
           if (!cancelled && e.name !== 'AbortError') { setError(`Cannot reach server: ${e.message}`); setBuffering(false); return; }
         }
@@ -489,7 +493,7 @@ export default function Watch() {
       // naturally so the card doesn't linger on the incoming episode screen.
       setShowNextEpCard(false);
       const next = nextEpRef.current;
-      if (next) navigate(`/watch/episode/${next.id}`);
+      if (next) navigate(`/watch/episode/${next.id}`, { replace: true });
     };
     video.addEventListener('ended', onEnded);
     return () => video.removeEventListener('ended', onEnded);
@@ -679,7 +683,7 @@ export default function Watch() {
             opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
           }}>
             <button
-              onClick={() => type === 'episode' && media?.showId ? navigate(`/tv/${media.showId}`) : navigate(-1)}
+              onClick={() => navigate(-1)}
               style={S.btn}
               className="pbtn-back"
             >← Back</button>
@@ -899,7 +903,7 @@ export default function Watch() {
                 }} />
               </div>
               <button
-                onClick={() => navigate(`/watch/episode/${nextEp.id}`)}
+                onClick={() => navigate(`/watch/episode/${nextEp.id}`, { replace: true })}
                 style={{ width: '100%', padding: '9px 0', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', letterSpacing: '0.3px' }}
               >
                 ▶ Play Now
