@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
-const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits, searchTV } = require('../services/tmdb');
+const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits, getTVContentRating, searchTV } = require('../services/tmdb');
 
 const router = express.Router();
 
@@ -50,9 +50,31 @@ router.get('/', authenticate, (req, res) => {
   res.json({ shows, total });
 });
 
-router.get('/recent', authenticate, (req, res) => {
-  const shows = db.prepare('SELECT * FROM tv_shows ORDER BY added_at DESC LIMIT 20').all().map(formatShow);
-  res.json({ shows });
+// Backfill rating/genres/tmdb_id for shows that were indexed via TVDB (which returns no TMDB data).
+// Runs in parallel; results are persisted so subsequent requests are instant.
+async function enrichMissingTMDB(shows) {
+  const missing = shows.filter(s => !s.tmdb_id);
+  if (!missing.length) return;
+  await Promise.all(missing.map(async (show) => {
+    const result = await searchTV(show.title);
+    if (!result) return;
+    const cols = ['tmdb_id = ?'];
+    const vals = [result.id];
+    if (!show.rating && result.vote_average) { cols.push('rating = ?'); vals.push(result.vote_average); }
+    if (!show.genres && result.genre_ids?.length) { cols.push('genres = ?'); vals.push(JSON.stringify(result.genre_ids)); }
+    if (!show.backdrop_path && result.backdrop_path) { cols.push('backdrop_path = ?'); vals.push(result.backdrop_path); }
+    vals.push(show.id);
+    db.prepare(`UPDATE tv_shows SET ${cols.join(', ')} WHERE id = ?`).run(...vals);
+  }));
+}
+
+router.get('/recent', authenticate, async (req, res) => {
+  let shows = db.prepare('SELECT * FROM tv_shows ORDER BY added_at DESC LIMIT 20').all();
+  await enrichMissingTMDB(shows);
+  if (shows.some(s => !s.tmdb_id)) {
+    shows = db.prepare('SELECT * FROM tv_shows ORDER BY added_at DESC LIMIT 20').all();
+  }
+  res.json({ shows: shows.map(formatShow) });
 });
 
 router.get('/episode/:id', authenticate, (req, res) => {
@@ -116,7 +138,16 @@ router.get('/:id/details', authenticate, async (req, res) => {
 
   let cast = [];
   if (tmdbId) {
-    const credits = await getTVCredits(tmdbId);
+    const [credits, contentRating] = await Promise.all([
+      getTVCredits(tmdbId),
+      show.content_rating ? Promise.resolve(null) : getTVContentRating(tmdbId),
+    ]);
+
+    if (contentRating) {
+      db.prepare('UPDATE tv_shows SET content_rating = ? WHERE id = ?').run(contentRating, show.id);
+      show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
+    }
+
     if (credits) {
       cast = (credits.cast || []).slice(0, 12).map(c => ({
         id: c.id,
