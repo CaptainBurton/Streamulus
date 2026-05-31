@@ -164,11 +164,13 @@ async function getHLSSession(filePath, startTime = 0) {
   // Global segment N → seek point with highest fromIdx ≤ N → local file seg{N-fromIdx}.ts
   const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, totalDuration, settings, copyMode, audioCopy, ffmpegDone: false, seekPoints: [{ fromIdx: 0, dir }] };
 
-  // Precompute manifest only for transcode mode where we control keyframe placement
-  // and therefore know exact segment boundaries. In copy mode, actual segment
-  // boundaries depend on source keyframes; serving the live FFmpeg manifest avoids
-  // a segment-count mismatch that would cause phantom 404s near the end of the file.
-  if (totalDuration > 0 && !copyMode) {
+  // Precompute a VOD manifest so Safari and Apple TV see a scrubber instead of
+  // a "Live" badge from the very first request.  Copy mode uses approximate
+  // segment durations (all equal to segmentDuration) because actual
+  // keyframe-aligned boundaries aren't known upfront; the proc.on('exit')
+  // handler below upgrades precomputedManifest to the accurate FFmpeg manifest
+  // once encoding is complete.
+  if (totalDuration > 0) {
     const effectiveDuration = Math.max(1, totalDuration - Math.max(0, startTime));
     const segCount = Math.ceil(effectiveDuration / settings.segmentDuration);
     const lines = [
@@ -249,6 +251,20 @@ async function getHLSSession(filePath, startTime = 0) {
     clearInterval(checkInterval);
     clearTimeout(startTimeout);
     session.ffmpegDone = true;
+
+    // For copy mode, replace the approximate precomputed manifest (uniform 4 s
+    // durations) with the accurate one FFmpeg just finished writing — correct
+    // #EXTINF durations and a real segment count mean the scrubber maps correctly.
+    if (session.copyMode && code === 0 && fs.existsSync(manifestPath)) {
+      try {
+        let accurate = fs.readFileSync(manifestPath, 'utf8');
+        if (!accurate.includes('#EXT-X-ENDLIST')) accurate += '#EXT-X-ENDLIST\n';
+        accurate = accurate.replace(/(#EXT-X-VERSION:\d+\n)/, '$1#EXT-X-PLAYLIST-TYPE:VOD\n');
+        session.precomputedManifest = accurate;
+        console.log(`[transcode] Upgraded copy-mode manifest to accurate VOD: ${path.basename(filePath)}`);
+      } catch {}
+    }
+
     if (!session.ready) {
       // FFmpeg finished before INITIAL_SEGMENT_BUFFER segments were written.
       // This is normal for very short clips — resolve with whatever was written

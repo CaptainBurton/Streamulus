@@ -490,7 +490,7 @@ export default function Watch() {
   // totalDur === 0 guard ensures it never fires on a fresh episode load before
   // the new segment duration has been set.
   useEffect(() => {
-    if (type !== 'episode' || !nextEp || totalDur === 0) return;
+    if (type !== 'episode' || !nextEp || totalDur < 60) return;
     if (totalDur - absTime <= 30) setShowNextEpCard(true);
   }, [absTime, totalDur, type, nextEp]);
 
@@ -921,7 +921,7 @@ export default function Watch() {
                 }} />
               </div>
               <button
-                onClick={() => navigate(`/watch/episode/${nextEp.id}`, { replace: true })}
+                onClick={() => { setShowNextEpCard(false); navigate(`/watch/episode/${nextEp.id}`, { replace: true }); }}
                 style={{ width: '100%', padding: '9px 0', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', letterSpacing: '0.3px' }}
               >
                 ▶ Play Now
