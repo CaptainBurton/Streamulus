@@ -8,22 +8,22 @@ export default function MediaCard({ item, type = 'movie' }) {
   const [hovered, setHovered] = useState(false);
   const [imgError, setImgError] = useState(false);
 
-  // Movies open the detail page; TV shows open the TV browse page
-  const handleClick = () => type === 'movie' ? navigate(`/movie/${item.id}`) : navigate('/tv');
+  const handleClick = () => type === 'movie' ? navigate(`/movie/${item.id}`) : navigate(`/tv/${item.id}`);
 
   const poster = imgError || !item.poster_url ? PLACEHOLDER : item.poster_url;
   const rating = item.rating ? item.rating.toFixed(1) : null;
   const year = type === 'movie' ? item.year : item.first_air_date?.split('-')[0];
 
   return (
+    // Outer div handles transform only — overflow:hidden must NOT be here or the GPU
+    // compositing layer loses the border-radius clip during the scale animation.
     <div
-      onClick={type === 'tv' ? () => navigate(`/tv`) : handleClick}
+      onClick={handleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         position: 'relative',
         borderRadius: '8px',
-        overflow: 'hidden',
         cursor: 'pointer',
         flexShrink: 0,
         width: '160px',
@@ -33,61 +33,56 @@ export default function MediaCard({ item, type = 'movie' }) {
         zIndex: hovered ? 10 : 1,
       }}
     >
-      <img
-        src={poster}
-        alt={item.title || item.name}
-        onError={() => setImgError(true)}
-        style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
-      />
+      {/* Inner div clips image and overlays to rounded corners without conflicting with transform */}
+      <div style={{ borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
+        <img
+          src={poster}
+          alt={item.title || item.name}
+          onError={() => setImgError(true)}
+          style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
+        />
 
-      {/* Hover overlay */}
-      <div style={{
-        position: 'absolute',
-        inset: 0,
-        background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.2) 60%, transparent 100%)',
-        opacity: hovered ? 1 : 0,
-        transition: 'opacity 0.25s',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'flex-end',
-        padding: '12px',
-      }}>
-        <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '4px', lineHeight: 1.3 }}>
-          {item.title || item.name}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {year && <span style={{ fontSize: '11px', color: '#aaa' }}>{year}</span>}
-          {rating && (
-            <span style={{ fontSize: '11px', color: '#00c2ff', fontWeight: '600' }}>
-              ★ {rating}
-            </span>
-          )}
-        </div>
-        {type === 'movie' && (
+        {/* Hover overlay */}
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.2) 60%, transparent 100%)',
+          opacity: hovered ? 1 : 0,
+          transition: 'opacity 0.25s',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'flex-end',
+          padding: '12px',
+        }}>
+          <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '4px', lineHeight: 1.3 }}>
+            {item.title || item.name}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {year && <span style={{ fontSize: '11px', color: '#aaa' }}>{year}</span>}
+            {rating && <span style={{ fontSize: '11px', color: '#00c2ff', fontWeight: '600' }}>★ {rating}</span>}
+          </div>
           <div style={{ marginTop: '8px', background: '#00c2ff', color: '#000', borderRadius: '4px', padding: '5px 0', textAlign: 'center', fontSize: '12px', fontWeight: '700' }}>
             More Info
           </div>
+        </div>
+
+        {/* Rating badge — fades out when hover overlay appears */}
+        {rating && (
+          <div style={{
+            position: 'absolute',
+            top: '8px', right: '8px',
+            background: 'rgba(0,0,0,0.75)',
+            borderRadius: '4px',
+            padding: '2px 6px',
+            fontSize: '11px', fontWeight: '600',
+            color: '#00c2ff',
+            opacity: hovered ? 0 : 1,
+            transition: 'opacity 0.2s',
+          }}>
+            ★ {rating}
+          </div>
         )}
       </div>
-
-      {/* Rating badge always visible */}
-      {rating && (
-        <div style={{
-          position: 'absolute',
-          top: '8px',
-          right: '8px',
-          background: 'rgba(0,0,0,0.75)',
-          borderRadius: '4px',
-          padding: '2px 6px',
-          fontSize: '11px',
-          fontWeight: '600',
-          color: '#00c2ff',
-          opacity: hovered ? 0 : 1,
-          transition: 'opacity 0.2s',
-        }}>
-          ★ {rating}
-        </div>
-      )}
     </div>
   );
 }

@@ -23,10 +23,11 @@ function MovieGrid({ movies }) {
           <div
             key={movie.id}
             onClick={() => navigate(`/movie/${movie.id}`)}
-            style={{ cursor: 'pointer', position: 'relative', borderRadius: '8px', overflow: 'hidden', transition: 'transform 0.2s, box-shadow 0.2s' }}
+            style={{ cursor: 'pointer', position: 'relative', borderRadius: '8px', transition: 'transform 0.2s, box-shadow 0.2s' }}
             onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.7)'; }}
             onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
           >
+            <div style={{ borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
             <img
               src={movie.poster_url || PLACEHOLDER}
               alt={movie.title}
@@ -69,6 +70,7 @@ function MovieGrid({ movies }) {
                 <div style={{ width: `${progressRatio * 100}%`, height: '100%', background: '#00c2ff', minWidth: '6px' }} />
               </div>
             )}
+            </div>
           </div>
         );
       })}
