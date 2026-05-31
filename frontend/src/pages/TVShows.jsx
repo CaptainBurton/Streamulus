@@ -61,6 +61,8 @@ export default function TVShows() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sort, setSort] = useState('added');
+  const [order, setOrder] = useState('DESC');
   const [page, setPage] = useState(1);
   const topRef = useRef(null);
 
@@ -69,19 +71,19 @@ export default function TVShows() {
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setPage(1); }, [debouncedSearch]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, sort, order]);
 
   const fetchShows = useCallback(async () => {
     setLoading(true);
     try {
       const res = await axios.get('/api/tv', {
-        params: { search: debouncedSearch || undefined, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE },
+        params: { search: debouncedSearch || undefined, sort, order, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE },
       });
       setShows(res.data.shows || []);
       setTotal(res.data.total || 0);
     } catch { }
     finally { setLoading(false); }
-  }, [debouncedSearch, page]);
+  }, [debouncedSearch, sort, order, page]);
 
   useEffect(() => { fetchShows(); }, [fetchShows]);
 
@@ -98,15 +100,26 @@ export default function TVShows() {
               {total} series{totalPages > 1 && <span style={{ color: '#444' }}> · page {page} of {totalPages}</span>}
             </div>
           </div>
-          <input
-            type="text"
-            placeholder="Search shows..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', width: '220px' }}
-            onFocus={e => { e.target.style.borderColor = '#00c2ff'; }}
-            onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
-          />
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              placeholder="Search shows..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', width: '220px' }}
+              onFocus={e => { e.target.style.borderColor = '#00c2ff'; }}
+              onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+            />
+            <select value={sort} onChange={e => setSort(e.target.value)} style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+              <option value="added">Date Added</option>
+              <option value="title">Title</option>
+              <option value="rating">Rating</option>
+            </select>
+            <select value={order} onChange={e => setOrder(e.target.value)} style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+              <option value="DESC">Descending</option>
+              <option value="ASC">Ascending</option>
+            </select>
+          </div>
         </div>
 
         {loading ? (
@@ -127,10 +140,11 @@ export default function TVShows() {
                 <div
                   key={show.id}
                   onClick={() => navigate(`/tv/${show.id}`)}
-                  style={{ cursor: 'pointer', position: 'relative', borderRadius: '8px', overflow: 'hidden', transition: 'transform 0.2s, box-shadow 0.2s' }}
+                  style={{ cursor: 'pointer', position: 'relative', borderRadius: '8px', transition: 'transform 0.2s, box-shadow 0.2s' }}
                   onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.7)'; }}
                   onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
                 >
+                  <div style={{ borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
                   <img
                     src={show.poster_url || PLACEHOLDER}
                     alt={show.title}
@@ -143,6 +157,7 @@ export default function TVShows() {
                       {show.first_air_date && <span style={{ fontSize: '10px', color: '#888' }}>{show.first_air_date.split('-')[0]}</span>}
                       {show.rating && <span style={{ fontSize: '10px', color: '#00c2ff', fontWeight: '600' }}>★ {show.rating.toFixed(1)}</span>}
                     </div>
+                  </div>
                   </div>
                 </div>
               ))}
