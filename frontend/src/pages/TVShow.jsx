@@ -29,7 +29,7 @@ export default function TVShow() {
     <div style={{ minHeight: '100vh', background: '#0f0f0f', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
       <div style={{ fontSize: '48px' }}>📺</div>
       <div style={{ color: '#ff4444', fontSize: '18px' }}>{error}</div>
-      <button onClick={() => navigate('/tv')} style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← Back to Shows</button>
+      <button onClick={() => navigate(-1)} style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← Go Back</button>
     </div>
   );
 
@@ -38,20 +38,20 @@ export default function TVShow() {
       <Navbar />
 
       {/* Hero backdrop */}
-      <div style={{ position: 'relative', height: '70vh', minHeight: '460px', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', height: '70vh', minHeight: '480px', overflow: 'hidden' }}>
         {show.backdrop_url ? (
           <img src={show.backdrop_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%' }} />
         ) : (
           <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #1a1a2e, #0f0f0f)' }} />
         )}
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to right, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0.15) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to right, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0.2) 100%)' }} />
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '280px', background: 'linear-gradient(to top, #0f0f0f, transparent)' }} />
 
         <button
-          onClick={() => navigate('/tv')}
+          onClick={() => navigate(-1)}
           style={{ position: 'absolute', top: '90px', left: '32px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(8px)' }}
         >
-          ← TV Shows
+          ← Back
         </button>
       </div>
 
@@ -65,13 +65,13 @@ export default function TVShow() {
               src={show.poster_url || PLACEHOLDER}
               alt={show.title}
               onError={e => { e.target.src = PLACEHOLDER; }}
-              style={{ width: '200px', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.8)', display: 'block' }}
+              style={{ width: '220px', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.8)', display: 'block' }}
             />
           </div>
 
           {/* Info */}
-          <div style={{ flex: 1, minWidth: '280px', paddingTop: '110px' }}>
-            <h1 style={{ fontSize: '40px', fontWeight: '800', lineHeight: 1.1, marginBottom: '16px', letterSpacing: '-0.5px' }}>
+          <div style={{ flex: 1, minWidth: '280px', paddingTop: '120px' }}>
+            <h1 style={{ fontSize: '42px', fontWeight: '800', lineHeight: 1.1, marginBottom: '16px', letterSpacing: '-0.5px' }}>
               {show.title}
             </h1>
 
@@ -81,7 +81,7 @@ export default function TVShow() {
                 <span style={{ padding: '2px 8px', border: '1px solid #555', borderRadius: '4px', color: '#888', fontSize: '12px', fontWeight: '600' }}>{show.content_rating}</span>
               )}
               {show.rating && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#00c2ff', fontSize: '15px', fontWeight: '700' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#f5c518', fontSize: '15px', fontWeight: '700' }}>
                   ★ {show.rating.toFixed(1)}
                 </span>
               )}
@@ -102,11 +102,45 @@ export default function TVShow() {
               )}
             </div>
 
+            {/* Genres */}
+            {show.genres?.length > 0 && (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                {show.genres.map(g => (
+                  <span key={g} style={{ padding: '4px 12px', borderRadius: '20px', background: 'rgba(0,194,255,0.1)', border: '1px solid rgba(0,194,255,0.2)', color: '#00c2ff', fontSize: '12px', fontWeight: '600' }}>
+                    {g}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Overview */}
             {show.overview && (
-              <p style={{ color: '#ccc', fontSize: '15px', lineHeight: '1.7', marginBottom: '0', maxWidth: '640px' }}>
+              <p style={{ color: '#ccc', fontSize: '16px', lineHeight: '1.7', marginBottom: '32px', maxWidth: '640px' }}>
                 {show.overview}
               </p>
             )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {seasons.length > 0 && (
+                <button
+                  onClick={() => navigate(`/tv/${id}/season/${seasons[0].season}`)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 36px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '800', cursor: 'pointer', transition: 'all 0.2s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#33cfff'; e.currentTarget.style.transform = 'scale(1.03)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#00c2ff'; e.currentTarget.style.transform = 'scale(1)'; }}
+                >
+                  ▶ Play
+                </button>
+              )}
+              <button
+                onClick={() => navigate(-1)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 24px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s', backdropFilter: 'blur(8px)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+              >
+                ← Back
+              </button>
+            </div>
           </div>
         </div>
 
