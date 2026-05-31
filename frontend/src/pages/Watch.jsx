@@ -179,7 +179,10 @@ export default function Watch() {
       const showBuf = () => {
         if (cancelled) return;
         clearTimeout(bufferTimerRef.current);
-        bufferTimerRef.current = setTimeout(() => { if (!cancelled) setBuffering(true); }, 800);
+        // Only show the full buffering overlay after a 2 s stall.  Brief pauses
+        // (a segment arriving 0.5–1.5 s late) are invisible rather than triggering
+        // the spinner, making playback feel much smoother.
+        bufferTimerRef.current = setTimeout(() => { if (!cancelled) setBuffering(true); }, 2000);
       };
       const hideBuf = () => { if (cancelled) return; clearTimeout(bufferTimerRef.current); setBuffering(false); };
 
@@ -208,14 +211,20 @@ export default function Watch() {
             enableWorker: true,
             lowLatencyMode: false,
             startFragPrefetch: true,
-            // Keep forward buffer short to avoid MSE QuotaExceededError on high-bitrate
-            // content. Chrome's MSE limit is typically 50-150 MB; at 8 Mbps a 60s buffer
-            // is ~60 MB which can overflow and cause bufferAppendError ~30s into playback.
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
-            backBufferLength: 10,
+            // Pre-fetch aggressively so hls.js queues segment requests well ahead of
+            // the transcoder. The server holds each request until FFmpeg writes the
+            // segment (up to 30 s), so raising these values costs no extra bandwidth —
+            // it just means hls.js keeps more in-flight requests at once.
+            // At 4 Mbps (typical transcoded 1080p), 60 s ≈ 30 MB — well within
+            // Chrome's MSE quota of ~150 MB.
+            maxBufferLength: 60,
+            maxMaxBufferLength: 120,
+            // Keep 30 s of already-played video so seeking back ≤30 s is instant
+            // without restarting the transcoder.
+            backBufferLength: 30,
             maxBufferHole: 0.5,
-            fragLoadingTimeOut: 30000, fragLoadingMaxRetry: 8, fragLoadingRetryDelay: 300,
+            // Give the server the full 30 s it may need to produce a segment, plus margin.
+            fragLoadingTimeOut: 60000, fragLoadingMaxRetry: 8, fragLoadingRetryDelay: 500,
             highBufferWatchdogPeriod: 4, nudgeOffset: 0.5, nudgeMaxRetry: 3,
           });
           hlsRef.current = hls;
