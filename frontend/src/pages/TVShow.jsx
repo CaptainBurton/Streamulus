@@ -44,6 +44,8 @@ export default function TVShow() {
     </div>
   );
 
+  const allSeasonsWatched = seasons.length > 0 && seasons.every(s => s.episode_count > 0 && s.watched_count >= s.episode_count);
+
   return (
     <>
     <div style={{ minHeight: '100vh', background: '#0f0f0f', color: '#fff' }}>
@@ -114,6 +116,11 @@ export default function TVShow() {
               )}
               {show.status && <span style={{ color: '#888', fontSize: '14px' }}>{show.status}</span>}
               <span style={{ color: '#555', fontSize: '14px' }}>{seasons.length} season{seasons.length !== 1 ? 's' : ''}</span>
+              {allSeasonsWatched && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#22c55e', fontSize: '13px', fontWeight: '700', background: 'rgba(34,197,94,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                  ✓ Watched
+                </span>
+              )}
               {show.imdb_id && (
                 <a href={`https://www.imdb.com/title/${show.imdb_id}/`} target="_blank" rel="noopener noreferrer"
                    style={{ fontSize: '12px', color: '#555', textDecoration: 'none' }}
@@ -171,13 +178,15 @@ export default function TVShow() {
           <div style={{ marginTop: '56px' }}>
             <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '20px' }}>Seasons</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '14px' }}>
-              {seasons.map(s => (
+              {seasons.map(s => {
+                const seasonDone = s.episode_count > 0 && s.watched_count >= s.episode_count;
+                return (
                 <div
                   key={s.season}
                   onClick={() => navigate(`/tv/${id}/season/${s.season}`)}
-                  style={{ cursor: 'pointer', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', transition: 'all 0.2s' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,194,255,0.45)'; e.currentTarget.style.background = 'rgba(0,194,255,0.07)'; e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+                  style={{ cursor: 'pointer', borderRadius: '10px', overflow: 'hidden', border: `1px solid ${seasonDone ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)'}`, background: 'rgba(255,255,255,0.04)', transition: 'all 0.2s', position: 'relative' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = seasonDone ? 'rgba(34,197,94,0.5)' : 'rgba(0,194,255,0.45)'; e.currentTarget.style.background = 'rgba(0,194,255,0.07)'; e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = seasonDone ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
                 >
                   <div style={{ aspectRatio: '2/3', background: 'linear-gradient(135deg, rgba(0,194,255,0.1), rgba(123,47,255,0.1))', position: 'relative', overflow: 'hidden' }}>
                     {s.season_poster ? (
@@ -185,7 +194,7 @@ export default function TVShow() {
                         src={s.season_poster}
                         alt={`Season ${s.season}`}
                         onError={e => { e.target.style.display = 'none'; }}
-                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: seasonDone ? 0.65 : 1 }}
                       />
                     ) : (
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
@@ -193,13 +202,23 @@ export default function TVShow() {
                         <div style={{ fontSize: '11px', color: '#555', textTransform: 'uppercase', letterSpacing: '1px' }}>Season</div>
                       </div>
                     )}
+                    {seasonDone && (
+                      <div style={{ position: 'absolute', top: '8px', right: '8px', width: '28px', height: '28px', borderRadius: '50%', background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                    )}
                   </div>
                   <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#ccc' }}>Season {s.season}</div>
-                    <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>{s.episode_count} episode{s.episode_count !== 1 ? 's' : ''}</div>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: seasonDone ? '#888' : '#ccc' }}>Season {s.season}</div>
+                    <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>
+                      {seasonDone ? `${s.episode_count} ep — Watched` : `${s.episode_count} episode${s.episode_count !== 1 ? 's' : ''}`}
+                    </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

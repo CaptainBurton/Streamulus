@@ -136,7 +136,9 @@ export default function TVShows() {
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '16px' }}>
-              {shows.map(show => (
+              {shows.map(show => {
+                const showDone = show.total_episodes > 0 && show.watched_episodes >= show.total_episodes;
+                return (
                 <div
                   key={show.id}
                   onClick={() => navigate(`/tv/${show.id}`)}
@@ -149,10 +151,17 @@ export default function TVShows() {
                     src={show.poster_url || PLACEHOLDER}
                     alt={show.title}
                     onError={e => { e.target.src = PLACEHOLDER; }}
-                    style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
+                    style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block', opacity: showDone ? 0.65 : 1 }}
                   />
+                  {showDone && (
+                    <div style={{ position: 'absolute', top: '8px', right: '8px', width: '26px', height: '26px', borderRadius: '50%', background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.6)', zIndex: 2 }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                  )}
                   <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 10px 10px', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)' }}>
-                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#fff', lineHeight: 1.3 }}>{show.title}</div>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: showDone ? '#aaa' : '#fff', lineHeight: 1.3 }}>{show.title}</div>
                     <div style={{ display: 'flex', gap: '6px', marginTop: '3px', alignItems: 'center' }}>
                       {show.first_air_date && <span style={{ fontSize: '10px', color: '#888' }}>{show.first_air_date.split('-')[0]}</span>}
                       {show.rating && <span style={{ fontSize: '10px', color: '#00c2ff', fontWeight: '600' }}>★ {show.rating.toFixed(1)}</span>}
@@ -160,7 +169,8 @@ export default function TVShows() {
                   </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <Pagination page={page} total={total} pageSize={PAGE_SIZE} onChange={(p) => { setPage(p); topRef.current?.scrollIntoView({ behavior: 'smooth' }); }} />
           </>

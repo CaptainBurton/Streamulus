@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
-const { posterUrl, backdropUrl, resolveGenreNames, getMovieCredits, getSimilarMovies } = require('../services/tmdb');
+const { posterUrl, backdropUrl, resolveGenreNames, getMovieCredits, getSimilarMovies, getMovieContentRating } = require('../services/tmdb');
 
 const router = express.Router();
 
@@ -70,19 +70,26 @@ router.get('/:id', authenticate, (req, res) => {
 
 // Full detail page: movie + cast + similar (fetched live from TMDB)
 router.get('/:id/details', authenticate, async (req, res) => {
-  const movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(req.params.id);
+  let movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(req.params.id);
   if (!movie) return res.status(404).json({ error: 'Movie not found' });
 
-  const formatted = formatMovie(movie);
+  let formatted = formatMovie(movie);
   let cast = [];
   let director = null;
   let similarTmdb = [];
 
   if (movie.tmdb_id) {
-    const [credits, similar] = await Promise.all([
+    const [credits, similar, contentRating] = await Promise.all([
       getMovieCredits(movie.tmdb_id),
       getSimilarMovies(movie.tmdb_id),
+      movie.content_rating ? Promise.resolve(null) : getMovieContentRating(movie.tmdb_id),
     ]);
+
+    if (contentRating) {
+      db.prepare('UPDATE movies SET content_rating = ? WHERE id = ?').run(contentRating, movie.id);
+      movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(movie.id);
+      formatted = formatMovie(movie);
+    }
 
     if (credits) {
       cast = (credits.cast || []).slice(0, 12).map(c => ({
