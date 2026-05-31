@@ -71,6 +71,24 @@ async function getSimilarMovies(tmdbId) {
   } catch { return null; }
 }
 
+async function getTVCredits(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/credits`, { params: { api_key: apiKey } });
+    return res.data;
+  } catch { return null; }
+}
+
+async function getSimilarTV(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/similar`, { params: { api_key: apiKey } });
+    return res.data.results?.slice(0, 8) || [];
+  } catch { return null; }
+}
+
 async function getTVDetails(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
@@ -108,5 +126,5 @@ function resolveGenreNames(genreIds, isTV = false) {
 
 module.exports = {
   searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies,
-  getTVDetails, getEpisodeDetails, posterUrl, backdropUrl, resolveGenreNames
+  getTVDetails, getTVCredits, getSimilarTV, getEpisodeDetails, posterUrl, backdropUrl, resolveGenreNames
 };

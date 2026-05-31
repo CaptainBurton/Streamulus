@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
-const { posterUrl, backdropUrl } = require('../services/tmdb');
+const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits } = require('../services/tmdb');
 
 const router = express.Router();
 
@@ -10,9 +10,20 @@ const IMAGE_BASE = 'https://image.tmdb.org/t/p';
 const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://'));
 
 function formatShow(s) {
+  let genres = [];
+  if (s.genres) {
+    try {
+      const parsed = JSON.parse(s.genres);
+      if (Array.isArray(parsed)) {
+        genres = typeof parsed[0] === 'number' || (parsed[0] && !isNaN(Number(parsed[0])))
+          ? resolveGenreNames(parsed.map(Number), true)
+          : parsed;
+      }
+    } catch {}
+  }
   return {
     ...s,
-    genres: s.genres ? JSON.parse(s.genres) : [],
+    genres,
     poster_url: isFullUrl(s.poster_path) ? s.poster_path : posterUrl(s.poster_path),
     backdrop_url: isFullUrl(s.backdrop_path) ? s.backdrop_path : backdropUrl(s.backdrop_path),
   };
@@ -70,6 +81,45 @@ router.get('/:id', authenticate, (req, res) => {
   `).all(req.params.id);
 
   res.json({ show: formatShow(show), seasons });
+});
+
+router.get('/:id/details', authenticate, async (req, res) => {
+  const show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
+  if (!show) return res.status(404).json({ error: 'Show not found' });
+
+  const seasons = db.prepare(`
+    SELECT e.season, COUNT(*) as episode_count,
+           s.poster_path as season_poster
+    FROM episodes e
+    LEFT JOIN seasons s ON s.show_id = e.show_id AND s.season_number = e.season
+    WHERE e.show_id = ?
+    GROUP BY e.season ORDER BY e.season
+  `).all(req.params.id);
+
+  const formatted = formatShow(show);
+  let cast = [];
+
+  if (show.tmdb_id) {
+    const credits = await getTVCredits(show.tmdb_id);
+    if (credits) {
+      cast = (credits.cast || []).slice(0, 12).map(c => ({
+        id: c.id,
+        name: c.name,
+        character: c.character || '',
+        profile_url: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : null,
+      }));
+    }
+  }
+
+  const firstGenre = (() => {
+    try { return (JSON.parse(show.genres || '[]')[0] || ''); } catch { return ''; }
+  })();
+  const similarLocal = db.prepare(`
+    SELECT * FROM tv_shows WHERE id != ? AND genres LIKE ?
+    ORDER BY rating DESC LIMIT 8
+  `).all(show.id, `%${firstGenre}%`).map(formatShow);
+
+  res.json({ show: formatted, seasons, cast, similarLocal });
 });
 
 router.get('/:id/season/:season', authenticate, (req, res) => {
