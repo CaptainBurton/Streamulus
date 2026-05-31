@@ -3,21 +3,26 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 
-const PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
+const PLACEHOLDER_POSTER_POSTER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
+const PLACEHOLDER_POSTER_PERSON = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%231e1e1e"/%3E%3Ccircle cx="50" cy="38" r="20" fill="%23333"/%3E%3Cellipse cx="50" cy="80" rx="30" ry="22" fill="%23333"/%3E%3C/svg%3E';
 
 export default function TVShow() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [show, setShow] = useState(null);
   const [seasons, setSeasons] = useState([]);
+  const [cast, setCast] = useState([]);
+  const [similarLocal, setSimilarLocal] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    axios.get(`/api/tv/${id}`)
+    axios.get(`/api/tv/${id}/details`)
       .then(res => {
         setShow(res.data.show);
         setSeasons(res.data.seasons || []);
+        setCast(res.data.cast || []);
+        setSimilarLocal(res.data.similarLocal || []);
       })
       .catch(() => setError('Show not found'))
       .finally(() => setLoading(false));
@@ -62,9 +67,9 @@ export default function TVShow() {
           {/* Poster */}
           <div style={{ flexShrink: 0 }}>
             <img
-              src={show.poster_url || PLACEHOLDER}
+              src={show.poster_url || PLACEHOLDER_POSTER}
               alt={show.title}
-              onError={e => { e.target.src = PLACEHOLDER; }}
+              onError={e => { e.target.src = PLACEHOLDER_POSTER; }}
               style={{ width: '220px', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.8)', display: 'block' }}
             />
           </div>
@@ -175,6 +180,55 @@ export default function TVShow() {
                   <div style={{ padding: '12px 14px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                     <div style={{ fontSize: '14px', fontWeight: '700', color: '#ccc' }}>Season {s.season}</div>
                     <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>{s.episode_count} episode{s.episode_count !== 1 ? 's' : ''}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Cast */}
+        {cast.length > 0 && (
+          <div style={{ marginTop: '56px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '20px', color: '#fff' }}>Cast</h2>
+            <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', paddingBottom: '8px' }}>
+              {cast.map(person => (
+                <div key={person.id} style={{ flexShrink: 0, width: '100px', textAlign: 'center' }}>
+                  <img
+                    src={person.profile_url || PLACEHOLDER_PERSON}
+                    alt={person.name}
+                    onError={e => { e.target.src = PLACEHOLDER_PERSON; }}
+                    style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto 8px', border: '2px solid rgba(255,255,255,0.08)' }}
+                  />
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#fff', lineHeight: 1.3 }}>{person.name}</div>
+                  {person.character && <div style={{ fontSize: '11px', color: '#555', marginTop: '2px', lineHeight: 1.3 }}>{person.character}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* More in Your Library */}
+        {similarLocal.length > 0 && (
+          <div style={{ marginTop: '56px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '20px', color: '#fff' }}>More in Your Library</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '14px' }}>
+              {similarLocal.map(s => (
+                <div
+                  key={s.id}
+                  onClick={() => navigate(`/tv/${s.id}`)}
+                  style={{ cursor: 'pointer', borderRadius: '8px', overflow: 'hidden', transition: 'transform 0.2s, box-shadow 0.2s', position: 'relative' }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.6)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
+                >
+                  <img
+                    src={s.poster_url || PLACEHOLDER_POSTER}
+                    alt={s.title}
+                    onError={e => { e.target.src = PLACEHOLDER_POSTER; }}
+                    style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
+                  />
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 8px 8px', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#fff' }}>{s.title}</div>
                   </div>
                 </div>
               ))}
