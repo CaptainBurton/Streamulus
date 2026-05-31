@@ -23,6 +23,13 @@ const ForwardIcon = ({ n }) => (
   </svg>
 );
 
+const AirPlayIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width={22} height={22} style={{ display: 'block', flexShrink: 0 }}>
+    <path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/>
+    <polygon points="12 15 17 21 7 21 12 15"/>
+  </svg>
+);
+
 const D = {
   play:    'M8 5v14l11-7z',
   pause:   'M6 19h4V5H6v14zm8-14v14h4V5h-4z',
@@ -92,6 +99,14 @@ export default function Watch() {
 
   // Seek thumbnail
   const [thumbSrc,    setThumbSrc]    = useState(null);
+
+  // Next episode
+  const [nextEp,         setNextEp]         = useState(null);
+  const [showNextEpCard, setShowNextEpCard] = useState(false);
+  const nextEpRef = useRef(null);
+
+  // AirPlay
+  const [airplayAvailable, setAirplayAvailable] = useState(false);
 
   // Diag
   const [diagInfo,    setDiagInfo]    = useState(null);
@@ -422,6 +437,46 @@ export default function Watch() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // ── Next episode: fetch, banner, auto-advance ────────────────────────────
+  useEffect(() => {
+    setNextEp(null);
+    setShowNextEpCard(false);
+    if (type !== 'episode') return;
+    axios.get(`/api/tv/episode/${id}/next`)
+      .then(r => setNextEp(r.data.next))
+      .catch(() => {});
+  }, [type, id]);
+
+  // Keep a ref so the `ended` handler (set up once) always sees the latest value.
+  useEffect(() => { nextEpRef.current = nextEp; }, [nextEp]);
+
+  // Show "Up Next" card 30 s before the end.
+  useEffect(() => {
+    if (type !== 'episode' || !nextEp || totalDur === 0) return;
+    if (totalDur - absTime <= 30) setShowNextEpCard(true);
+  }, [absTime, totalDur, type, nextEp]);
+
+  // Auto-navigate to next episode when video ends.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || type !== 'episode') return;
+    const onEnded = () => {
+      const next = nextEpRef.current;
+      if (next) navigate(`/watch/episode/${next.id}`);
+    };
+    video.addEventListener('ended', onEnded);
+    return () => video.removeEventListener('ended', onEnded);
+  }, [type, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── AirPlay availability (WebKit/Safari only) ─────────────────────────────
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || typeof v.webkitShowPlaybackTargetPicker !== 'function') return;
+    const onChange = (e) => setAirplayAvailable(e.availability === 'available');
+    v.addEventListener('webkitplaybacktargetavailabilitychanged', onChange);
+    return () => v.removeEventListener('webkitplaybacktargetavailabilitychanged', onChange);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Seek thumbnail (debounced 150 ms, snapped to 10 s intervals) ─────────
   useEffect(() => {
     const previewT = dragTime ?? hoverTime;
@@ -556,7 +611,7 @@ export default function Watch() {
         ref={videoRef}
         playsInline
         disablePictureInPicture
-        x-webkit-airplay="deny"
+        x-webkit-airplay="allow"
         onClick={togglePlay}
         style={{ width: '100%', height: '100vh', background: '#000', display: 'block' }}
       />
@@ -760,12 +815,66 @@ export default function Watch() {
                 </div>
               </div>
 
+              {/* AirPlay — only rendered in Safari where the WebKit API is available */}
+              {airplayAvailable && (
+                <button
+                  onClick={() => videoRef.current?.webkitShowPlaybackTargetPicker()}
+                  style={S.iBtn}
+                  className="pbtn"
+                  title="AirPlay"
+                >
+                  <AirPlayIcon />
+                </button>
+              )}
+
               {/* Fullscreen */}
               <button onClick={toggleFS} style={S.iBtn} className="pbtn" title="Fullscreen (F)">
                 <Ico d={isFS ? D.fsOut : D.fsIn} size={22} />
               </button>
             </div>
           </div>
+
+          {/* ── Up Next card (TV episodes only, shown 30 s before end) ──────── */}
+          {showNextEpCard && nextEp && (
+            <div style={{
+              position: 'fixed', bottom: '110px', right: '28px', zIndex: 120,
+              background: 'rgba(10,10,10,0.96)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '14px', padding: '16px 18px', width: '280px',
+              backdropFilter: 'blur(12px)', boxShadow: '0 8px 40px rgba(0,0,0,0.85)',
+              animation: 'fadeSlideIn 0.3s ease',
+            }}>
+              <style>{`@keyframes fadeSlideIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }`}</style>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                <div style={{ fontSize: '10px', color: '#00c2ff', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1.2px' }}>
+                  Up Next
+                </div>
+                <button
+                  onClick={() => setShowNextEpCard(false)}
+                  style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '16px', lineHeight: 1, padding: '0 0 0 8px' }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff', lineHeight: 1.4, marginBottom: '12px' }}>
+                {`S${String(nextEp.season).padStart(2,'0')} E${String(nextEp.episode_number).padStart(2,'0')}`}
+                {nextEp.title && <span style={{ color: '#aaa', fontWeight: '400' }}> – {nextEp.title}</span>}
+              </div>
+              {/* Countdown bar */}
+              <div style={{ height: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', marginBottom: '12px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', background: '#00c2ff', borderRadius: '2px',
+                  width: `${Math.max(0, Math.min(100, ((totalDur - absTime) / 30) * 100))}%`,
+                  transition: 'width 1s linear',
+                }} />
+              </div>
+              <button
+                onClick={() => navigate(`/watch/episode/${nextEp.id}`)}
+                style={{ width: '100%', padding: '9px 0', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', letterSpacing: '0.3px' }}
+              >
+                ▶ Play Now
+              </button>
+            </div>
+          )}
 
           {/* ── Buffering overlay ────────────────────────────────────────────── */}
           {buffering && (
