@@ -9,7 +9,7 @@ const MAX_SEARCH_SECS   = 240;   // search within first 4 minutes
 const PROBE_SECS        = 10;    // Phase-1 probe window length
 const CHUNK_SECS        = 3;     // Phase-2 chunk size for end detection
 const ALIGN_THRESHOLD   = 0.15;  // Phase-1: ≤15% bit error = good alignment
-const END_THRESHOLD     = 0.28;  // Phase-2: >28% bit error in a chunk = past intro
+const END_THRESHOLD     = 0.35;  // Phase-2: >35% bit error in a chunk = past intro
 const QUICK_REJECT_BITS = 9;     // fast reject if first item has >9 differing bits (~28%)
 const MAX_EPISODES      = 8;
 
@@ -46,9 +46,7 @@ function getFingerprint(filePath) {
 }
 
 // ── Chapter-based detection ──────────────────────────────────────────────────
-// Many MKV/MP4 files embed chapter markers. If a chapter is named "Intro",
-// "Opening", etc., or if the first chapter ends in the 20-150 s range and
-// all queried episodes agree, we can use that directly — no fingerprinting.
+// Returns { start, end } seconds if a reliable chapter marker is found, else null.
 function getChapterIntroEnd(filePath) {
   return new Promise((resolve) => {
     const proc = spawn('ffprobe', [
@@ -66,11 +64,15 @@ function getChapterIntroEnd(filePath) {
         const named = chapters.find(c =>
           /^(intro|opening|op|prologue|cold\s?open|pre[\s-]?credits)/i.test(c.tags?.title || '')
         );
-        if (named) return resolve(Math.round(parseFloat(named.end_time)));
+        if (named) return resolve({
+          start: Math.round(parseFloat(named.start_time)),
+          end:   Math.round(parseFloat(named.end_time)),
+        });
         // First chapter in intro-length range, with a second chapter following it
         if (chapters.length >= 2) {
-          const t = parseFloat(chapters[0].end_time);
-          if (t >= MIN_INTRO_SECS && t <= MAX_INTRO_SECS) return resolve(Math.round(t));
+          const start = Math.round(parseFloat(chapters[0].start_time));
+          const end   = Math.round(parseFloat(chapters[0].end_time));
+          if (end >= MIN_INTRO_SECS && end <= MAX_INTRO_SECS) return resolve({ start, end });
         }
       } catch {}
       resolve(null);
@@ -116,8 +118,12 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
 
   // ── Phase 2 ──────────────────────────────────────────────────────────────
   // Start walking from just after the probe window.
+  // Require 3 consecutive bad chunks before declaring the intro over.
+  // Brief louder or different moments near the intro end can produce 1-2 bad
+  // chunks without actually being past the intro.
   let a = bestA + probeLen, b = bestB + probeLen;
   let endA = a, endB = b;
+  let consecutiveMisses = 0;
 
   while (
     a + chunkLen <= fpA.length &&
@@ -126,10 +132,16 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
   ) {
     let bits = 0;
     for (let k = 0; k < chunkLen; k++) bits += popcount32(fpA[a + k] ^ fpB[b + k]);
-    // Stop at FIRST chunk that doesn't match — prevents overrunning into main content
-    if (bits / chunkLen / 32 > END_THRESHOLD) break;
-    endA = a + chunkLen;
-    endB = b + chunkLen;
+    const chunkErr = bits / chunkLen / 32;
+
+    if (chunkErr > END_THRESHOLD) {
+      consecutiveMisses++;
+      if (consecutiveMisses >= 3) break; // three bad chunks in a row = past intro
+    } else {
+      consecutiveMisses = 0;
+      endA = a + chunkLen;
+      endB = b + chunkLen;
+    }
     a += chunkLen;
     b += chunkLen;
   }
@@ -146,6 +158,7 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
 }
 
 // ── Per-show detection ────────────────────────────────────────────────────────
+// Returns { introStart, introEnd } in seconds, or null if no intro found.
 async function detectShowIntro(showId, log) {
   const episodes = db.prepare(`
     SELECT id, file_path, season, episode_number
@@ -163,11 +176,13 @@ async function detectShowIntro(showId, log) {
     if (t != null) chapterTimes.push(t);
   }
   if (chapterTimes.length >= 2) {
-    const min = Math.min(...chapterTimes), max = Math.max(...chapterTimes);
-    if (max - min <= 5) {
-      const t = Math.round((min + max) / 2);
-      log?.(`chapters agree: intro ends at ${t}s`);
-      return t;
+    const ends = chapterTimes.map(t => t.end);
+    const minEnd = Math.min(...ends), maxEnd = Math.max(...ends);
+    if (maxEnd - minEnd <= 5) {
+      const introEnd   = Math.round((minEnd + maxEnd) / 2);
+      const introStart = Math.round(chapterTimes.reduce((s, t) => s + t.start, 0) / chapterTimes.length);
+      log?.(`chapters agree: intro ${introStart}s–${introEnd}s`);
+      return { introStart, introEnd };
     }
   }
 
@@ -184,7 +199,8 @@ async function detectShowIntro(showId, log) {
   if (fps.length < 2) { log?.('  not enough fingerprints'); return null; }
 
   log?.('  comparing pairs');
-  const introEnds = [];
+  const introEnds   = [];
+  const introStarts = [];
   for (let i = 0; i < fps.length - 1; i++) {
     for (let j = i + 1; j < fps.length; j++) {
       const A = fps[i], B = fps[j];
@@ -192,6 +208,7 @@ async function detectShowIntro(showId, log) {
       if (m) {
         log?.(`  E${A.ep.episode_number}↔E${B.ep.episode_number}: ${m.startA.toFixed(0)}–${m.endA.toFixed(0)}s (score ${(m.score*100).toFixed(0)}%)`);
         introEnds.push(m.endA, m.endB);
+        introStarts.push(m.startA, m.startB);
       } else {
         log?.(`  E${A.ep.episode_number}↔E${B.ep.episode_number}: no match`);
       }
@@ -203,9 +220,11 @@ async function detectShowIntro(showId, log) {
   if (introEnds.length === 0) { log?.('  no common segment found'); return null; }
 
   introEnds.sort((a, b) => a - b);
-  const result = Math.round(introEnds[Math.floor(introEnds.length / 2)]);
-  log?.(`  → intro ends at ${result}s`);
-  return result;
+  introStarts.sort((a, b) => a - b);
+  const introEnd   = Math.round(introEnds[Math.floor(introEnds.length / 2)]);
+  const introStart = Math.round(introStarts[Math.floor(introStarts.length / 2)]);
+  log?.(`  → intro ${introStart}s–${introEnd}s`);
+  return { introStart, introEnd };
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -224,14 +243,15 @@ async function detectAllIntros(onProgress, { showId = null, force = false } = {}
 
   for (const show of shows) {
     onProgress?.({ type: 'show_start', show: show.title, index: done, total });
-    let introEnd = null;
+    let result = null;
     let errMsg = null;
     try {
-      introEnd = await detectShowIntro(show.id, (msg) =>
+      result = await detectShowIntro(show.id, (msg) =>
         onProgress?.({ type: 'msg', show: show.title, msg, index: done, total })
       );
-      if (introEnd !== null) {
-        db.prepare('UPDATE tv_shows SET intro_end_time = ? WHERE id = ?').run(introEnd, show.id);
+      if (result !== null) {
+        db.prepare('UPDATE tv_shows SET intro_start_time = ?, intro_end_time = ? WHERE id = ?')
+          .run(result.introStart, result.introEnd, show.id);
       }
     } catch (e) {
       errMsg = e.message;
@@ -240,7 +260,7 @@ async function detectAllIntros(onProgress, { showId = null, force = false } = {}
     done++;
     onProgress?.({
       type: errMsg ? 'show_error' : 'show_done',
-      show: show.title, introEnd, message: errMsg, index: done, total,
+      show: show.title, introEnd: result?.introEnd ?? null, message: errMsg, index: done, total,
     });
     // Yield between shows so the event loop can flush pending SSE writes
     await new Promise(r => setImmediate(r));
