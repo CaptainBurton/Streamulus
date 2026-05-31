@@ -92,7 +92,7 @@ export default function TVShows() {
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
       <Navbar />
-      <div ref={topRef} style={{ padding: '90px 32px 60px' }}>
+      <div ref={topRef} className="content-page" style={{ padding: '90px 32px 60px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '28px', fontWeight: '800' }}>TV Shows</h1>
@@ -135,7 +135,7 @@ export default function TVShows() {
           </div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '16px' }}>
+            <div className="media-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '16px' }}>
               {shows.map(show => {
                 const showDone = show.total_episodes > 0 && show.watched_episodes >= show.total_episodes;
                 return (

@@ -8,7 +8,7 @@ const PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg
 function MovieGrid({ movies }) {
   const navigate = useNavigate();
   return (
-    <div style={{
+    <div className="media-grid" style={{
       display: 'grid',
       gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
       gap: '16px',
@@ -116,7 +116,7 @@ export default function Movies() {
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
       <Navbar />
-      <div style={{ padding: '90px 32px 60px' }}>
+      <div className="content-page" style={{ padding: '90px 32px 60px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '28px', fontWeight: '800' }}>Movies</h1>

@@ -308,9 +308,14 @@ function getManifestContent(key, baseSegmentUrl) {
   return content;
 }
 
-// Seeks further than this many segments ahead of FFmpeg's current position
-// restart FFmpeg immediately. 25 segments = 100s at 4s/seg.
-const SEEK_THRESHOLD = 25;
+// How far ahead (in segments) of FFmpeg's current write position a seek request
+// must be before we restart FFmpeg at the new position.
+// Copy mode (H.264 passthrough) produces segments at 10–50× real-time, so
+// waiting for up to 25 segments is cheap (~2 s at 50× speed).
+// Transcode mode (libx264) runs at ~2× real-time; waiting for more than 5
+// segments would mean a 10 s stall — restart instead.
+const SEEK_THRESHOLD_COPY = 25;
+const SEEK_THRESHOLD_TRANSCODE = 5;
 
 // Map a global segment index to the local file path within the appropriate
 // seek sub-session directory. The seek point with the highest fromIdx that
@@ -351,8 +356,9 @@ async function getSegmentPath(key, segmentName) {
   //  a) Forward seek: requested segment is far ahead of what FFmpeg has written
   //  b) Backward seek to a segment the current FFmpeg can never produce (it
   //     started after that segment), e.g. user seeks back past the seek point
+  const seekThreshold = session.copyMode ? SEEK_THRESHOLD_COPY : SEEK_THRESHOLD_TRANSCODE;
   const needsRestart = session.filePath && (
-    requestedIdx > lastGlobalIdx + SEEK_THRESHOLD ||
+    requestedIdx > lastGlobalIdx + seekThreshold ||
     latestSP.fromIdx > requestedIdx
   );
 

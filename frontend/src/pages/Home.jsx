@@ -25,7 +25,7 @@ function ContinueWatchingRow({ items }) {
   };
 
   const btnStyle = (visible) => ({
-    position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 5,
+    position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 20,
     background: 'rgba(15,15,15,0.9)', border: '1px solid rgba(255,255,255,0.12)',
     color: '#fff', borderRadius: '50%', width: '42px', height: '42px',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
