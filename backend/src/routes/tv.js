@@ -7,7 +7,7 @@ const router = express.Router();
 
 const IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
-const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://'));
+const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('/uploads/'));
 
 function formatShow(s) {
   let genres = [];

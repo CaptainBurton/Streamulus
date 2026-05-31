@@ -75,10 +75,12 @@ async function getTVContentRating(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
   try {
+    const country = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value || 'US';
     const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/content_ratings`, { params: { api_key: apiKey } });
     const results = res.data.results || [];
+    const preferred = results.find(r => r.iso_3166_1 === country);
     const us = results.find(r => r.iso_3166_1 === 'US');
-    return us?.rating || results[0]?.rating || null;
+    return preferred?.rating || us?.rating || results[0]?.rating || null;
   } catch { return null; }
 }
 
@@ -118,6 +120,28 @@ async function getEpisodeDetails(tmdbId, season, episode) {
   } catch { return null; }
 }
 
+async function getMovieImages(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}/movie/${tmdbId}/images`, {
+      params: { api_key: apiKey, include_image_language: 'en,null' },
+    });
+    return res.data;
+  } catch { return null; }
+}
+
+async function getTVImages(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/images`, {
+      params: { api_key: apiKey, include_image_language: 'en,null' },
+    });
+    return res.data;
+  } catch { return null; }
+}
+
 function posterUrl(path, size = 'w500') {
   if (!path) return null;
   return `${IMAGE_BASE}/${size}${path}`;
@@ -137,5 +161,7 @@ function resolveGenreNames(genreIds, isTV = false) {
 
 module.exports = {
   searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies,
-  getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails, posterUrl, backdropUrl, resolveGenreNames
+  getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
+  getMovieImages, getTVImages,
+  posterUrl, backdropUrl, resolveGenreNames
 };

@@ -303,6 +303,8 @@ export default function Admin() {
   const [imdbVisible, setImdbVisible] = useState(false);
   const [movieSourceOrder, setMovieSourceOrder] = useState(['tmdb', 'imdb']);
   const [tvSourceOrder, setTvSourceOrder] = useState(['tvdb', 'tmdb', 'imdb']);
+  const [preferredLanguage, setPreferredLanguage] = useState('en');
+  const [preferredCountry, setPreferredCountry] = useState('US');
   const [debugLogs, setDebugLogs] = useState(() => localStorage.getItem('streamulus_debug_logs') === 'true');
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
@@ -349,6 +351,8 @@ export default function Admin() {
         hlsSegmentDuration: configRes.data.hlsSegmentDuration || '4',
         progressMinSeconds: configRes.data.progressMinSeconds || '10',
       });
+      setPreferredLanguage(configRes.data.preferredLanguage || 'en');
+      setPreferredCountry(configRes.data.preferredCountry || 'US');
     } catch { }
   };
 
@@ -428,6 +432,13 @@ export default function Admin() {
       await axios.put('/api/admin/config', encSettings);
       flash('Encoding settings saved — applies to next video played.');
     } catch { flash('Failed to save encoding settings', true); }
+  };
+
+  const handleSaveRegional = async () => {
+    try {
+      await axios.put('/api/admin/config', { preferredLanguage, preferredCountry });
+      flash('Regional settings saved!');
+    } catch { flash('Failed to save regional settings', true); }
   };
 
   const handleAddLibrary = async (e) => {
@@ -1002,6 +1013,74 @@ export default function Admin() {
                 style={{ marginTop: '20px', padding: '10px 24px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
               >
                 Save Encoding Settings
+              </button>
+            </div>
+
+            {/* Regional Settings */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Regional Settings</h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>
+                Preferred language for metadata and country for content ratings (TV-14, BBFC, etc.).
+              </p>
+              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <label style={{ fontSize: '13px', color: '#888', display: 'block', marginBottom: '8px', fontWeight: '600' }}>Metadata Language</label>
+                  <select value={preferredLanguage} onChange={e => setPreferredLanguage(e.target.value)}
+                    style={{ ...inputStyle, cursor: 'pointer', width: '100%' }}>
+                    <option value="en">English</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="es">Spanish</option>
+                    <option value="it">Italian</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                    <option value="ar">Arabic</option>
+                    <option value="nl">Dutch</option>
+                    <option value="sv">Swedish</option>
+                    <option value="no">Norwegian</option>
+                    <option value="da">Danish</option>
+                    <option value="fi">Finnish</option>
+                    <option value="pl">Polish</option>
+                    <option value="tr">Turkish</option>
+                    <option value="hi">Hindi</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <label style={{ fontSize: '13px', color: '#888', display: 'block', marginBottom: '8px', fontWeight: '600' }}>Content Rating Country</label>
+                  <select value={preferredCountry} onChange={e => setPreferredCountry(e.target.value)}
+                    style={{ ...inputStyle, cursor: 'pointer', width: '100%' }}>
+                    <option value="US">United States</option>
+                    <option value="GB">United Kingdom</option>
+                    <option value="AU">Australia</option>
+                    <option value="CA">Canada</option>
+                    <option value="IE">Ireland</option>
+                    <option value="NZ">New Zealand</option>
+                    <option value="DE">Germany</option>
+                    <option value="FR">France</option>
+                    <option value="ES">Spain</option>
+                    <option value="IT">Italy</option>
+                    <option value="NL">Netherlands</option>
+                    <option value="SE">Sweden</option>
+                    <option value="NO">Norway</option>
+                    <option value="DK">Denmark</option>
+                    <option value="FI">Finland</option>
+                    <option value="JP">Japan</option>
+                    <option value="KR">South Korea</option>
+                    <option value="IN">India</option>
+                    <option value="BR">Brazil</option>
+                    <option value="MX">Mexico</option>
+                    <option value="ZA">South Africa</option>
+                  </select>
+                </div>
+              </div>
+              <button
+                onClick={handleSaveRegional}
+                style={{ marginTop: '20px', padding: '10px 24px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Save Regional Settings
               </button>
             </div>
 

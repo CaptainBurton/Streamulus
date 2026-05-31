@@ -5,7 +5,7 @@ const { posterUrl, backdropUrl, resolveGenreNames, getMovieCredits, getSimilarMo
 
 const router = express.Router();
 
-const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://'));
+const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('/uploads/'));
 
 function formatMovie(m) {
   // genres may be stored as TMDB integer IDs ["28","12"] or IMDb name strings ["Action","Crime"]

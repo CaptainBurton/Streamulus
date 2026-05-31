@@ -2,21 +2,27 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
+import ArtworkPicker from '../components/ArtworkPicker';
+import { useAuth } from '../context/AuthContext';
 
-const PLACEHOLDER_POSTER_POSTER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
-const PLACEHOLDER_POSTER_PERSON = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%231e1e1e"/%3E%3Ccircle cx="50" cy="38" r="20" fill="%23333"/%3E%3Cellipse cx="50" cy="80" rx="30" ry="22" fill="%23333"/%3E%3C/svg%3E';
+const PLACEHOLDER_POSTER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
+const PLACEHOLDER_PERSON = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%231e1e1e"/%3E%3Ccircle cx="50" cy="38" r="20" fill="%23333"/%3E%3Cellipse cx="50" cy="80" rx="30" ry="22" fill="%23333"/%3E%3C/svg%3E';
 
 export default function TVShow() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [show, setShow] = useState(null);
   const [seasons, setSeasons] = useState([]);
   const [cast, setCast] = useState([]);
   const [similarLocal, setSimilarLocal] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [showArtwork, setShowArtwork] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
     axios.get(`/api/tv/${id}/details`)
       .then(res => {
         setShow(res.data.show);
@@ -26,7 +32,7 @@ export default function TVShow() {
       })
       .catch(() => setError('Show not found'))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, refreshKey]);
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>;
 
@@ -39,6 +45,7 @@ export default function TVShow() {
   );
 
   return (
+    <>
     <div style={{ minHeight: '100vh', background: '#0f0f0f', color: '#fff' }}>
       <Navbar />
 
@@ -72,6 +79,16 @@ export default function TVShow() {
               onError={e => { e.target.src = PLACEHOLDER_POSTER; }}
               style={{ width: '220px', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.8)', display: 'block' }}
             />
+            {user?.role === 'admin' && (
+              <button
+                onClick={() => setShowArtwork(true)}
+                style={{ marginTop: '10px', width: '220px', padding: '8px 0', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#888', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,194,255,0.1)'; e.currentTarget.style.borderColor = 'rgba(0,194,255,0.3)'; e.currentTarget.style.color = '#00c2ff'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#888'; }}
+              >
+                ✎ Edit Artwork
+              </button>
+            )}
           </div>
 
           {/* Info */}
@@ -237,5 +254,15 @@ export default function TVShow() {
         )}
       </div>
     </div>
+
+    {showArtwork && (
+      <ArtworkPicker
+        mediaType="tv"
+        itemId={id}
+        onClose={() => setShowArtwork(false)}
+        onSaved={() => { setShowArtwork(false); setRefreshKey(k => k + 1); }}
+      />
+    )}
+    </>
   );
 }

@@ -1,9 +1,27 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
 const db = require('../database/db');
 const { requireAdmin } = require('../middleware/auth');
 const { scanAllWithProgress, validatePath } = require('../services/scanner');
+
+const uploadsDir = path.join(process.env.DATA_DIR || '/data', 'uploads');
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: uploadsDir,
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname) || '.jpg';
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) return cb(new Error('Images only'));
+    cb(null, true);
+  },
+});
 
 const router = express.Router();
 
@@ -142,6 +160,8 @@ router.get('/config', requireAdmin, (req, res) => {
     audioChannels:      get('audio_channels')       ?? '2',
     hlsSegmentDuration: get('hls_segment_duration') ?? '4',
     progressMinSeconds: get('progress_min_seconds') ?? '10',
+    preferredLanguage:  get('preferred_language')   ?? 'en',
+    preferredCountry:   get('preferred_country')    ?? 'US',
   });
 });
 
@@ -150,7 +170,7 @@ router.put('/config', requireAdmin, (req, res) => {
     tmdbApiKey, tvdbApiKey, omdbApiKey, imdbApiKey,
     movieSourceOrder, tvSourceOrder,
     videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration,
-    progressMinSeconds,
+    progressMinSeconds, preferredLanguage, preferredCountry,
   } = req.body;
   const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
   if (tmdbApiKey       !== undefined) upsert.run('tmdb_api_key',       tmdbApiKey);
@@ -166,6 +186,8 @@ router.put('/config', requireAdmin, (req, res) => {
   if (audioChannels    !== undefined) upsert.run('audio_channels',     audioChannels);
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
+  if (preferredLanguage  !== undefined) upsert.run('preferred_language',   preferredLanguage);
+  if (preferredCountry   !== undefined) upsert.run('preferred_country',    preferredCountry);
   res.json({ success: true });
 });
 
@@ -349,6 +371,80 @@ router.post('/movies/:id/refresh', requireAdmin, async (req, res) => {
       .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
   }
   res.json({ success: true, found: !!result });
+});
+
+// ── Artwork management ──────────────────────────────────────────
+
+const mapImg = (img) => ({
+  url:   `https://image.tmdb.org/t/p/original${img.file_path}`,
+  thumb: `https://image.tmdb.org/t/p/w300${img.file_path}`,
+  width: img.width, height: img.height,
+  rating: img.vote_average, language: img.iso_639_1,
+});
+
+// Fetch available artwork from TMDB
+router.get('/artwork/movie/:id', requireAdmin, async (req, res) => {
+  const movie = db.prepare('SELECT tmdb_id FROM movies WHERE id = ?').get(req.params.id);
+  if (!movie) return res.status(404).json({ error: 'Not found' });
+  if (!movie.tmdb_id) return res.json({ posters: [], backdrops: [] });
+  const tmdb = require('../services/tmdb');
+  const images = await tmdb.getMovieImages(movie.tmdb_id);
+  if (!images) return res.json({ posters: [], backdrops: [] });
+  res.json({
+    posters:   (images.posters   || []).sort((a, b) => b.vote_average - a.vote_average).slice(0, 40).map(mapImg),
+    backdrops: (images.backdrops || []).sort((a, b) => b.vote_average - a.vote_average).slice(0, 20).map(mapImg),
+  });
+});
+
+router.get('/artwork/tv/:id', requireAdmin, async (req, res) => {
+  const show = db.prepare('SELECT tmdb_id FROM tv_shows WHERE id = ?').get(req.params.id);
+  if (!show) return res.status(404).json({ error: 'Not found' });
+  if (!show.tmdb_id) return res.json({ posters: [], backdrops: [] });
+  const tmdb = require('../services/tmdb');
+  const images = await tmdb.getTVImages(show.tmdb_id);
+  if (!images) return res.json({ posters: [], backdrops: [] });
+  res.json({
+    posters:   (images.posters   || []).sort((a, b) => b.vote_average - a.vote_average).slice(0, 40).map(mapImg),
+    backdrops: (images.backdrops || []).sort((a, b) => b.vote_average - a.vote_average).slice(0, 20).map(mapImg),
+  });
+});
+
+// Save a selected TMDB artwork URL
+router.post('/artwork/movie/:id', requireAdmin, (req, res) => {
+  const { type, url } = req.body;
+  if (!['poster', 'backdrop'].includes(type) || !url) return res.status(400).json({ error: 'type and url required' });
+  const col = type === 'poster' ? 'poster_path' : 'backdrop_path';
+  db.prepare(`UPDATE movies SET ${col} = ? WHERE id = ?`).run(url, req.params.id);
+  res.json({ success: true });
+});
+
+router.post('/artwork/tv/:id', requireAdmin, (req, res) => {
+  const { type, url } = req.body;
+  if (!['poster', 'backdrop'].includes(type) || !url) return res.status(400).json({ error: 'type and url required' });
+  const col = type === 'poster' ? 'poster_path' : 'backdrop_path';
+  db.prepare(`UPDATE tv_shows SET ${col} = ? WHERE id = ?`).run(url, req.params.id);
+  res.json({ success: true });
+});
+
+// Upload custom artwork image
+router.post('/artwork/movie/:id/upload', requireAdmin, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const { type } = req.body;
+  if (!['poster', 'backdrop'].includes(type)) return res.status(400).json({ error: 'type must be poster or backdrop' });
+  const url = `/uploads/${req.file.filename}`;
+  const col = type === 'poster' ? 'poster_path' : 'backdrop_path';
+  db.prepare(`UPDATE movies SET ${col} = ? WHERE id = ?`).run(url, req.params.id);
+  res.json({ success: true, url });
+});
+
+router.post('/artwork/tv/:id/upload', requireAdmin, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const { type } = req.body;
+  if (!['poster', 'backdrop'].includes(type)) return res.status(400).json({ error: 'type must be poster or backdrop' });
+  const url = `/uploads/${req.file.filename}`;
+  const col = type === 'poster' ? 'poster_path' : 'backdrop_path';
+  db.prepare(`UPDATE tv_shows SET ${col} = ? WHERE id = ?`).run(url, req.params.id);
+  res.json({ success: true, url });
 });
 
 module.exports = router;
