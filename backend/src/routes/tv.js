@@ -107,6 +107,19 @@ router.get('/recent', authenticate, async (req, res) => {
   res.json({ shows: shows.map(formatShow) });
 });
 
+router.get('/episode/:id/next', authenticate, (req, res) => {
+  const ep = db.prepare('SELECT * FROM episodes WHERE id = ?').get(req.params.id);
+  if (!ep) return res.status(404).json({ error: 'Episode not found' });
+  const next = db.prepare(`
+    SELECT * FROM episodes
+    WHERE show_id = ? AND (
+      (season = ? AND episode_number > ?) OR season > ?
+    )
+    ORDER BY season ASC, episode_number ASC LIMIT 1
+  `).get(ep.show_id, ep.season, ep.episode_number, ep.season);
+  res.json({ next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title } : null });
+});
+
 router.get('/episode/:id', authenticate, (req, res) => {
   const row = db.prepare(`
     SELECT e.season, e.episode_number, e.title as episode_title,
