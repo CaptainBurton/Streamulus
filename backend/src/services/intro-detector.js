@@ -11,7 +11,7 @@ const CHUNK_SECS        = 3;     // Phase-2 chunk size for end detection
 const ALIGN_THRESHOLD   = 0.15;  // Phase-1: ≤15% bit error = good alignment
 const END_THRESHOLD     = 0.35;  // Phase-2: >35% bit error in a chunk = past intro
 const QUICK_REJECT_BITS = 9;     // fast reject if first item has >9 differing bits (~28%)
-const LOOKAHEAD_CHUNKS  = 5;     // after 3 bad chunks, peek 15s ahead before stopping
+const LOOKAHEAD_CHUNKS  = 3;     // after 3 bad chunks, peek 9s ahead before stopping
 const MAX_EPISODES      = 8;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -61,7 +61,6 @@ function getChapterIntroEnd(filePath) {
       clearTimeout(timer);
       try {
         const chapters = JSON.parse(out).chapters || [];
-        // Explicitly named intro chapter
         const named = chapters.find(c =>
           /^(intro|opening|op|prologue|cold\s?open|pre[\s-]?credits)/i.test(c.tags?.title || '')
         );
@@ -69,7 +68,6 @@ function getChapterIntroEnd(filePath) {
           start: Math.round(parseFloat(named.start_time)),
           end:   Math.round(parseFloat(named.end_time)),
         });
-        // First chapter in intro-length range, with a second chapter following it
         if (chapters.length >= 2) {
           const start = Math.round(parseFloat(chapters[0].start_time));
           const end   = Math.round(parseFloat(chapters[0].end_time));
@@ -81,15 +79,63 @@ function getChapterIntroEnd(filePath) {
   });
 }
 
+// ── AV boundary refinement ───────────────────────────────────────────────────
+// Scans a ±WINDOW_SEC window around the fingerprint estimate for black frames
+// and audio silences using FFmpeg filters. Snaps the intro end to the nearest
+// real AV transition, which is more accurate than the fingerprint boundary alone.
+//
+// Uses output seeking (-i file, then -ss) so timestamps are absolute file time.
+function refineIntroEnd(filePath, estimatedEnd, log) {
+  const WINDOW_SEC = 20;
+  const seekTo  = Math.max(0, estimatedEnd - WINDOW_SEC);
+  const scanSec = WINDOW_SEC * 2 + 5;
+
+  return new Promise((resolve) => {
+    const proc = spawn('ffmpeg', [
+      '-i', filePath,
+      '-ss', String(seekTo), '-t', String(scanSec),
+      '-vf', 'blackdetect=d=0.05:pix_th=0.10',
+      '-af', 'silencedetect=n=-40dB:d=0.25',
+      '-f', 'null', '-',
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+    let stderr = '';
+    proc.stderr.on('data', d => { stderr += d; });
+    proc.on('error', () => resolve(null));
+    const timer = setTimeout(() => { try { proc.kill(); } catch {} resolve(null); }, 60_000);
+
+    proc.on('exit', () => {
+      clearTimeout(timer);
+      const transitions = [];
+
+      // black_end = screen clears → new content begins
+      for (const m of stderr.matchAll(/black_end:([0-9.]+)/g))
+        transitions.push(parseFloat(m[1]));
+      // silence_end = audio resumes → new content begins
+      for (const m of stderr.matchAll(/silence_end:\s*([0-9.]+)/g))
+        transitions.push(parseFloat(m[1]));
+
+      if (transitions.length === 0) return resolve(null);
+
+      // Pick the transition closest to the fingerprint estimate
+      let best = null, bestDist = Infinity;
+      for (const t of transitions) {
+        const d = Math.abs(t - estimatedEnd);
+        if (d < bestDist) { bestDist = d; best = t; }
+      }
+
+      if (best !== null && bestDist <= WINDOW_SEC) {
+        const delta = (best - estimatedEnd).toFixed(1);
+        log?.(`  AV boundary snap: ${estimatedEnd}s → ${Math.round(best)}s (${best > estimatedEnd ? '+' : ''}${delta}s)`);
+        resolve(Math.round(best));
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
 // ── Two-phase fingerprint comparison ─────────────────────────────────────────
-//
-// Phase 1 — alignment: slide a short (PROBE_SECS) probe window across both
-//   fingerprints to find the position where the two best agree. The quick-reject
-//   check on the first item skips >90 % of pairs in O(1).
-//
-// Phase 2 — end detection: from the aligned position walk forward in CHUNK_SECS
-//   increments, stopping the MOMENT a chunk's error rate exceeds END_THRESHOLD.
-//   This gives the precise intro boundary rather than a blurry average.
 function findCommonSegment(fpA, rateA, fpB, rateB) {
   const searchA  = Math.min(fpA.length, Math.round(MAX_SEARCH_SECS * rateA));
   const searchB  = Math.min(fpB.length, Math.round(MAX_SEARCH_SECS * rateB));
@@ -106,7 +152,6 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
   for (let a = 0; a < searchA - probeLen; a++) {
     const fa0 = fpA[a];
     for (let b = 0; b < searchB - probeLen; b++) {
-      // O(1) quick reject
       if (popcount32(fa0 ^ fpB[b]) > QUICK_REJECT_BITS) continue;
       let bits = 0;
       for (let k = 0; k < probeLen; k++) bits += popcount32(fpA[a + k] ^ fpB[b + k]);
@@ -119,10 +164,8 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
 
   // ── Phase 2 ──────────────────────────────────────────────────────────────
   // Walk forward in CHUNK_SECS increments. After 3 consecutive bad chunks,
-  // peek LOOKAHEAD_CHUNKS further ahead before stopping. If matching resumes
-  // within the lookahead window, keep walking — this handles talking/dialogue
-  // sections embedded in an intro. Only stop when there is genuinely no
-  // recovery ahead (all lookahead chunks are also bad).
+  // peek LOOKAHEAD_CHUNKS ahead — a short dialogue burst won't end detection
+  // prematurely. AV boundary refinement (above) handles remaining fine-tuning.
   let a = bestA + probeLen, b = bestB + probeLen;
   let endA = a, endB = b;
   let consecutiveMisses = 0;
@@ -139,8 +182,7 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
     if (err > END_THRESHOLD) {
       consecutiveMisses++;
       if (consecutiveMisses >= 3) {
-        // Look ahead before committing to stop. A talking section in the intro
-        // can produce 3+ bad chunks before music/theme resumes.
+        // Look ahead briefly before stopping (handles short talking sections)
         let recovers = false;
         let la = a + chunkLen, lb = b + chunkLen;
         for (let p = 0; p < LOOKAHEAD_CHUNKS; p++) {
@@ -150,8 +192,7 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
           if (lBits / chunkLen / 32 <= END_THRESHOLD) { recovers = true; break; }
           la += chunkLen; lb += chunkLen;
         }
-        if (!recovers) break; // no recovery in lookahead window = truly past intro
-        // matching will resume — continue walking; endA updates when we reach it
+        if (!recovers) break;
       }
     } else {
       consecutiveMisses = 0;
@@ -228,7 +269,6 @@ async function detectShowIntro(showId, log) {
       } else {
         log?.(`  E${A.ep.episode_number}↔E${B.ep.episode_number}: no match`);
       }
-      // Yield after each pair so SSE keepalive can flush and the show loop continues
       await new Promise(r => setImmediate(r));
     }
   }
@@ -237,8 +277,15 @@ async function detectShowIntro(showId, log) {
 
   introEnds.sort((a, b) => a - b);
   introStarts.sort((a, b) => a - b);
-  const introEnd   = Math.round(introEnds[Math.floor(introEnds.length / 2)]);
+  let introEnd     = Math.round(introEnds[Math.floor(introEnds.length / 2)]);
   const introStart = Math.round(introStarts[Math.floor(introStarts.length / 2)]);
+
+  // Refine end time using black-frame and audio-silence boundary detection.
+  // Fingerprinting gives a good ballpark; AV detection snaps to the exact cut point.
+  log?.(`  fingerprint estimate: ${introStart}s–${introEnd}s — refining with AV boundary detection`);
+  const refined = await refineIntroEnd(fps[0].ep.file_path, introEnd, log);
+  if (refined !== null) introEnd = refined;
+
   log?.(`  → intro ${introStart}s–${introEnd}s`);
   return { introStart, introEnd };
 }
@@ -278,7 +325,6 @@ async function detectAllIntros(onProgress, { showId = null, force = false } = {}
       type: errMsg ? 'show_error' : 'show_done',
       show: show.title, introEnd: result?.introEnd ?? null, message: errMsg, index: done, total,
     });
-    // Yield between shows so the event loop can flush pending SSE writes
     await new Promise(r => setImmediate(r));
   }
 
