@@ -190,7 +190,13 @@ export default function Watch() {
       video.onplaying = () => { if (!cancelled) { hideBuf(); addLog('Playing!'); } };
       video.oncanplay = hideBuf;
 
-      if (Hls.isSupported()) {
+      // On Apple devices (macOS Safari, iOS) prefer native HLS so the video
+      // element stays in Safari's native pipeline. hls.js routes video through
+      // MSE/JavaScript which bypasses that pipeline entirely — AirPlay receives
+      // no video signal when MSE is active, only audio leaks through.
+      const useNativeHLS = video.canPlayType('application/vnd.apple.mpegurl') !== '';
+
+      if (Hls.isSupported() && !useNativeHLS) {
         addLog('hls.js path');
 
         const startHlsAt = (absPos) => {
@@ -297,8 +303,8 @@ export default function Watch() {
         startHlsAtRef.current = startHlsAt;
         startHlsAt(startPos);
 
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        addLog('Native HLS path');
+      } else if (useNativeHLS) {
+        addLog('Native HLS path (Safari — AirPlay enabled)');
         const base = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}`;
         const url = startPos > 0 ? `${base}&start=${startPos}` : base;
 
@@ -479,6 +485,9 @@ export default function Watch() {
     const video = videoRef.current;
     if (!video || type !== 'episode') return;
     const onEnded = () => {
+      // Always hide the card first — covers the case where auto-advance fires
+      // naturally so the card doesn't linger on the incoming episode screen.
+      setShowNextEpCard(false);
       const next = nextEpRef.current;
       if (next) navigate(`/watch/episode/${next.id}`);
     };
