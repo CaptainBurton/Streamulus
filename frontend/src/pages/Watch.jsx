@@ -93,9 +93,6 @@ export default function Watch() {
   // Seek thumbnail
   const [thumbSrc,    setThumbSrc]    = useState(null);
 
-  // Skip Intro
-  const [introDismissed, setIntroDismissed] = useState(false);
-
   // Diag
   const [diagInfo,    setDiagInfo]    = useState(null);
   const [diagLoad,    setDiagLoad]    = useState(false);
@@ -122,8 +119,6 @@ export default function Watch() {
   const progress = totalDur > 0 ? Math.min(displayTime / totalDur, 1) : 0;
 
   // ── Load media metadata ───────────────────────────────────────────────────
-  useEffect(() => { setIntroDismissed(false); }, [type, id]);
-
   useEffect(() => {
     const fetch_ = type === 'episode'
       ? Promise.all([
@@ -132,7 +127,7 @@ export default function Watch() {
         ]).then(([epRes, progRes]) => {
           const ep = epRes.data;
           const label = `S${String(ep.season).padStart(2,'0')} E${String(ep.episode_number).padStart(2,'0')}${ep.episode_title ? ` – ${ep.episode_title}` : ''}`;
-          return { id, type, title: ep.show_title, subtitle: label, progress: progRes.data, introStartTime: ep.intro_start_time || 0, introEndTime: ep.intro_end_time || 0, showId: ep.show_id };
+          return { id, type, title: ep.show_title, subtitle: label, progress: progRes.data, showId: ep.show_id };
         })
       : axios.get(`/api/movies/${id}`).then(async r => {
           const m = r.data.movie;
@@ -512,31 +507,6 @@ export default function Watch() {
     setHoverX(e.clientX - rect.left);
   };
 
-  // ── Skip Intro ────────────────────────────────────────────────────────────
-  const handleSetIntroEnd = useCallback(async () => {
-    if (!media?.showId) return;
-    const t = Math.max(1, Math.floor(startPosRef.current + (videoRef.current?.currentTime || 0)));
-    try {
-      await axios.patch(`/api/tv/shows/${media.showId}/intro`, { introEndTime: t });
-      setMedia(m => ({ ...m, introEndTime: t }));
-      setIntroDismissed(false);
-    } catch (e) { console.error('Set intro end failed', e); }
-  }, [media]);
-
-  const handleClearIntro = useCallback(async () => {
-    if (!media?.showId) return;
-    try {
-      await axios.patch(`/api/tv/shows/${media.showId}/intro`, { introEndTime: null });
-      setMedia(m => ({ ...m, introEndTime: 0 }));
-    } catch (e) { console.error('Clear intro failed', e); }
-  }, [media]);
-
-  // Show button only once playback enters the detected intro segment (Netflix/Disney+ behaviour).
-  // Fall back to absTime >= 2 when no start time is recorded (legacy shows detected before this change).
-  const introStart = (media?.introStartTime || 0) > 0 ? media.introStartTime : 2;
-  const showSkipIntro = type === 'episode' && !introDismissed
-    && (media?.introEndTime || 0) > 0 && absTime >= introStart && absTime < (media?.introEndTime || 0);
-
   // ── Diag / debug helpers ──────────────────────────────────────────────────
   const runDiag = async () => {
     setDiagLoad(true);
@@ -563,7 +533,6 @@ export default function Watch() {
     <>
     <style>{`
       @keyframes spin { to { transform: rotate(360deg); } }
-      @keyframes skipIntroIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       .pbtn {
         transition: background 0.15s ease, transform 0.12s ease, opacity 0.15s ease !important;
       }
@@ -640,27 +609,6 @@ export default function Watch() {
               )}
             </div>
           </div>
-
-          {/* ── Skip Intro button ─────────────────────────────────────────────── */}
-          {showSkipIntro && (
-            <button
-              onClick={() => { setIntroDismissed(true); startHlsAtRef.current?.(media.introEndTime); }}
-              style={{
-                position: 'fixed', bottom: '95px', right: '28px', zIndex: 101,
-                padding: '10px 22px',
-                background: 'rgba(15,15,15,0.85)', backdropFilter: 'blur(10px)',
-                border: '2px solid rgba(255,255,255,0.55)',
-                color: '#fff', borderRadius: '4px', fontSize: '15px', fontWeight: '700',
-                cursor: 'pointer', letterSpacing: '0.3px',
-                animation: 'skipIntroIn 0.35s ease both',
-                opacity: showBar ? 1 : 0.7, transition: 'opacity 0.35s, transform 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(40,40,40,0.9)'; e.currentTarget.style.transform = 'scale(1.04)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(15,15,15,0.85)'; e.currentTarget.style.transform = 'scale(1)'; }}
-            >
-              Skip Intro →
-            </button>
-          )}
 
           {/* ── Bottom controls ──────────────────────────────────────────────── */}
           <div
