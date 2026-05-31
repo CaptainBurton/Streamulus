@@ -1,9 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 export default function Hero({ item, type = 'movie' }) {
   const navigate = useNavigate();
   const [showOverview, setShowOverview] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const h = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
 
   if (!item) {
     return (
@@ -71,9 +77,10 @@ export default function Hero({ item, type = 'movie' }) {
       {/* Content */}
       <div style={{
         position: 'absolute',
-        bottom: '100px',
-        left: '48px',
-        maxWidth: '550px',
+        bottom: isMobile ? '56px' : '100px',
+        left: isMobile ? '16px' : '48px',
+        right: isMobile ? '16px' : 'auto',
+        maxWidth: isMobile ? 'none' : '550px',
       }}>
         <div style={{
           display: 'inline-flex',
@@ -94,12 +101,12 @@ export default function Hero({ item, type = 'movie' }) {
         </div>
 
         <h1 style={{
-          fontSize: '52px',
+          fontSize: isMobile ? '28px' : '52px',
           fontWeight: '800',
           lineHeight: 1.05,
-          marginBottom: '16px',
+          marginBottom: '12px',
           textShadow: '0 2px 8px rgba(0,0,0,0.5)',
-          letterSpacing: '-1px',
+          letterSpacing: isMobile ? '-0.5px' : '-1px',
         }}>
           {title}
         </h1>
@@ -110,7 +117,7 @@ export default function Hero({ item, type = 'movie' }) {
           </div>
         )}
 
-        {overview && (
+        {overview && !isMobile && (
           <p style={{
             fontSize: '15px',
             color: '#ccc',
@@ -128,19 +135,19 @@ export default function Hero({ item, type = 'movie' }) {
           </p>
         )}
 
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '10px' }}>
           <button
             onClick={() => navigate(type === 'movie' ? `/movie/${item.id}` : `/watch/${type}/${item.id}`)}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
-              padding: '14px 32px',
+              gap: '8px',
+              padding: isMobile ? '11px 20px' : '14px 32px',
               background: '#00c2ff',
               color: '#000',
               border: 'none',
               borderRadius: '8px',
-              fontSize: '16px',
+              fontSize: isMobile ? '14px' : '16px',
               fontWeight: '700',
               cursor: 'pointer',
               transition: 'all 0.2s',
@@ -154,13 +161,13 @@ export default function Hero({ item, type = 'movie' }) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
-              padding: '14px 24px',
+              gap: '8px',
+              padding: isMobile ? '11px 16px' : '14px 24px',
               background: 'rgba(255,255,255,0.15)',
               color: '#fff',
               border: '1px solid rgba(255,255,255,0.2)',
               borderRadius: '8px',
-              fontSize: '16px',
+              fontSize: isMobile ? '14px' : '16px',
               fontWeight: '600',
               cursor: 'pointer',
               backdropFilter: 'blur(8px)',

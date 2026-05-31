@@ -25,7 +25,7 @@ export default function MediaRow({ title, items = [], type = 'movie' }) {
     position: 'absolute',
     top: '50%',
     transform: 'translateY(-50%)',
-    zIndex: 5,
+    zIndex: 20,
     background: 'rgba(15,15,15,0.9)',
     border: '1px solid rgba(255,255,255,0.12)',
     color: '#fff',

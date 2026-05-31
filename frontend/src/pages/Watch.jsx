@@ -149,7 +149,17 @@ export default function Watch() {
           const p = await axios.get(`/api/stream/progress/movie/${id}`).then(x => x.data).catch(() => ({ position: 0 }));
           return { ...m, progress: p, introEndTime: 0 };
         });
-    fetch_.then(setMedia).catch(() => setError('Media not found.')).finally(() => setLoading(false));
+    fetch_.then((m) => {
+    setMedia(m);
+    // Set Now Playing info so AirPlay / Apple TV shows the correct title
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: m.subtitle || m.title || '',
+        artist: m.subtitle ? m.title : '',
+        artwork: m.poster_url ? [{ src: m.poster_url, sizes: '512x512', type: 'image/jpeg' }] : [],
+      });
+    }
+  }).catch(() => setError('Media not found.')).finally(() => setLoading(false));
   }, [type, id]);
 
   // ── Start playback ────────────────────────────────────────────────────────
@@ -631,6 +641,13 @@ export default function Watch() {
       }
       .pbtn-back:hover { background: rgba(255,255,255,0.15) !important; transform: translateX(-2px) scale(1.04) !important; }
       .pbtn-back:active { transform: translateX(0) scale(0.97) !important; }
+      @media (max-width: 640px) {
+        .player-bottom-bar { padding-left: 10px !important; padding-right: 10px !important; padding-bottom: 16px !important; }
+        .player-vol-expand { display: none !important; }
+        .player-restart-btn { display: none !important; }
+        .player-time { font-size: 11px !important; margin-left: 4px !important; }
+        .player-top-bar { padding: 14px 14px !important; }
+      }
     `}</style>
     <div
       ref={containerRef}
@@ -676,7 +693,7 @@ export default function Watch() {
       {!loading && !error && (
         <>
           {/* ── Top bar ──────────────────────────────────────────────────────── */}
-          <div style={{
+          <div className="player-top-bar" style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
             padding: '20px 28px', display: 'flex', alignItems: 'center', gap: '16px',
             background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%)',
@@ -702,6 +719,7 @@ export default function Watch() {
 
           {/* ── Bottom controls ──────────────────────────────────────────────── */}
           <div
+            className="player-bottom-bar"
             style={{
               position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
               padding: '0 28px 24px',
@@ -811,7 +829,7 @@ export default function Watch() {
               </button>
 
               {/* Time */}
-              <span style={{ fontSize: '13px', color: '#ccc', fontVariantNumeric: 'tabular-nums', marginLeft: '8px', flexShrink: 0, letterSpacing: '0.3px' }}>
+              <span className="player-time" style={{ fontSize: '13px', color: '#ccc', fontVariantNumeric: 'tabular-nums', marginLeft: '8px', flexShrink: 0, letterSpacing: '0.3px' }}>
                 {fmt(displayTime)}
                 {totalDur > 0 && <span style={{ color: '#555' }}> / {fmt(totalDur)}</span>}
               </span>
@@ -823,7 +841,7 @@ export default function Watch() {
               <button
                 onClick={() => startHlsAtRef.current?.(0)}
                 style={{ ...S.iBtn, marginRight: showVol ? '0px' : '4px', transition: 'margin 0.2s' }}
-                className="pbtn"
+                className="pbtn player-restart-btn"
                 title="Start from beginning"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" width={22} height={22} style={{ display: 'block' }}>
@@ -840,7 +858,7 @@ export default function Watch() {
                 <button onClick={toggleMute} style={S.iBtn} className="pbtn" title="Mute (M)">
                   <Ico d={volIcon} size={22} />
                 </button>
-                <div style={{ width: showVol ? '84px' : '0px', overflow: 'hidden', transition: 'width 0.2s', display: 'flex', alignItems: 'center' }}>
+                <div className="player-vol-expand" style={{ width: showVol ? '84px' : '0px', overflow: 'hidden', transition: 'width 0.2s', display: 'flex', alignItems: 'center' }}>
                   <input
                     type="range" min="0" max="1" step="0.05"
                     value={muted ? 0 : volume}
