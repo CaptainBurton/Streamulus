@@ -119,6 +119,13 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
 }
 
 
+// Minimum number of HLS segments that must be written to disk before the
+// ready-promise resolves and the player is allowed to begin playback.
+// Waiting for more segments gives the transcoder a head start so the player
+// never immediately catches up to real-time encoding speed.
+// 3 segments × default 4 s/seg = 12 s of guaranteed initial buffer.
+const INITIAL_SEGMENT_BUFFER = 3;
+
 async function getHLSSession(filePath, startTime = 0) {
   const key = makeKey(filePath, startTime);
 
@@ -198,19 +205,24 @@ async function getHLSSession(filePath, startTime = 0) {
     process.stderr.write(`[ffmpeg] ${msg}`);
   });
 
-  // Resolve as soon as the first segment is on disk — the client starts playing
-  // immediately while FFmpeg continues generating the rest in the background.
+  // Wait for INITIAL_SEGMENT_BUFFER segments before resolving so the player
+  // has a comfortable head start over the real-time transcoder.
+  const markReady = (segCount) => {
+    if (session.ready) return;
+    session.ready = true;
+    console.log(`[transcode] Ready (${segCount} segment(s) buffered): ${path.basename(filePath)} key=${key.slice(0, 8)}`);
+    resolveReady();
+  };
+
   const checkInterval = setInterval(() => {
     if (!fs.existsSync(manifestPath)) return;
     try {
       const content = fs.readFileSync(manifestPath, 'utf8');
       const segCount = (content.match(/#EXTINF/g) || []).length;
-      if (segCount >= 1) {
+      if (segCount >= INITIAL_SEGMENT_BUFFER) {
         clearInterval(checkInterval);
         clearTimeout(startTimeout);
-        session.ready = true;
-        console.log(`[transcode] First segment ready for: ${path.basename(filePath)} (key=${key.slice(0, 8)})`);
-        resolveReady();
+        markReady(segCount);
       }
     } catch { /* manifest not fully written yet, retry */ }
   }, 100);
@@ -238,6 +250,17 @@ async function getHLSSession(filePath, startTime = 0) {
     clearTimeout(startTimeout);
     session.ffmpegDone = true;
     if (!session.ready) {
+      // FFmpeg finished before INITIAL_SEGMENT_BUFFER segments were written.
+      // This is normal for very short clips — resolve with whatever was written
+      // (≥1 segment), or reject if FFmpeg produced nothing.
+      try {
+        const content = fs.existsSync(manifestPath) ? fs.readFileSync(manifestPath, 'utf8') : '';
+        const segCount = (content.match(/#EXTINF/g) || []).length;
+        if (code === 0 && segCount >= 1) {
+          markReady(segCount);
+          return;
+        }
+      } catch {}
       const msg = `FFmpeg exited with code ${code}. Output: ${ffmpegOutput.slice(-300)}`;
       console.error(`[transcode] ${msg}`);
       rejectReady(new Error(msg));
