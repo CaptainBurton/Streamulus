@@ -11,6 +11,7 @@ const CHUNK_SECS        = 3;     // Phase-2 chunk size for end detection
 const ALIGN_THRESHOLD   = 0.15;  // Phase-1: ≤15% bit error = good alignment
 const END_THRESHOLD     = 0.35;  // Phase-2: >35% bit error in a chunk = past intro
 const QUICK_REJECT_BITS = 9;     // fast reject if first item has >9 differing bits (~28%)
+const LOOKAHEAD_CHUNKS  = 5;     // after 3 bad chunks, peek 15s ahead before stopping
 const MAX_EPISODES      = 8;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -117,10 +118,11 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
   if (bestA < 0 || bestErr > ALIGN_THRESHOLD) return null;
 
   // ── Phase 2 ──────────────────────────────────────────────────────────────
-  // Start walking from just after the probe window.
-  // Require 3 consecutive bad chunks before declaring the intro over.
-  // Brief louder or different moments near the intro end can produce 1-2 bad
-  // chunks without actually being past the intro.
+  // Walk forward in CHUNK_SECS increments. After 3 consecutive bad chunks,
+  // peek LOOKAHEAD_CHUNKS further ahead before stopping. If matching resumes
+  // within the lookahead window, keep walking — this handles talking/dialogue
+  // sections embedded in an intro. Only stop when there is genuinely no
+  // recovery ahead (all lookahead chunks are also bad).
   let a = bestA + probeLen, b = bestB + probeLen;
   let endA = a, endB = b;
   let consecutiveMisses = 0;
@@ -132,11 +134,25 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
   ) {
     let bits = 0;
     for (let k = 0; k < chunkLen; k++) bits += popcount32(fpA[a + k] ^ fpB[b + k]);
-    const chunkErr = bits / chunkLen / 32;
+    const err = bits / chunkLen / 32;
 
-    if (chunkErr > END_THRESHOLD) {
+    if (err > END_THRESHOLD) {
       consecutiveMisses++;
-      if (consecutiveMisses >= 3) break; // three bad chunks in a row = past intro
+      if (consecutiveMisses >= 3) {
+        // Look ahead before committing to stop. A talking section in the intro
+        // can produce 3+ bad chunks before music/theme resumes.
+        let recovers = false;
+        let la = a + chunkLen, lb = b + chunkLen;
+        for (let p = 0; p < LOOKAHEAD_CHUNKS; p++) {
+          if (la + chunkLen > fpA.length || lb + chunkLen > fpB.length || la - bestA >= maxWalkLen) break;
+          let lBits = 0;
+          for (let k = 0; k < chunkLen; k++) lBits += popcount32(fpA[la + k] ^ fpB[lb + k]);
+          if (lBits / chunkLen / 32 <= END_THRESHOLD) { recovers = true; break; }
+          la += chunkLen; lb += chunkLen;
+        }
+        if (!recovers) break; // no recovery in lookahead window = truly past intro
+        // matching will resume — continue walking; endA updates when we reach it
+      }
     } else {
       consecutiveMisses = 0;
       endA = a + chunkLen;
