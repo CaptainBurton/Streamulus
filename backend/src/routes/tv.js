@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
-const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits } = require('../services/tmdb');
+const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits, searchTV } = require('../services/tmdb');
 
 const router = express.Router();
 
@@ -84,7 +84,7 @@ router.get('/:id', authenticate, (req, res) => {
 });
 
 router.get('/:id/details', authenticate, async (req, res) => {
-  const show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
+  let show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
   if (!show) return res.status(404).json({ error: 'Show not found' });
 
   const seasons = db.prepare(`
@@ -96,11 +96,27 @@ router.get('/:id/details', authenticate, async (req, res) => {
     GROUP BY e.season ORDER BY e.season
   `).all(req.params.id);
 
-  const formatted = formatShow(show);
-  let cast = [];
+  // If TVDB was the scanner source, tmdb_id/rating/genres may be null.
+  // Do a live TMDB search by title and backfill so cast + ratings work.
+  let tmdbId = show.tmdb_id;
+  if (!tmdbId) {
+    const tmdbResult = await searchTV(show.title);
+    if (tmdbResult) {
+      tmdbId = tmdbResult.id;
+      const cols = ['tmdb_id = ?'];
+      const vals = [tmdbId];
+      if (!show.rating && tmdbResult.vote_average) { cols.push('rating = ?'); vals.push(tmdbResult.vote_average); }
+      if (!show.genres && tmdbResult.genre_ids?.length) { cols.push('genres = ?'); vals.push(JSON.stringify(tmdbResult.genre_ids)); }
+      if (!show.backdrop_path && tmdbResult.backdrop_path) { cols.push('backdrop_path = ?'); vals.push(tmdbResult.backdrop_path); }
+      vals.push(show.id);
+      db.prepare(`UPDATE tv_shows SET ${cols.join(', ')} WHERE id = ?`).run(...vals);
+      show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
+    }
+  }
 
-  if (show.tmdb_id) {
-    const credits = await getTVCredits(show.tmdb_id);
+  let cast = [];
+  if (tmdbId) {
+    const credits = await getTVCredits(tmdbId);
     if (credits) {
       cast = (credits.cast || []).slice(0, 12).map(c => ({
         id: c.id,
@@ -119,7 +135,7 @@ router.get('/:id/details', authenticate, async (req, res) => {
     ORDER BY rating DESC LIMIT 8
   `).all(show.id, `%${firstGenre}%`).map(formatShow);
 
-  res.json({ show: formatted, seasons, cast, similarLocal });
+  res.json({ show: formatShow(show), seasons, cast, similarLocal });
 });
 
 router.get('/:id/season/:season', authenticate, (req, res) => {
