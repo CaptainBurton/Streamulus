@@ -9,7 +9,7 @@ const MAX_SEARCH_SECS   = 240;   // search within first 4 minutes
 const PROBE_SECS        = 10;    // Phase-1 probe window length
 const CHUNK_SECS        = 3;     // Phase-2 chunk size for end detection
 const ALIGN_THRESHOLD   = 0.15;  // Phase-1: ≤15% bit error = good alignment
-const END_THRESHOLD     = 0.28;  // Phase-2: >28% bit error in a chunk = past intro
+const END_THRESHOLD     = 0.35;  // Phase-2: >35% bit error in a chunk = past intro
 const QUICK_REJECT_BITS = 9;     // fast reject if first item has >9 differing bits (~28%)
 const MAX_EPISODES      = 8;
 
@@ -135,7 +135,7 @@ function findCommonSegment(fpA, rateA, fpB, rateB) {
 
     if (chunkErr > END_THRESHOLD) {
       consecutiveMisses++;
-      if (consecutiveMisses >= 2) break; // two bad chunks in a row = past intro
+      if (consecutiveMisses >= 3) break; // three bad chunks in a row = past intro
     } else {
       consecutiveMisses = 0;
       endA = a + chunkLen;
