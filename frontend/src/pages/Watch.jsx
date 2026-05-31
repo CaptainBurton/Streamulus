@@ -448,6 +448,13 @@ export default function Watch() {
 
   // ── Next episode: fetch, banner, auto-advance ────────────────────────────
   useEffect(() => {
+    // Reset all stale timing state so the "Up Next" card can't reappear at
+    // the start of a new episode due to leftover absTime / totalDur values
+    // from the previous episode.
+    startPosRef.current = 0;
+    setCurTime(0);
+    setDuration(0);
+    setTotalFileDur(0);
     setNextEp(null);
     setShowNextEpCard(false);
     if (type !== 'episode') return;
@@ -460,6 +467,8 @@ export default function Watch() {
   useEffect(() => { nextEpRef.current = nextEp; }, [nextEp]);
 
   // Show "Up Next" card 30 s before the end.
+  // totalDur === 0 guard ensures it never fires on a fresh episode load before
+  // the new segment duration has been set.
   useEffect(() => {
     if (type !== 'episode' || !nextEp || totalDur === 0) return;
     if (totalDur - absTime <= 30) setShowNextEpCard(true);
@@ -660,7 +669,11 @@ export default function Watch() {
             background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%)',
             opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
           }}>
-            <button onClick={() => navigate(-1)} style={S.btn} className="pbtn-back">← Back</button>
+            <button
+              onClick={() => type === 'episode' && media?.showId ? navigate(`/tv/${media.showId}`) : navigate(-1)}
+              style={S.btn}
+              className="pbtn-back"
+            >← Back</button>
             <div style={{ overflow: 'hidden', textShadow: '0 1px 4px rgba(0,0,0,0.8)', minWidth: 0 }}>
               <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {media?.title}
