@@ -90,31 +90,50 @@ export default function TVSeason() {
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#444' }}>No episodes found for this season.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {episodes.map(ep => (
+            {episodes.map(ep => {
+              const completed = ep.watch_completed === 1;
+              const inProgress = !completed && ep.watch_position > 0;
+              return (
               <div
                 key={ep.id}
                 onClick={() => navigate(`/watch/episode/${ep.id}`)}
-                style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '14px 18px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.05)', transition: 'all 0.15s' }}
+                style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '14px 18px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', cursor: 'pointer', border: `1px solid ${completed ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.05)'}`, transition: 'all 0.15s' }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,194,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(0,194,255,0.25)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = completed ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.05)'; }}
               >
-                {/* Episode number */}
-                <div style={{ fontSize: '16px', color: '#444', width: '34px', textAlign: 'center', flexShrink: 0, fontWeight: '700' }}>
-                  {ep.episode_number}
+                {/* Episode number / check */}
+                <div style={{ fontSize: completed ? '18px' : '16px', color: completed ? '#22c55e' : '#444', width: '34px', textAlign: 'center', flexShrink: 0, fontWeight: '700' }}>
+                  {completed ? '✓' : ep.episode_number}
                 </div>
 
                 {/* Still image */}
-                {ep.still_url ? (
-                  <img src={ep.still_url} alt="" style={{ width: '112px', height: '63px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }} />
-                ) : (
-                  <div style={{ width: '112px', height: '63px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontSize: '20px', opacity: 0.3 }}>▶</span>
-                  </div>
-                )}
+                <div style={{ position: 'relative', width: '112px', height: '63px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0 }}>
+                  {ep.still_url ? (
+                    <img src={ep.still_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: completed ? 0.6 : 1 }} />
+                  ) : (
+                    <div style={{ width: '100%', height: '100%', background: 'rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontSize: '20px', opacity: 0.3 }}>▶</span>
+                    </div>
+                  )}
+                  {completed && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                    </div>
+                  )}
+                  {inProgress && ep.runtime && (
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.2)' }}>
+                      <div style={{ height: '100%', background: '#00c2ff', width: `${Math.min(100, (ep.watch_position / (ep.runtime * 60)) * 100)}%` }} />
+                    </div>
+                  )}
+                </div>
 
                 {/* Info */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '15px', fontWeight: '600', color: completed ? '#888' : '#fff', marginBottom: '4px' }}>
                     {ep.title || `Episode ${ep.episode_number}`}
                   </div>
                   {ep.overview && (
@@ -124,12 +143,13 @@ export default function TVSeason() {
                   )}
                 </div>
 
-                {/* Play button */}
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(0,194,255,0.15)', border: '1px solid rgba(0,194,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#00c2ff', fontSize: '14px' }}>
-                  ▶
+                {/* Play / check indicator */}
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: completed ? 'rgba(34,197,94,0.15)' : 'rgba(0,194,255,0.15)', border: `1px solid ${completed ? 'rgba(34,197,94,0.4)' : 'rgba(0,194,255,0.3)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: completed ? '#22c55e' : '#00c2ff', fontSize: '14px' }}>
+                  {completed ? '✓' : '▶'}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

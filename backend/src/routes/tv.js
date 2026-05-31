@@ -31,22 +31,36 @@ function formatShow(s) {
 
 router.get('/', authenticate, (req, res) => {
   const { search, sort = 'added_at', order = 'DESC', limit = 50, offset = 0 } = req.query;
-  let query = 'SELECT * FROM tv_shows WHERE 1=1';
-  const params = [];
+  let query = `
+    SELECT s.*,
+      COALESCE(ws.total_episodes, 0) as total_episodes,
+      COALESCE(ws.watched_episodes, 0) as watched_episodes
+    FROM tv_shows s
+    LEFT JOIN (
+      SELECT e.show_id,
+        COUNT(*) as total_episodes,
+        SUM(CASE WHEN wh.completed = 1 THEN 1 ELSE 0 END) as watched_episodes
+      FROM episodes e
+      LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
+      GROUP BY e.show_id
+    ) ws ON ws.show_id = s.id
+    WHERE 1=1
+  `;
+  const params = [req.user.id];
 
   if (search) {
-    query += ' AND title LIKE ?';
+    query += ' AND s.title LIKE ?';
     params.push(`%${search}%`);
   }
 
-  const validSorts = { title: 'title', rating: 'rating', added: 'added_at' };
-  const sortCol = validSorts[sort] || 'added_at';
+  const validSorts = { title: 's.title', rating: 's.rating', added: 's.added_at' };
+  const sortCol = validSorts[sort] || 's.added_at';
   const sortDir = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   query += ` ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`;
   params.push(parseInt(limit), parseInt(offset));
 
   const shows = db.prepare(query).all(...params).map(formatShow);
-  const total = db.prepare('SELECT COUNT(*) as count FROM tv_shows').get().count;
+  const total = db.prepare('SELECT COUNT(*) as count FROM tv_shows' + (search ? ' WHERE title LIKE ?' : '')).get(...(search ? [`%${search}%`] : [])).count;
   res.json({ shows, total });
 });
 
@@ -68,11 +82,27 @@ async function enrichMissingTMDB(shows) {
   }));
 }
 
+const RECENT_WITH_WATCH_SQL = `
+  SELECT s.*,
+    COALESCE(ws.total_episodes, 0) as total_episodes,
+    COALESCE(ws.watched_episodes, 0) as watched_episodes
+  FROM tv_shows s
+  LEFT JOIN (
+    SELECT e.show_id,
+      COUNT(*) as total_episodes,
+      SUM(CASE WHEN wh.completed = 1 THEN 1 ELSE 0 END) as watched_episodes
+    FROM episodes e
+    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
+    GROUP BY e.show_id
+  ) ws ON ws.show_id = s.id
+  ORDER BY s.added_at DESC LIMIT 20
+`;
+
 router.get('/recent', authenticate, async (req, res) => {
-  let shows = db.prepare('SELECT * FROM tv_shows ORDER BY added_at DESC LIMIT 20').all();
+  let shows = db.prepare(RECENT_WITH_WATCH_SQL).all(req.user.id);
   await enrichMissingTMDB(shows);
   if (shows.some(s => !s.tmdb_id)) {
-    shows = db.prepare('SELECT * FROM tv_shows ORDER BY added_at DESC LIMIT 20').all();
+    shows = db.prepare(RECENT_WITH_WATCH_SQL).all(req.user.id);
   }
   res.json({ shows: shows.map(formatShow) });
 });
@@ -95,12 +125,14 @@ router.get('/:id', authenticate, (req, res) => {
 
   const seasons = db.prepare(`
     SELECT e.season, COUNT(*) as episode_count,
-           s.poster_path as season_poster
+           s.poster_path as season_poster,
+           SUM(CASE WHEN wh.completed = 1 THEN 1 ELSE 0 END) as watched_count
     FROM episodes e
     LEFT JOIN seasons s ON s.show_id = e.show_id AND s.season_number = e.season
+    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
     WHERE e.show_id = ?
     GROUP BY e.season ORDER BY e.season
-  `).all(req.params.id);
+  `).all(req.user.id, req.params.id);
 
   res.json({ show: formatShow(show), seasons });
 });
@@ -111,12 +143,14 @@ router.get('/:id/details', authenticate, async (req, res) => {
 
   const seasons = db.prepare(`
     SELECT e.season, COUNT(*) as episode_count,
-           s.poster_path as season_poster
+           s.poster_path as season_poster,
+           SUM(CASE WHEN wh.completed = 1 THEN 1 ELSE 0 END) as watched_count
     FROM episodes e
     LEFT JOIN seasons s ON s.show_id = e.show_id AND s.season_number = e.season
+    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
     WHERE e.show_id = ?
     GROUP BY e.season ORDER BY e.season
-  `).all(req.params.id);
+  `).all(req.user.id, req.params.id);
 
   // If TVDB was the scanner source, tmdb_id/rating/genres may be null.
   // Do a live TMDB search by title and backfill so cast + ratings work.
@@ -171,10 +205,12 @@ router.get('/:id/details', authenticate, async (req, res) => {
 
 router.get('/:id/season/:season', authenticate, (req, res) => {
   const episodes = db.prepare(`
-    SELECT * FROM episodes
-    WHERE show_id = ? AND season = ?
-    ORDER BY episode_number
-  `).all(req.params.id, req.params.season);
+    SELECT e.*, wh.completed as watch_completed, wh.position as watch_position
+    FROM episodes e
+    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
+    WHERE e.show_id = ? AND e.season = ?
+    ORDER BY e.episode_number
+  `).all(req.user.id, req.params.id, req.params.season);
 
   const formatted = episodes.map(ep => ({
     ...ep,
