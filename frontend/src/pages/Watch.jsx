@@ -81,6 +81,9 @@ export default function Watch() {
   const dismissedRef   = useRef(false);
   // Prevents double-navigation if both the absTime effect and onEnded fire.
   const navigatingRef  = useRef(false);
+  // Tracks the current show ID so the end-of-show navigation handler (set up once)
+  // always sees the latest value without needing media in its deps.
+  const showIdRef      = useRef(null);
 
   // UI state
   const [media,       setMedia]       = useState(null);
@@ -528,8 +531,9 @@ export default function Watch() {
       .catch(() => {});
   }, [type, id]);
 
-  // Keep a ref so the `ended` handler (set up once) always sees the latest value.
+  // Keep refs so handlers set up once always see the latest values.
   useEffect(() => { nextEpRef.current = nextEp; }, [nextEp]);
+  useEffect(() => { showIdRef.current = media?.showId ?? null; }, [media]);
 
   // Single effect drives the Up Next card and auto-advance, all from absTime so
   // it is tied to the actual playhead rather than a wall-clock timer.
@@ -543,8 +547,18 @@ export default function Watch() {
   // can fire with only (startPos + segmentDur) before the X-Total-Duration header
   // arrives, making totalDur temporarily look like the episode is almost over.
   useEffect(() => {
-    if (type !== 'episode' || !nextEp || totalDur < 60 || curTime < 5) return;
+    if (type !== 'episode' || totalDur < 60 || curTime < 5) return;
     const remaining = totalDur - absTime;
+
+    if (!nextEp) {
+      // Last episode of the show — navigate to the show page when playback ends.
+      if (remaining <= 2 && !navigatingRef.current) {
+        navigatingRef.current = true;
+        const showId = showIdRef.current;
+        navigate(showId ? `/tv/${showId}` : -1);
+      }
+      return;
+    }
 
     if (remaining > 30) {
       dismissedRef.current = false;
@@ -573,7 +587,12 @@ export default function Watch() {
       navigatingRef.current = true;
       const next = nextEpRef.current;
       flushSync(() => setShowNextEpCard(false));
-      if (next) navigate(`/watch/episode/${next.id}`, { replace: true });
+      if (next) {
+        navigate(`/watch/episode/${next.id}`, { replace: true });
+      } else {
+        const showId = showIdRef.current;
+        if (showId) navigate(`/tv/${showId}`);
+      }
     };
     video.addEventListener('ended', onEnded);
     return () => video.removeEventListener('ended', onEnded);
