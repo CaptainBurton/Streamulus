@@ -768,7 +768,7 @@ export default function Watch() {
           <div style={{ color: '#ff4444', fontSize: '16px', maxWidth: '660px', lineHeight: '1.7', whiteSpace: 'pre-line' }}>{error}</div>
           <DebugLog />
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button onClick={() => navigate(-1)} style={S.btn}>← Go Back</button>
+            <button onClick={() => navigate(-1)} style={{ padding: '8px 18px', background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(8px)', transition: 'all 0.2s', flexShrink: 0 }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}>← Go Back</button>
             <button onClick={runDiag} disabled={diagLoad} style={S.btn}>{diagLoad ? 'Running…' : 'Diagnose File'}</button>
           </div>
           {diagInfo && (
@@ -791,8 +791,9 @@ export default function Watch() {
           }}>
             <button
               onClick={() => navigate(-1)}
-              style={S.btn}
-              className="pbtn-back"
+              style={{ padding: '8px 18px', background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(8px)', transition: 'all 0.2s', flexShrink: 0 }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
             >← Back</button>
             <div style={{ overflow: 'hidden', textShadow: '0 1px 4px rgba(0,0,0,0.8)', minWidth: 0 }}>
               <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

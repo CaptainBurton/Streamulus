@@ -30,7 +30,7 @@ export default function TVSeason() {
     <div style={{ minHeight: '100vh', background: '#0f0f0f', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
       <div style={{ fontSize: '48px' }}>📺</div>
       <div style={{ color: '#ff4444', fontSize: '18px' }}>{error}</div>
-      <button onClick={() => navigate(`/tv/${id}`)} style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>← Go Back</button>
+      <button onClick={() => navigate(-1)} style={{ padding: '14px 24px', background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', cursor: 'pointer', fontSize: '16px', fontWeight: '600', backdropFilter: 'blur(8px)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}>← Go Back</button>
     </div>
   );
 
@@ -38,11 +38,6 @@ export default function TVSeason() {
 
   return (
     <>
-    <style>{`
-      .back-btn { transition: background 0.15s ease, transform 0.15s ease !important; }
-      .back-btn:hover { background: rgba(0,0,0,0.72) !important; transform: translateX(-2px) !important; }
-      .back-btn:active { transform: translateX(0) scale(0.97) !important; }
-    `}</style>
     <div style={{ minHeight: '100vh', background: '#0f0f0f', color: '#fff' }}>
       <Navbar />
 
@@ -58,9 +53,10 @@ export default function TVSeason() {
 
         {/* Back button */}
         <button
-          className="back-btn"
-          onClick={() => navigate(`/tv/${id}`)}
-          style={{ position: 'absolute', top: '90px', left: '32px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(8px)' }}
+          onClick={() => navigate(-1)}
+          style={{ position: 'absolute', top: '90px', left: '32px', background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: '8px', padding: '14px 24px', fontSize: '16px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(8px)', transition: 'all 0.2s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
         >
           ← Back
         </button>
