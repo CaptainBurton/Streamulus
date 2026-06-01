@@ -970,15 +970,14 @@ export default function Watch() {
           {/* ── Buffering overlay ────────────────────────────────────────────── */}
           {buffering && (
             hasPlayed ? (
-              // Mid-playback stall: non-blocking translucent overlay — controls
-              // remain at zIndex 150 so the player stays fully interactive.
-              <div style={{ position: 'fixed', inset: 0, zIndex: 125, ...S.center, background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
+              // Mid-playback stall: non-blocking translucent overlay at zIndex 50
+              // so controls (zIndex 150) float above it and remain interactive.
+              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
                 <div className="spinner" style={{ pointerEvents: 'none' }} />
               </div>
             ) : (
-              // Initial load: full blocking overlay (zIndex 200) so the player
-              // controls and Up Next card are covered during episode transitions.
-              <div style={{ position: 'fixed', inset: 0, zIndex: 200, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
+              // Initial load: same z-index so controls stay visible and usable.
+              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
                 <div className="spinner" />
                 <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
                 <DebugLog />
