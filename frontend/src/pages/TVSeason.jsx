@@ -86,17 +86,7 @@ export default function TVSeason() {
               {episodes.length} episode{episodes.length !== 1 ? 's' : ''}
             </div>
 
-            {/* Action row back button — matches MovieDetail / TVShow */}
-            <div style={{ marginTop: '24px' }}>
-              <button
-                onClick={() => navigate(`/tv/${id}`)}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 24px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s', backdropFilter: 'blur(8px)' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-              >
-                ← Back
-              </button>
-            </div>
+
           </div>
         </div>
 
