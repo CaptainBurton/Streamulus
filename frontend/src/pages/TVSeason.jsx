@@ -50,6 +50,11 @@ export default function TVSeason() {
           {/* Breadcrumb */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', fontSize: '14px' }}>
             <button
+              onClick={() => navigate(`/tv/${id}`)}
+              style={{ padding: '6px 14px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.13)', color: '#ccc', borderRadius: '7px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', flexShrink: 0 }}
+            >← Back</button>
+            <span style={{ color: '#444', margin: '0 4px' }}>|</span>
+            <button
               onClick={() => navigate('/tv')}
               style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 0, fontSize: '14px', fontWeight: '500' }}
               onMouseEnter={e => { e.currentTarget.style.color = '#aaa'; }}
@@ -64,13 +69,6 @@ export default function TVSeason() {
             >{show.title}</button>
             <span style={{ color: '#333' }}>›</span>
             <span style={{ color: '#ccc', fontWeight: '600' }}>Season {season}</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
-            <button
-              onClick={() => navigate(`/tv/${id}`)}
-              style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)', color: '#fff', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(4px)', flexShrink: 0 }}
-            >← Back</button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
