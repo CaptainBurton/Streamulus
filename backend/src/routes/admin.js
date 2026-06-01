@@ -186,8 +186,16 @@ router.put('/config', requireAdmin, (req, res) => {
   if (audioChannels    !== undefined) upsert.run('audio_channels',     audioChannels);
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
-  if (preferredLanguage  !== undefined) upsert.run('preferred_language',   preferredLanguage);
-  if (preferredCountry   !== undefined) upsert.run('preferred_country',    preferredCountry);
+  if (preferredLanguage !== undefined) upsert.run('preferred_language', preferredLanguage);
+  if (preferredCountry  !== undefined) {
+    const current = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value ?? 'US';
+    upsert.run('preferred_country', preferredCountry);
+    if (preferredCountry !== current) {
+      // Clear cached ratings so they are re-fetched from TMDB using the new country.
+      db.prepare('UPDATE movies SET content_rating = NULL').run();
+      db.prepare('UPDATE tv_shows SET content_rating = NULL').run();
+    }
+  }
   res.json({ success: true });
 });
 
