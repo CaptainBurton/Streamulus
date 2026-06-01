@@ -394,6 +394,9 @@ export default function Watch() {
 
     return () => {
       cancelled = true;
+      // Show spinner immediately as the old session tears down so there is never
+      // a blank gap between episodes.  hideBuf() in the new effect run clears it.
+      setBuffering(true);
       clearTimeout(bufferTimerRef.current);
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (videoRef.current) { videoRef.current.pause(); videoRef.current.src = ''; }
