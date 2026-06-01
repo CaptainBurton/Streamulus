@@ -551,11 +551,13 @@ export default function Watch() {
     const remaining = totalDur - absTime;
 
     if (!nextEp) {
-      // Last episode of the show — navigate to the show page when playback ends.
+      // Last episode of the show — go back to wherever the user came from
+      // (the season page, show page, etc.). All episode-to-episode transitions
+      // used replace:true, so the entry behind the current watch page is always
+      // the page the user originally navigated from.
       if (remaining <= 2 && !navigatingRef.current) {
         navigatingRef.current = true;
-        const showId = showIdRef.current;
-        navigate(showId ? `/tv/${showId}` : -1, { replace: true });
+        navigate(-1);
       }
       return;
     }
@@ -590,8 +592,7 @@ export default function Watch() {
       if (next) {
         navigate(`/watch/episode/${next.id}`, { replace: true });
       } else {
-        const showId = showIdRef.current;
-        if (showId) navigate(`/tv/${showId}`, { replace: true });
+        navigate(-1);
       }
     };
     video.addEventListener('ended', onEnded);
