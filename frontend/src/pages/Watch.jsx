@@ -79,6 +79,8 @@ export default function Watch() {
   // prevents the card from reappearing while still in the final 30 s.
   // Reset on every episode change and when playback moves back past the threshold.
   const dismissedRef   = useRef(false);
+  // Prevents double-navigation if both the absTime effect and onEnded fire.
+  const navigatingRef  = useRef(false);
 
   // UI state
   const [media,       setMedia]       = useState(null);
@@ -484,6 +486,7 @@ export default function Watch() {
     setTotalFileDur(0);
     setHasPlayed(false);
     dismissedRef.current = false;
+    navigatingRef.current = false;
     clearTimeout(autoAdvanceTimerRef.current);
     setNextEp(null);
     setShowNextEpCard(false);
@@ -496,47 +499,53 @@ export default function Watch() {
   // Keep a ref so the `ended` handler (set up once) always sees the latest value.
   useEffect(() => { nextEpRef.current = nextEp; }, [nextEp]);
 
-  // Show "Up Next" card in the final 30 s; hide it again if the user seeks back.
-  // curTime < 5 prevents a false trigger on episode start when durationchange
-  // fires with only (startPos + segmentDur) before the full-length header arrives.
-  // dismissedRef prevents the card from reappearing after the user clicks ✕.
+  // Single effect drives the Up Next card and auto-advance, all from absTime so
+  // it is tied to the actual playhead rather than a wall-clock timer.
+  //
+  // Timeline:
+  //   remaining > 30 s  → hide card, reset dismissed flag
+  //   2 s < remaining ≤ 30 s → show card (unless user dismissed with ✕)
+  //   remaining ≤ 2 s   → hide card and navigate (always, even if dismissed)
+  //
+  // curTime < 5 guard prevents a false trigger on episode start: durationchange
+  // can fire with only (startPos + segmentDur) before the X-Total-Duration header
+  // arrives, making totalDur temporarily look like the episode is almost over.
   useEffect(() => {
     if (type !== 'episode' || !nextEp || totalDur < 60 || curTime < 5) return;
-    if (!dismissedRef.current && totalDur - absTime <= 30) {
-      setShowNextEpCard(true);
-    } else if (totalDur - absTime > 30) {
+    const remaining = totalDur - absTime;
+
+    if (remaining > 30) {
       dismissedRef.current = false;
       setShowNextEpCard(false);
+      return;
     }
-  }, [absTime, totalDur, type, nextEp, curTime]);
 
-  // Auto-navigate to next episode when video ends.
+    if (remaining <= 2 && !navigatingRef.current) {
+      navigatingRef.current = true;
+      flushSync(() => setShowNextEpCard(false));
+      navigate(`/watch/episode/${nextEp.id}`, { replace: true });
+      return;
+    }
+
+    if (!dismissedRef.current) setShowNextEpCard(true);
+  }, [absTime, totalDur, type, nextEp, curTime, navigate]);
+
+  // Fallback: if the HLS stream stalls on the last segment and never fires
+  // `ended`, the absTime effect above won't reach ≤2 s because currentTime
+  // stops advancing. onEnded fires when the browser finally signals end-of-stream.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || type !== 'episode') return;
     const onEnded = () => {
-      // flushSync forces the card to vanish before React processes the navigation,
-      // eliminating any single-frame flash on the incoming episode screen.
-      flushSync(() => setShowNextEpCard(false));
+      if (navigatingRef.current) return;
+      navigatingRef.current = true;
       const next = nextEpRef.current;
+      flushSync(() => setShowNextEpCard(false));
       if (next) navigate(`/watch/episode/${next.id}`, { replace: true });
     };
     video.addEventListener('ended', onEnded);
     return () => video.removeEventListener('ended', onEnded);
   }, [type, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 30 s after the Up Next card appears, auto-navigate in case the HLS `ended`
-  // event never fires (common when the stream stalls on the final segment).
-  useEffect(() => {
-    clearTimeout(autoAdvanceTimerRef.current);
-    if (!showNextEpCard) return;
-    autoAdvanceTimerRef.current = setTimeout(() => {
-      const next = nextEpRef.current;
-      flushSync(() => setShowNextEpCard(false));
-      if (next) navigate(`/watch/episode/${next.id}`, { replace: true });
-    }, 30000);
-    return () => clearTimeout(autoAdvanceTimerRef.current);
-  }, [showNextEpCard, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── AirPlay availability (WebKit/Safari only) ─────────────────────────────
   useEffect(() => {
@@ -723,7 +732,7 @@ export default function Watch() {
         <>
           {/* ── Top bar ──────────────────────────────────────────────────────── */}
           <div className="player-top-bar" style={{
-            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 150,
             padding: '20px 28px', display: 'flex', alignItems: 'center', gap: '16px',
             background: 'linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%)',
             opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
@@ -750,7 +759,7 @@ export default function Watch() {
           <div
             className="player-bottom-bar"
             style={{
-              position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
+              position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 150,
               padding: '0 28px 24px',
               background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 55%, transparent 100%)',
               opacity: showBar ? 1 : 0, transition: 'opacity 0.35s', pointerEvents: showBar ? 'auto' : 'none',
@@ -961,15 +970,15 @@ export default function Watch() {
           {/* ── Buffering overlay ────────────────────────────────────────────── */}
           {buffering && (
             hasPlayed ? (
-              // Mid-playback stall: translucent overlay so the video stays visible
-              <div style={{ position: 'fixed', inset: 0, zIndex: 130, ...S.center, background: 'rgba(0,0,0,0.55)' }}>
-                <div className="spinner" />
+              // Mid-playback stall: non-blocking translucent overlay — controls
+              // remain at zIndex 150 so the player stays fully interactive.
+              <div style={{ position: 'fixed', inset: 0, zIndex: 125, ...S.center, background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
+                <div className="spinner" style={{ pointerEvents: 'none' }} />
               </div>
             ) : (
-              // Initial load: full dark overlay with guidance text
-              // zIndex 130 ensures it sits above the Up Next card (120) so a race
-              // between state updates during episode transitions never shows the card.
-              <div style={{ position: 'fixed', inset: 0, zIndex: 130, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
+              // Initial load: full blocking overlay (zIndex 200) so the player
+              // controls and Up Next card are covered during episode transitions.
+              <div style={{ position: 'fixed', inset: 0, zIndex: 200, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
                 <div className="spinner" />
                 <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
                 <DebugLog />
