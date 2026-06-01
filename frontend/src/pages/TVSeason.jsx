@@ -101,11 +101,13 @@ export default function TVSeason() {
         </div>
 
         {/* Episode list */}
-        {episodes.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#444' }}>No episodes found for this season.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {episodes.map(ep => {
+        <div style={{ marginTop: '56px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '20px', color: '#fff' }}>Episodes</h2>
+          {episodes.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#444' }}>No episodes found for this season.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {episodes.map(ep => {
               const completed = ep.watch_completed === 1;
               const inProgress = !completed && ep.watch_position > 0;
               return (
@@ -164,9 +166,10 @@ export default function TVSeason() {
                   </div>
                 </div>
               );
-            })}
-          </div>
-        )}
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
     </>
