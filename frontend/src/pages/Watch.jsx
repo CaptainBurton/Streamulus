@@ -61,10 +61,11 @@ export default function Watch() {
   const containerRef = useRef(null);
 
   // Timer refs
-  const progressTimerRef = useRef(null);
-  const hideTimerRef     = useRef(null);
-  const bufferTimerRef   = useRef(null);
-  const thumbTimerRef    = useRef(null);
+  const progressTimerRef    = useRef(null);
+  const hideTimerRef        = useRef(null);
+  const bufferTimerRef      = useRef(null);
+  const thumbTimerRef       = useRef(null);
+  const autoAdvanceTimerRef = useRef(null);
 
   // Stable callback refs (used inside keyboard / drag handlers to avoid stale closures)
   const startHlsAtRef = useRef(null);
@@ -73,12 +74,17 @@ export default function Watch() {
   const isDragging     = useRef(false);
   const totalDurRef    = useRef(0);
   const prewarmFired   = useRef(false);
+  // Set to true when user explicitly dismisses the Up Next card with ✕;
+  // prevents the card from reappearing while still in the final 30 s.
+  // Reset on every episode change and when playback moves back past the threshold.
+  const dismissedRef   = useRef(false);
 
   // UI state
   const [media,       setMedia]       = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
   const [buffering,   setBuffering]   = useState(true);
+  const [hasPlayed,   setHasPlayed]   = useState(false);
   const [showBar,     setShowBar]     = useState(true);
 
   // Player state
@@ -197,7 +203,7 @@ export default function Watch() {
       const hideBuf = () => { if (cancelled) return; clearTimeout(bufferTimerRef.current); setBuffering(false); };
 
       video.onwaiting = showBuf;
-      video.onplaying = () => { if (!cancelled) { hideBuf(); addLog('Playing!'); } };
+      video.onplaying = () => { if (!cancelled) { setHasPlayed(true); hideBuf(); addLog('Playing!'); } };
       video.oncanplay = hideBuf;
 
       // On Apple devices (macOS Safari, iOS) prefer native HLS so the video
@@ -233,8 +239,8 @@ export default function Watch() {
             // it just means hls.js keeps more in-flight requests at once.
             // At 4 Mbps (typical transcoded 1080p), 60 s ≈ 30 MB — well within
             // Chrome's MSE quota of ~150 MB.
-            maxBufferLength: 60,
-            maxMaxBufferLength: 120,
+            maxBufferLength: 90,
+            maxMaxBufferLength: 180,
             // Keep 30 s of already-played video so seeking back ≤30 s is instant
             // without restarting the transcoder.
             backBufferLength: 30,
@@ -468,13 +474,13 @@ export default function Watch() {
 
   // ── Next episode: fetch, banner, auto-advance ────────────────────────────
   useEffect(() => {
-    // Reset all stale timing state so the "Up Next" card can't reappear at
-    // the start of a new episode due to leftover absTime / totalDur values
-    // from the previous episode.
     startPosRef.current = 0;
     setCurTime(0);
     setDuration(0);
     setTotalFileDur(0);
+    setHasPlayed(false);
+    dismissedRef.current = false;
+    clearTimeout(autoAdvanceTimerRef.current);
     setNextEp(null);
     setShowNextEpCard(false);
     if (type !== 'episode') return;
@@ -486,13 +492,19 @@ export default function Watch() {
   // Keep a ref so the `ended` handler (set up once) always sees the latest value.
   useEffect(() => { nextEpRef.current = nextEp; }, [nextEp]);
 
-  // Show "Up Next" card 30 s before the end.
-  // totalDur === 0 guard ensures it never fires on a fresh episode load before
-  // the new segment duration has been set.
+  // Show "Up Next" card in the final 30 s; hide it again if the user seeks back.
+  // curTime < 5 prevents a false trigger on episode start when durationchange
+  // fires with only (startPos + segmentDur) before the full-length header arrives.
+  // dismissedRef prevents the card from reappearing after the user clicks ✕.
   useEffect(() => {
-    if (type !== 'episode' || !nextEp || totalDur < 60) return;
-    if (totalDur - absTime <= 30) setShowNextEpCard(true);
-  }, [absTime, totalDur, type, nextEp]);
+    if (type !== 'episode' || !nextEp || totalDur < 60 || curTime < 5) return;
+    if (!dismissedRef.current && totalDur - absTime <= 30) {
+      setShowNextEpCard(true);
+    } else if (totalDur - absTime > 30) {
+      dismissedRef.current = false;
+      setShowNextEpCard(false);
+    }
+  }, [absTime, totalDur, type, nextEp, curTime]);
 
   // Auto-navigate to next episode when video ends.
   useEffect(() => {
@@ -508,6 +520,19 @@ export default function Watch() {
     video.addEventListener('ended', onEnded);
     return () => video.removeEventListener('ended', onEnded);
   }, [type, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 30 s after the Up Next card appears, auto-navigate in case the HLS `ended`
+  // event never fires (common when the stream stalls on the final segment).
+  useEffect(() => {
+    clearTimeout(autoAdvanceTimerRef.current);
+    if (!showNextEpCard) return;
+    autoAdvanceTimerRef.current = setTimeout(() => {
+      const next = nextEpRef.current;
+      setShowNextEpCard(false);
+      if (next) navigate(`/watch/episode/${next.id}`, { replace: true });
+    }, 30000);
+    return () => clearTimeout(autoAdvanceTimerRef.current);
+  }, [showNextEpCard, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── AirPlay availability (WebKit/Safari only) ─────────────────────────────
   useEffect(() => {
@@ -902,7 +927,7 @@ export default function Watch() {
                   Up Next
                 </div>
                 <button
-                  onClick={() => setShowNextEpCard(false)}
+                  onClick={() => { dismissedRef.current = true; setShowNextEpCard(false); }}
                   style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '16px', lineHeight: 1, padding: '0 0 0 8px' }}
                 >
                   ✕
@@ -921,7 +946,7 @@ export default function Watch() {
                 }} />
               </div>
               <button
-                onClick={() => { setShowNextEpCard(false); navigate(`/watch/episode/${nextEp.id}`, { replace: true }); }}
+                onClick={() => { clearTimeout(autoAdvanceTimerRef.current); setShowNextEpCard(false); navigate(`/watch/episode/${nextEp.id}`, { replace: true }); }}
                 style={{ width: '100%', padding: '9px 0', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', letterSpacing: '0.3px' }}
               >
                 ▶ Play Now
@@ -931,14 +956,22 @@ export default function Watch() {
 
           {/* ── Buffering overlay ────────────────────────────────────────────── */}
           {buffering && (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
-              <div className="spinner" />
-              <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
-              <DebugLog />
-              <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '380px' }}>
-                First load takes 5–15 s. Seeking far ahead restarts the transcoder.
+            hasPlayed ? (
+              // Mid-playback stall: translucent overlay so the video stays visible
+              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, background: 'rgba(0,0,0,0.55)' }}>
+                <div className="spinner" />
               </div>
-            </div>
+            ) : (
+              // Initial load: full dark overlay with guidance text
+              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
+                <div className="spinner" />
+                <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
+                <DebugLog />
+                <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '380px' }}>
+                  First load takes 5–15 s. Seeking far ahead restarts the transcoder.
+                </div>
+              </div>
+            )
           )}
         </>
       )}
