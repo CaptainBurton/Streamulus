@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -482,7 +483,6 @@ export default function Watch() {
     setDuration(0);
     setTotalFileDur(0);
     setHasPlayed(false);
-    setBuffering(true);
     dismissedRef.current = false;
     clearTimeout(autoAdvanceTimerRef.current);
     setNextEp(null);
@@ -515,9 +515,9 @@ export default function Watch() {
     const video = videoRef.current;
     if (!video || type !== 'episode') return;
     const onEnded = () => {
-      // Always hide the card first — covers the case where auto-advance fires
-      // naturally so the card doesn't linger on the incoming episode screen.
-      setShowNextEpCard(false);
+      // flushSync forces the card to vanish before React processes the navigation,
+      // eliminating any single-frame flash on the incoming episode screen.
+      flushSync(() => setShowNextEpCard(false));
       const next = nextEpRef.current;
       if (next) navigate(`/watch/episode/${next.id}`, { replace: true });
     };
@@ -532,7 +532,7 @@ export default function Watch() {
     if (!showNextEpCard) return;
     autoAdvanceTimerRef.current = setTimeout(() => {
       const next = nextEpRef.current;
-      setShowNextEpCard(false);
+      flushSync(() => setShowNextEpCard(false));
       if (next) navigate(`/watch/episode/${next.id}`, { replace: true });
     }, 30000);
     return () => clearTimeout(autoAdvanceTimerRef.current);
