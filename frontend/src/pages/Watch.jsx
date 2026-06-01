@@ -555,7 +555,7 @@ export default function Watch() {
       if (remaining <= 2 && !navigatingRef.current) {
         navigatingRef.current = true;
         const showId = showIdRef.current;
-        navigate(showId ? `/tv/${showId}` : -1);
+        navigate(showId ? `/tv/${showId}` : -1, { replace: true });
       }
       return;
     }
@@ -591,7 +591,7 @@ export default function Watch() {
         navigate(`/watch/episode/${next.id}`, { replace: true });
       } else {
         const showId = showIdRef.current;
-        if (showId) navigate(`/tv/${showId}`);
+        if (showId) navigate(`/tv/${showId}`, { replace: true });
       }
     };
     video.addEventListener('ended', onEnded);
