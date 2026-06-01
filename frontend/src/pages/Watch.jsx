@@ -253,6 +253,7 @@ export default function Watch() {
             maxBufferHole: 0.5,
             // Give the server the full 30 s it may need to produce a segment, plus margin.
             fragLoadingTimeOut: 60000, fragLoadingMaxRetry: 8, fragLoadingRetryDelay: 1000,
+            manifestLoadingMaxRetry: 4, manifestLoadingRetryDelay: 1000,
             highBufferWatchdogPeriod: 4, nudgeOffset: 0.5, nudgeMaxRetry: 5,
           });
           hlsRef.current = hls;
@@ -347,15 +348,43 @@ export default function Watch() {
         }
         if (cancelled) return;
 
-        video.src = url;
-        video.onloadedmetadata = () => { if (!cancelled) { setBuffering(false); video.play().catch(() => {}); } };
-        video.onerror = () => {
-          if (!cancelled) { setError(`Playback failed (code ${video.error?.code ?? '?'}): ${video.error?.message || 'unknown'}`); setBuffering(false); }
-        };
-        startHlsAtRef.current = (absPos) => {
-          startPosRef.current = absPos; setCurTime(0);
-          video.src = `${base}&start=${absPos}`;
+        // code-4 retries: Safari fires MEDIA_ERR_SRC_NOT_SUPPORTED when the new
+        // FFmpeg session hasn't written its first segment yet. We retry up to 3
+        // times with increasing back-off before surfacing the error to the user.
+        let code4Retries = 0;
+
+        const loadNativeUrl = (srcUrl) => {
+          video.src = srcUrl;
           video.play().catch(() => {});
+        };
+
+        video.onloadedmetadata = () => {
+          if (!cancelled) { code4Retries = 0; setBuffering(false); video.play().catch(() => {}); }
+        };
+
+        video.onerror = () => {
+          if (cancelled) return;
+          const code = video.error?.code;
+          if (code === 4 && code4Retries < 3) {
+            code4Retries++;
+            const retryUrl = video.src;
+            addLog(`Native HLS code 4 — retry ${code4Retries}/3`);
+            setTimeout(() => { if (!cancelled) loadNativeUrl(retryUrl); }, 1000 * code4Retries);
+            return;
+          }
+          const msg = video.error?.message;
+          setError(`Playback failed (code ${code ?? '?'})${msg ? `: ${msg}` : ' — seek to a different position and try again'}`);
+          setBuffering(false);
+        };
+
+        loadNativeUrl(url);
+
+        startHlsAtRef.current = (absPos) => {
+          code4Retries = 0;
+          startPosRef.current = absPos;
+          setCurTime(0);
+          setBuffering(true);
+          loadNativeUrl(`${base}&start=${absPos}`);
         };
       } else {
         setError('Your browser does not support video streaming. Try Chrome, Firefox, or Safari.');
@@ -970,15 +999,14 @@ export default function Watch() {
           {/* ── Buffering overlay ────────────────────────────────────────────── */}
           {buffering && (
             hasPlayed ? (
-              // Mid-playback stall: non-blocking translucent overlay — controls
-              // remain at zIndex 150 so the player stays fully interactive.
-              <div style={{ position: 'fixed', inset: 0, zIndex: 125, ...S.center, background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
+              // Mid-playback stall: non-blocking translucent overlay at zIndex 50
+              // so controls (zIndex 150) float above it and remain interactive.
+              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
                 <div className="spinner" style={{ pointerEvents: 'none' }} />
               </div>
             ) : (
-              // Initial load: full blocking overlay (zIndex 200) so the player
-              // controls and Up Next card are covered during episode transitions.
-              <div style={{ position: 'fixed', inset: 0, zIndex: 200, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
+              // Initial load: same z-index so controls stay visible and usable.
+              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
                 <div className="spinner" />
                 <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
                 <DebugLog />
