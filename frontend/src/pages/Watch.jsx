@@ -198,7 +198,7 @@ export default function Watch() {
         // Only show the full buffering overlay after a 2 s stall.  Brief pauses
         // (a segment arriving 0.5–1.5 s late) are invisible rather than triggering
         // the spinner, making playback feel much smoother.
-        bufferTimerRef.current = setTimeout(() => { if (!cancelled) setBuffering(true); }, 2000);
+        bufferTimerRef.current = setTimeout(() => { if (!cancelled) setBuffering(true); }, 3000);
       };
       const hideBuf = () => { if (cancelled) return; clearTimeout(bufferTimerRef.current); setBuffering(false); };
 
@@ -239,15 +239,18 @@ export default function Watch() {
             // it just means hls.js keeps more in-flight requests at once.
             // At 4 Mbps (typical transcoded 1080p), 60 s ≈ 30 MB — well within
             // Chrome's MSE quota of ~150 MB.
-            maxBufferLength: 90,
-            maxMaxBufferLength: 180,
-            // Keep 30 s of already-played video so seeking back ≤30 s is instant
+            maxBufferLength: 120,
+            maxMaxBufferLength: 240,
+            // Remove the 60 MB MSE buffer-size cap so the time-based maxBufferLength
+            // limit is the only constraint (important for high-bitrate 1080p content).
+            maxBufferSize: 0,
+            // Keep 60 s of already-played video so seeking back ≤60 s is instant
             // without restarting the transcoder.
-            backBufferLength: 30,
+            backBufferLength: 60,
             maxBufferHole: 0.5,
             // Give the server the full 30 s it may need to produce a segment, plus margin.
-            fragLoadingTimeOut: 60000, fragLoadingMaxRetry: 8, fragLoadingRetryDelay: 500,
-            highBufferWatchdogPeriod: 4, nudgeOffset: 0.5, nudgeMaxRetry: 3,
+            fragLoadingTimeOut: 60000, fragLoadingMaxRetry: 8, fragLoadingRetryDelay: 1000,
+            highBufferWatchdogPeriod: 4, nudgeOffset: 0.5, nudgeMaxRetry: 5,
           });
           hlsRef.current = hls;
           hls.loadSource(url);
@@ -479,6 +482,7 @@ export default function Watch() {
     setDuration(0);
     setTotalFileDur(0);
     setHasPlayed(false);
+    setBuffering(true);
     dismissedRef.current = false;
     clearTimeout(autoAdvanceTimerRef.current);
     setNextEp(null);
@@ -958,12 +962,14 @@ export default function Watch() {
           {buffering && (
             hasPlayed ? (
               // Mid-playback stall: translucent overlay so the video stays visible
-              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, background: 'rgba(0,0,0,0.55)' }}>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 130, ...S.center, background: 'rgba(0,0,0,0.55)' }}>
                 <div className="spinner" />
               </div>
             ) : (
               // Initial load: full dark overlay with guidance text
-              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
+              // zIndex 130 ensures it sits above the Up Next card (120) so a race
+              // between state updates during episode transitions never shows the card.
+              <div style={{ position: 'fixed', inset: 0, zIndex: 130, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
                 <div className="spinner" />
                 <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
                 <DebugLog />
