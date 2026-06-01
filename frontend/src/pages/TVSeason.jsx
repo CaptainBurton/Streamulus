@@ -66,6 +66,13 @@ export default function TVSeason() {
             <span style={{ color: '#ccc', fontWeight: '600' }}>Season {season}</span>
           </div>
 
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
+            <button
+              onClick={() => navigate(`/tv/${id}`)}
+              style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)', color: '#fff', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(4px)', flexShrink: 0 }}
+            >← Back</button>
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
             {show.poster_url && (
               <img
