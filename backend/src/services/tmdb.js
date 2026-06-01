@@ -80,10 +80,12 @@ async function getMovieContentRating(tmdbId) {
     const results = res.data.results || [];
     const preferred = results.find(r => r.iso_3166_1 === country);
     const us = results.find(r => r.iso_3166_1 === 'US');
-    const source = preferred || us || results[0];
-    if (!source) return null;
-    const theatrical = source.release_dates?.find(d => d.type === 3 && d.certification);
-    return theatrical?.certification || source.release_dates?.find(d => d.certification)?.certification || null;
+    const getCert = (entry) => {
+      if (!entry) return null;
+      const theatrical = entry.release_dates?.find(d => d.type === 3 && d.certification);
+      return theatrical?.certification || entry.release_dates?.find(d => d.certification)?.certification || null;
+    };
+    return getCert(preferred) || getCert(us) || getCert(results[0]) || null;
   } catch { return null; }
 }
 
