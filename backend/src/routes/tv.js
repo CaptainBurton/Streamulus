@@ -238,7 +238,8 @@ router.get('/:id/details', authenticate, async (req, res) => {
   // For "Play from Beginning": the first episode, and whether this user has
   // started the show at all (any episode in progress or finished).
   const firstEpisodeId = db.prepare(
-    'SELECT id FROM episodes WHERE show_id = ? ORDER BY season, episode_number LIMIT 1'
+    // Season 0 is specials/extras — start at Season 1 E1 unless that's all there is.
+    'SELECT id FROM episodes WHERE show_id = ? ORDER BY (season = 0), season, episode_number LIMIT 1'
   ).get(show.id)?.id ?? null;
   const started = db.prepare(`
     SELECT COUNT(*) AS n FROM watch_history wh

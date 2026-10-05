@@ -50,10 +50,15 @@ struct HomeView: View {
     @State private var errorText: String?
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 30) {
                 if let featured {
-                    FeaturedHero(movie: featured)
+                    // Back up at its buttons: show the whole banner again, not just the buttons.
+                    FeaturedHero(movie: featured) {
+                        withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) }
+                    }
+                    .id("top")
                 } else if session.profile?.isKids == true {
                     Pill(text: "STREAMLINGS", color: Theme.streamling).padding(.horizontal, 80)
                 }
@@ -106,6 +111,7 @@ struct HomeView: View {
         .scrollIndicators(.hidden)
         // Edge to edge, so the banner artwork fills the screen; rows keep their own 80 pt margin.
         .ignoresSafeArea(edges: [.top, .horizontal])
+        }
         .mediaDestinations()
         // Reload when the player closes so Continue Watching is up to date.
         .task(id: player.request == nil) {
@@ -114,23 +120,31 @@ struct HomeView: View {
     }
 
     private func load() async {
-        do {
-            async let cont = session.get("/api/stream/continue-watching", as: ContinueResponse.self)
-            async let recentMovies = session.get("/api/movies/recent", as: MoviesResponse.self)
-            async let recentShows = session.get("/api/tv/recent", as: ShowsResponse.self)
-            continueItems = try await cont.items
-            movies = try await recentMovies.movies
-            shows = try await recentShows.shows
-            errorText = nil
-        } catch {
-            errorText = error.localizedDescription
-        }
+        // Each row on its own, so one failed request doesn't empty the others.
+        async let cont = Self.fetch { try await session.get("/api/stream/continue-watching", as: ContinueResponse.self).items }
+        async let recentMovies = Self.fetch { try await session.get("/api/movies/recent", as: MoviesResponse.self).movies }
+        async let recentShows = Self.fetch { try await session.get("/api/tv/recent", as: ShowsResponse.self).shows }
+        let results = (await cont, await recentMovies, await recentShows)
+        if case .success(let items) = results.0 { continueItems = items }
+        if case .success(let items) = results.1 { movies = items }
+        if case .success(let items) = results.2 { shows = items }
+        let failures = [Self.error(in: results.0), Self.error(in: results.1), Self.error(in: results.2)].compactMap { $0 }
+        errorText = failures.first?.localizedDescription
         // A new featured movie only on first load, so it doesn't change under the user.
         if featured == nil {
             let response = try? await session.get("/api/movies/featured", as: FeaturedResponse.self)
             featured = response?.movie
         }
         loaded = true
+    }
+
+    private static func fetch<T>(_ request: () async throws -> T) async -> Result<T, Error> {
+        do { return .success(try await request()) } catch { return .failure(error) }
+    }
+
+    private static func error<T>(in result: Result<T, Error>) -> Error? {
+        if case .failure(let error) = result { return error }
+        return nil
     }
 
     private func resume(_ item: ContinueItem) {
@@ -142,8 +156,11 @@ struct HomeView: View {
 /// Netflix-style banner at the top of Home: artwork, title logo, Play Now and More Info.
 struct FeaturedHero: View {
     let movie: Movie
+    /// Called when focus comes to the banner's buttons.
+    var onFocus: () -> Void = {}
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
+    @FocusState private var buttonFocus: Int?
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -174,12 +191,19 @@ struct FeaturedHero: View {
                             Label("Play Now", systemImage: "play.fill")
                         }
                         .buttonStyle(.glassProminent)
+                        .focused($buttonFocus, equals: 0)
 
                         NavigationLink(value: movie) {
                             Label("More Info", systemImage: "info.circle")
                         }
                         .buttonStyle(.glass)
+                        .focused($buttonFocus, equals: 1)
                     }
+                }
+                // Reachable with "up" from any Continue Watching card, not only the first.
+                .focusSection()
+                .onChange(of: buttonFocus) { _, focused in
+                    if focused != nil { onFocus() }
                 }
             }
             .padding(.horizontal, 80)
@@ -396,6 +420,7 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
                             flashBubble()
                         }
                         .padding(.trailing, 40)
+                        .focusSection() // "right" from any row reaches the rail
                     }
                 }
                 .overlay {

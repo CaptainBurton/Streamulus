@@ -279,7 +279,7 @@ struct PlayerView: View {
     @State private var hideTask: Task<Void, Never>?
     @FocusState private var focus: Focus?
 
-    private enum Focus: Hashable { case surface, playNext, hideUpNext }
+    private enum Focus: Hashable { case surface, playNext, hideUpNext, closeError }
 
     init(request: PlayRequest, session: Session, onClose: @escaping () -> Void) {
         _controller = StateObject(wrappedValue: PlaybackController(session: session, request: request, onFinished: onClose))
@@ -340,6 +340,10 @@ struct PlayerView: View {
             // Put focus on "Play Now" so one click starts the next episode.
             focus = visible ? .playNext : .surface
             if visible { poke() }
+        }
+        .onChange(of: controller.errorText) { _, error in
+            // Put focus on "Close" so a click closes instead of toggling the hidden video.
+            focus = error != nil ? .closeError : .surface
         }
         .onDisappear { controller.stop() }
     }
@@ -435,7 +439,9 @@ struct PlayerView: View {
             Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 60)).foregroundStyle(.yellow)
             Text("This video couldn't be played").font(.title3.weight(.semibold))
             Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 900)
-            Button("Close", action: close).buttonStyle(.glassProminent)
+            Button("Close", action: close)
+                .buttonStyle(.glassProminent)
+                .focused($focus, equals: .closeError)
         }
         .padding(50)
         .glassEffect(.regular, in: .rect(cornerRadius: 40))

@@ -103,6 +103,7 @@ struct MovieDetailView: View {
                         .disabled(saving)
                     }
                 }
+                .focusSection() // reachable with "up" from anywhere in the rows below
                 .padding(.top, 10)
             }
             .detailHeaderFrame()
@@ -212,7 +213,7 @@ struct ShowDetailView: View {
                     }
                     if details?.started == true, let first = details?.firstEpisodeId {
                         Button {
-                            player.play(.episode, id: first, from: 0, title: shown.title, subtitle: "S1 E1")
+                            player.play(.episode, id: first, from: 0, title: shown.title)
                         } label: {
                             Label("Play from Beginning", systemImage: "arrow.counterclockwise")
                         }
@@ -229,6 +230,7 @@ struct ShowDetailView: View {
                     .disabled(saving || seasons.isEmpty)
                 }
             }
+            .focusSection() // reachable with "up" from anywhere in the rows below
         }
         .detailHeaderFrame()
     }
@@ -253,14 +255,16 @@ struct ShowDetailView: View {
             .padding(.vertical, 20)
         }
         .scrollClipDisabled()
+        .focusSection()
     }
 
     private func load() async {
         guard let response = try? await session.get("/api/tv/\(show.id)/details", as: ShowDetailsResponse.self) else { return }
         details = response
         if season == nil || !response.seasons.contains(where: { $0.season == season }) {
-            // Start on the first season that isn't finished.
-            season = response.seasons.first(where: { $0.watchedCount < $0.episodeCount })?.season ?? response.seasons.first?.season
+            // Start on the first season that isn't finished; Season 0 (extras) only if nothing else is left.
+            let ordered = response.seasons.filter { $0.season > 0 } + response.seasons.filter { $0.season == 0 }
+            season = ordered.first(where: { $0.watchedCount < $0.episodeCount })?.season ?? ordered.first?.season
         } else {
             await loadEpisodes()
         }

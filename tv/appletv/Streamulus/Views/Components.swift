@@ -129,6 +129,9 @@ struct Shelf<Content: View>: View {
                     .padding(.vertical, 30)
             }
             .scrollClipDisabled()
+            // Up/down from any card reaches the next row (or the buttons above),
+            // even when nothing focusable is directly above or below it.
+            .focusSection()
         }
     }
 }
@@ -295,20 +298,24 @@ struct CastShelf: View {
         Shelf("Cast") {
             ForEach(cast) { person in
                 VStack(spacing: 12) {
-                    ZStack {
-                        Circle().fill(Color(white: 0.16))
-                        if let url = session.imageURL(person.profilePath) {
-                            AsyncImage(url: url) { image in
-                                image.resizable().scaledToFill()
-                            } placeholder: {
-                                Color.clear
+                    // Focusable so the row can be browsed and scrolled to with the remote.
+                    Button {} label: {
+                        ZStack {
+                            Circle().fill(Color(white: 0.16))
+                            if let url = session.imageURL(person.profilePath) {
+                                AsyncImage(url: url) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Color.clear
+                                }
+                            } else {
+                                Image(systemName: "person.fill").font(.system(size: 60)).foregroundStyle(.secondary)
                             }
-                        } else {
-                            Image(systemName: "person.fill").font(.system(size: 60)).foregroundStyle(.secondary)
                         }
+                        .frame(width: 170, height: 170)
+                        .clipShape(Circle())
                     }
-                    .frame(width: 170, height: 170)
-                    .clipShape(Circle())
+                    .buttonStyle(AvatarButtonStyle())
                     Text(person.name).font(.caption.weight(.semibold)).lineLimit(1)
                     if let character = person.character, !character.isEmpty {
                         Text(character).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
