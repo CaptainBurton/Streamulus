@@ -131,18 +131,24 @@ router.delete('/libraries/:id', requireAdmin, (req, res) => {
   const lib = db.prepare('SELECT * FROM libraries WHERE id = ?').get(req.params.id);
   if (!lib) return res.status(404).json({ error: 'Library not found' });
 
-  db.transaction(() => {
-    if (lib.type === 'movies') {
+  // Remove every row that references this library, whatever its type — with
+  // foreign_keys ON a single leftover row (e.g. a show attached to a movies
+  // library) would otherwise make the whole delete fail.
+  try {
+    db.transaction(() => {
       db.prepare('DELETE FROM movies WHERE library_id = ?').run(lib.id);
-    } else {
-      const shows = db.prepare('SELECT id FROM tv_shows WHERE library_id = ?').all(lib.id);
-      for (const show of shows) {
-        db.prepare('DELETE FROM episodes WHERE show_id = ?').run(show.id);
+      const showIds = db.prepare('SELECT id FROM tv_shows WHERE library_id = ?').all(lib.id).map(s => s.id);
+      for (const showId of showIds) {
+        db.prepare('DELETE FROM episodes WHERE show_id = ?').run(showId);
+        db.prepare('DELETE FROM seasons WHERE show_id = ?').run(showId);
       }
       db.prepare('DELETE FROM tv_shows WHERE library_id = ?').run(lib.id);
-    }
-    db.prepare('DELETE FROM libraries WHERE id = ?').run(lib.id);
-  })();
+      db.prepare('DELETE FROM libraries WHERE id = ?').run(lib.id);
+    })();
+  } catch (err) {
+    console.error(`[admin] Failed to remove library ${lib.id}:`, err.message);
+    return res.status(500).json({ error: `Could not remove library: ${err.message}` });
+  }
 
   res.json({ success: true });
 });

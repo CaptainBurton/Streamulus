@@ -312,6 +312,8 @@ export default function Admin() {
   });
   const [newLib, setNewLib] = useState({ name: '', path: '', type: 'movies' });
   const [editLib, setEditLib] = useState(null); // { id, path } while editing a library's path
+  const [confirmRemoveId, setConfirmRemoveId] = useState(null);
+  const confirmRemoveTimer = useRef(null);
   const [newUser, setNewUser] = useState({ username: '', password: '', email: '', role: 'user' });
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
@@ -473,13 +475,24 @@ export default function Admin() {
     } catch (err) { flash(err.response?.data?.error || 'Failed to update library path', true); }
   };
 
+  // Two-step remove handled in the page itself: browsers can silently block
+  // window.confirm() (e.g. after "prevent this page from creating dialogs").
   const handleDeleteLibrary = async (id) => {
-    if (!confirm('Remove this library? Your files will not be deleted.')) return;
+    clearTimeout(confirmRemoveTimer.current);
+    if (confirmRemoveId !== id) {
+      setConfirmRemoveId(id);
+      confirmRemoveTimer.current = setTimeout(() => setConfirmRemoveId(null), 5000);
+      return;
+    }
+    setConfirmRemoveId(null);
     try {
       await axios.delete(`/api/admin/libraries/${id}`);
-      flash('Library removed');
+      flash('Library removed — your files were not deleted.');
       loadData();
-    } catch { flash('Failed to remove library', true); }
+    } catch (err) {
+      flash(err.response?.data?.error || 'Failed to remove library', true);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAddUser = async (e) => {
@@ -625,14 +638,21 @@ export default function Admin() {
                     >
                       Edit Path
                     </button>
-                    <button
-                      onClick={() => handleDeleteLibrary(lib.id)}
-                      style={{ padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', color: '#ff4444', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,68,68,0.1)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      Remove
-                    </button>
+                    {(() => {
+                      const confirming = confirmRemoveId === lib.id;
+                      const base = confirming ? '#ff4444' : 'transparent';
+                      return (
+                        <button
+                          onClick={() => handleDeleteLibrary(lib.id)}
+                          title={confirming ? 'Click again to remove this library. Your files will not be deleted.' : 'Remove library'}
+                          style={{ padding: '8px 16px', background: base, border: '1px solid rgba(255,68,68,0.3)', color: confirming ? '#fff' : '#ff4444', borderRadius: '6px', fontSize: '13px', fontWeight: confirming ? '700' : '400', cursor: 'pointer', transition: 'background 0.15s' }}
+                          onMouseEnter={e => { if (!confirming) e.currentTarget.style.background = 'rgba(255,68,68,0.1)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = base; }}
+                        >
+                          {confirming ? 'Confirm Remove' : 'Remove'}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
