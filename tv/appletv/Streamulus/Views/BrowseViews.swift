@@ -1,55 +1,38 @@
 import SwiftUI
 import UIKit
 
-/// True while focus is inside a tab's content (not the tab bar itself).
-private struct ContentFocusedKey: FocusedValueKey { typealias Value = Bool }
-
-extension FocusedValues {
-    var contentFocused: Bool? {
-        get { self[ContentFocusedKey.self] }
-        set { self[ContentFocusedKey.self] = newValue }
-    }
-}
-
 struct MainTabView: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
     @State private var selection: AppTab = .home
-    /// Current frame of an animated (GIF) profile picture in the tab bar.
-    @State private var avatarFrame = 0
-    @FocusedValue(\.contentFocused) private var contentFocused
 
     enum AppTab: Hashable { case home, movies, shows, genres, profile }
-
-    private var tabAvatarImage: UIImage? {
-        let frames = session.tabAvatarFrames
-        return frames.isEmpty ? session.tabAvatar : frames[avatarFrame % frames.count]
-    }
 
     var body: some View {
         // On tvOS 26+ the system draws this tab bar as Liquid Glass. Each tab has a
         // fixed value so the selection can't be lost when a label changes.
         TabView(selection: $selection) {
             Tab("Home", systemImage: "house.fill", value: AppTab.home) {
-                NavigationStack { HomeView() }.focusedSceneValue(\.contentFocused, true)
+                NavigationStack { HomeView() }
             }
             Tab("Movies", systemImage: "film.fill", value: AppTab.movies) {
-                NavigationStack { MovieGridView() }.focusedSceneValue(\.contentFocused, true)
+                NavigationStack { MovieGridView() }
             }
             Tab("TV Shows", systemImage: "tv.fill", value: AppTab.shows) {
-                NavigationStack { ShowGridView() }.focusedSceneValue(\.contentFocused, true)
+                NavigationStack { ShowGridView() }
             }
             Tab("Genres", systemImage: "square.grid.2x2.fill", value: AppTab.genres) {
-                NavigationStack { GenresView() }.focusedSceneValue(\.contentFocused, true)
+                NavigationStack { GenresView() }
             }
-            // The profile tab shows the current profile's own picture.
+            // The profile tab shows the current profile's own picture (a still
+            // image — the first frame of a GIF).
             Tab(value: AppTab.profile) {
-                NavigationStack { AccountView() }.focusedSceneValue(\.contentFocused, true)
+                NavigationStack { AccountView() }
             } label: {
                 Label {
                     Text(session.profile?.name ?? "Profile")
                 } icon: {
-                    if let avatar = tabAvatarImage {
+                    if let avatar = session.tabAvatar {
                         Image(uiImage: avatar).renderingMode(.original)
                     } else {
                         Image(systemName: "person.crop.circle.fill")
@@ -60,27 +43,6 @@ struct MainTabView: View {
         .fullScreenCover(item: $player.request) { request in
             PlayerView(request: request, session: session, onClose: { player.request = nil })
         }
-        // A GIF profile picture plays in the tab bar by stepping through its
-        // frames — only while focus is in the page, not the tab bar: changing
-        // the icon while moving along the tab bar made it lose its place
-        // (moving onto the profile tab jumped back to Genres). Also paused
-        // while a video plays.
-        .task(id: AvatarAnimationKey(frames: session.tabAvatarFrames.count,
-                                     paused: contentFocused != true || player.request != nil)) {
-            let count = session.tabAvatarFrames.count
-            guard count > 1, contentFocused == true, player.request == nil else { return }
-            let nanos = UInt64(session.tabAvatarFrameDuration * 1_000_000_000)
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: nanos)
-                if Task.isCancelled { break }
-                avatarFrame = (avatarFrame + 1) % count
-            }
-        }
-    }
-
-    private struct AvatarAnimationKey: Equatable {
-        let frames: Int
-        let paused: Bool
     }
 }
 
