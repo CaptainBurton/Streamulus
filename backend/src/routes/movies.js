@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
 const { kidsScope, canAccess } = require('../services/kids');
+const { ensureDuration } = require('../services/durations');
 const { posterUrl, backdropUrl, resolveGenreNames, getMovieCredits, getSimilarMovies, getMovieContentRating } = require('../services/tmdb');
 
 const router = express.Router();
@@ -86,6 +87,8 @@ router.get('/:id', authenticate, (req, res) => {
 router.get('/:id/details', authenticate, async (req, res) => {
   let movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(req.params.id);
   if (!movie || !canAccess(req, 'movie', movie.id)) return res.status(404).json({ error: 'Movie not found' });
+  // Runtime for "Ends at" — read from the file the first time (in parallel with TMDB).
+  const durationP = ensureDuration('movies', movie.id).catch(() => null);
 
   let formatted = formatMovie(movie);
   let cast = [];
@@ -135,6 +138,7 @@ router.get('/:id/details', authenticate, async (req, res) => {
     ORDER BY rating DESC LIMIT 8
   `).all(movie.id, `%${(JSON.parse(movie.genres || '[]')[0] || '')}%`, ...(scope ? [scope.moviesJson] : [])).map(formatMovie);
 
+  formatted.duration = (await durationP) || formatted.duration || null;
   res.json({ movie: formatted, cast, director, similarTmdb, similarLocal });
 });
 

@@ -482,6 +482,9 @@ export default function Watch() {
     v.addEventListener('seeked',     onBuffer);
     v.addEventListener('emptied',    onEmptied);
     v.addEventListener('timeupdate',    onTime);
+    // Browsers only fire timeupdate once a seek has finished loading, so without
+    // this the progress dot sat at the old position until the new one loaded.
+    v.addEventListener('seeking',       onTime);
     v.addEventListener('durationchange', onDur);
     v.addEventListener('loadedmetadata', onDur);
     v.addEventListener('play',  onPlay);
@@ -493,6 +496,7 @@ export default function Watch() {
       v.removeEventListener('seeked',     onBuffer);
       v.removeEventListener('emptied',    onEmptied);
       v.removeEventListener('timeupdate',    onTime);
+      v.removeEventListener('seeking',       onTime);
       v.removeEventListener('durationchange', onDur);
       v.removeEventListener('loadedmetadata', onDur);
       v.removeEventListener('play',  onPlay);
@@ -705,6 +709,7 @@ export default function Watch() {
     const rel = absPos - startPosRef.current;
     if (rel >= 0 && isFinite(v.duration) && v.duration > 0 && rel <= v.duration) {
       v.currentTime = rel;
+      setCurTime(rel); // move the dot to where the user clicked right away
     } else {
       startHlsAtRef.current?.(Math.max(0, Math.floor(absPos)));
     }

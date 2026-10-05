@@ -4,6 +4,8 @@ import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
 import SecondaryButton from '../components/SecondaryButton';
+import RefreshIcon from '../components/RefreshIcon';
+import { useNow, formatRuntime, endsAt } from '../components/endsAt';
 import { useAuth } from '../context/AuthContext';
 
 const PLACEHOLDER_POSTER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
@@ -26,6 +28,7 @@ export default function MovieDetail() {
   // This user's progress: { position, completed }
   const [progress, setProgress] = useState({ position: 0, completed: false });
   const [savingWatched, setSavingWatched] = useState(false);
+  const now = useNow();
 
   useEffect(() => {
     setLoading(true);
@@ -64,6 +67,8 @@ export default function MovieDetail() {
   const { movie, cast, director, similarLocal } = data;
   // Same threshold the player uses to resume.
   const inProgress = !progress.completed && progress.position > 10;
+  // "Ends at": when it would finish if started now (from the resume point if in progress).
+  const remaining = movie.duration > 0 ? Math.max(0, movie.duration - (inProgress ? progress.position : 0)) : 0;
 
   return (
     <>
@@ -125,6 +130,12 @@ export default function MovieDetail() {
             {/* Meta row */}
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
               {movie.year && <span style={{ color: '#aaa', fontSize: '15px' }}>{movie.year}</span>}
+              {movie.duration > 0 && <span style={{ color: '#aaa', fontSize: '15px' }}>{formatRuntime(movie.duration)}</span>}
+              {remaining > 0 && (
+                <span style={{ color: '#ddd', fontSize: '14px', fontWeight: 600, padding: '2px 10px', borderRadius: '20px', background: 'rgba(255,255,255,0.08)' }}>
+                  {inProgress && `${formatRuntime(remaining)} left · `}Ends at {endsAt(remaining, now)}
+                </span>
+              )}
               {movie.content_rating && (
                 <span style={{ padding: '2px 8px', border: '1px solid #555', borderRadius: '4px', color: '#888', fontSize: '12px', fontWeight: '600' }}>{movie.content_rating}</span>
               )}
@@ -179,7 +190,7 @@ export default function MovieDetail() {
               </button>
               {inProgress && (
                 <SecondaryButton onClick={() => navigate(`/watch/movie/${movie.id}`, { state: { fromStart: true } })}>
-                  ↺ Play from Beginning
+                  <RefreshIcon mirror /> Play from Beginning
                 </SecondaryButton>
               )}
               <SecondaryButton onClick={toggleWatched} disabled={savingWatched}>

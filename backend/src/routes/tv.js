@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
 const { kidsScope, canAccess } = require('../services/kids');
+const { fillMissingDurations } = require('../services/durations');
 const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits, getTVContentRating, searchTV } = require('../services/tmdb');
 
 const router = express.Router();
@@ -261,6 +262,8 @@ router.get('/:id/season/:season', authenticate, (req, res) => {
       ? (isFullUrl(ep.still_path) ? ep.still_path : `${IMAGE_BASE}/w300${ep.still_path}`)
       : null,
   }));
+  // Runtimes not read yet — fetch them in the background for next time.
+  if (episodes.some(ep => !(ep.duration > 0))) fillMissingDurations().catch(() => {});
   res.json({ episodes: formatted });
 });
 

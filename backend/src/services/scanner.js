@@ -299,6 +299,8 @@ async function scanAllWithProgress(onProgress, filterLibraryId = null) {
   }
 
   onProgress({ type: 'complete', ...grandTotal });
+  // Read runtimes of newly added files in the background ("Ends at" times).
+  require('./durations').fillMissingDurations().catch(() => {});
 }
 
 async function scanAll() {

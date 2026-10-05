@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 
 // Admin > Streamlings: what kids profiles can see.
@@ -24,6 +24,11 @@ export default function StreamlingsAdmin({ flash }) {
   const [search, setSearch] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(() => {
+    try { const n = Number(localStorage.getItem('streamulus_streamlings_per_page')); return PER_PAGE_OPTIONS.includes(n) ? n : 30; } catch { return 30; }
+  });
+  const listTopRef = useRef(null);
 
   const load = () => axios.get('/api/admin/kids').then(r => { setData(r.data); setCfg(r.data.config); })
     .catch(() => flash('Failed to load Streamlings settings', true));
@@ -72,6 +77,21 @@ export default function StreamlingsAdmin({ flash }) {
       (filter === 'all' || (filter === 'allowed' && i.allowed) || (filter === 'blocked' && !i.allowed) || (filter === 'manual' && i.override !== null)));
   }, [data, kind, filter, search]);
 
+  // Back to page 1 whenever what's listed changes.
+  useEffect(() => { setPage(1); }, [kind, filter, search, perPage]);
+
+  const pageCount = Math.max(1, Math.ceil(items.length / perPage));
+  const curPage = Math.min(page, pageCount);
+  const pageItems = items.slice((curPage - 1) * perPage, curPage * perPage);
+  const goToPage = (n) => {
+    setPage(n);
+    listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const changePerPage = (n) => {
+    setPerPage(n);
+    try { localStorage.setItem('streamulus_streamlings_per_page', String(n)); } catch {}
+  };
+
   if (!data || !cfg) return <div style={{ color: '#555', padding: '40px', textAlign: 'center' }}>Loading…</div>;
 
   const count = (list) => `${list.filter(i => i.allowed).length} of ${list.length}`;
@@ -107,7 +127,7 @@ export default function StreamlingsAdmin({ flash }) {
         )}
       </div>
 
-      <div style={CARD}>
+      <div style={CARD} ref={listTopRef}>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
           {[['movies', `Movies · ${count(data.movies)}`], ['shows', `TV Shows · ${count(data.shows)}`]].map(([k, label]) => (
             <button key={k} onClick={() => setKind(k)} style={{ ...PILL, ...(kind === k ? PILL_ON : {}) }}>{label}</button>
@@ -129,10 +149,15 @@ export default function StreamlingsAdmin({ flash }) {
             <option value="blocked">Hidden from Streamlings</option>
             <option value="manual">Changed by hand</option>
           </select>
+          <select value={perPage} onChange={e => changePerPage(Number(e.target.value))} style={{ ...SELECT, minWidth: 0 }} aria-label="Titles per page">
+            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} per page</option>)}
+          </select>
         </div>
 
+        <Pager page={curPage} pageCount={pageCount} total={items.length} perPage={perPage} onPage={goToPage} />
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {items.map(i => (
+          {pageItems.map(i => (
             <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer',
               background: i.allowed ? 'rgba(255,183,3,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${i.allowed ? 'rgba(255,183,3,0.2)' : 'rgba(255,255,255,0.05)'}`,
               opacity: busyId === i.id ? 0.5 : 1 }}>
@@ -158,7 +183,44 @@ export default function StreamlingsAdmin({ flash }) {
           ))}
           {items.length === 0 && <div style={{ color: '#555', padding: '24px', textAlign: 'center', fontSize: '14px' }}>No titles match.</div>}
         </div>
+
+        {pageCount > 1 && <div style={{ marginTop: '14px' }}><Pager page={curPage} pageCount={pageCount} total={items.length} perPage={perPage} onPage={goToPage} /></div>}
       </div>
+    </div>
+  );
+}
+
+const PER_PAGE_OPTIONS = [20, 30, 40, 50, 60];
+
+// "Showing 31–60 of 142   ‹ Prev  1 2 3 … 5  Next ›"
+function Pager({ page, pageCount, total, perPage, onPage }) {
+  if (total === 0) return null;
+  const from = (page - 1) * perPage + 1;
+  const to = Math.min(total, page * perPage);
+  // Page numbers: first, last, and up to 2 either side of the current page.
+  const nums = [];
+  for (let n = 1; n <= pageCount; n++) {
+    if (n === 1 || n === pageCount || Math.abs(n - page) <= 2) nums.push(n);
+    else if (nums[nums.length - 1] !== '…') nums.push('…');
+  }
+  const btn = (active, disabled) => ({
+    minWidth: '34px', height: '32px', padding: '0 10px', borderRadius: '6px', fontSize: '13px', fontWeight: 600,
+    cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.35 : 1,
+    background: active ? '#ffb703' : 'transparent', color: active ? '#000' : '#bbb',
+    border: `1px solid ${active ? '#ffb703' : 'rgba(255,255,255,0.12)'}`,
+  });
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
+      <span style={{ fontSize: '13px', color: '#777' }}>Showing {from}–{to} of {total}</span>
+      {pageCount > 1 && (
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <button style={btn(false, page === 1)} disabled={page === 1} onClick={() => onPage(page - 1)}>‹ Prev</button>
+          {nums.map((n, i) => n === '…'
+            ? <span key={`gap${i}`} style={{ color: '#555', alignSelf: 'center', padding: '0 2px' }}>…</span>
+            : <button key={n} style={btn(n === page, false)} onClick={() => onPage(n)} aria-current={n === page ? 'page' : undefined}>{n}</button>)}
+          <button style={btn(false, page === pageCount)} disabled={page === pageCount} onClick={() => onPage(page + 1)}>Next ›</button>
+        </div>
+      )}
     </div>
   );
 }

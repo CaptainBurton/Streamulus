@@ -4,6 +4,7 @@ import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
 import SecondaryButton from '../components/SecondaryButton';
+import RefreshIcon from '../components/RefreshIcon';
 import { useAuth } from '../context/AuthContext';
 
 const PLACEHOLDER_POSTER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
@@ -193,7 +194,7 @@ export default function TVShow() {
                   onClick={() => navigate(`/watch/episode/${firstEpisodeId}`, { state: { fromStart: true } })}
                   title="Play the first episode from the start"
                 >
-                  ↺ Play from Beginning
+                  <RefreshIcon mirror /> Play from Beginning
                 </SecondaryButton>
               )}
               {seasons.length > 0 && (

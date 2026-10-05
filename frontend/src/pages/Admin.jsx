@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
+import RefreshIcon from '../components/RefreshIcon';
 import ProfileAvatar from '../components/ProfileAvatar';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
 
@@ -54,7 +55,7 @@ function ScanProgress({ events, scanning, onClose }) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h3 style={{ fontSize: '16px', fontWeight: '700' }}>
-          {scanning ? '⟳ Scanning Libraries…' : completeEvent ? '✓ Scan Complete' : 'Scan'}
+          {scanning ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon spin /> Scanning Libraries…</span> : completeEvent ? '✓ Scan Complete' : 'Scan'}
         </h3>
         {!scanning && (
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#666', fontSize: '18px', cursor: 'pointer', lineHeight: 1 }}>✕</button>
@@ -73,7 +74,7 @@ function ScanProgress({ events, scanning, onClose }) {
           <ProgressBar percent={percent} />
           {processingFile && (
             <div style={{ marginTop: '8px', fontSize: '12px', color: '#555', display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-              <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', flexShrink: 0 }}>⟳</span>
+              <RefreshIcon spin />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{processingFile.file}</span>
             </div>
           )}
@@ -146,7 +147,7 @@ function ScanProgress({ events, scanning, onClose }) {
         {/* Currently processing indicator */}
         {processingFile && (
           <div style={{ color: '#555', display: 'flex', gap: '8px' }}>
-            <span style={{ flexShrink: 0 }}>⟳</span>
+            <RefreshIcon />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{processingFile.file}</span>
           </div>
         )}
@@ -246,7 +247,7 @@ function RefreshMetadata() {
         disabled={running}
         style={{ padding: '10px 24px', background: running ? '#333' : 'rgba(0,194,255,0.15)', color: running ? '#555' : '#00c2ff', border: '1px solid', borderColor: running ? '#333' : 'rgba(0,194,255,0.3)', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: running ? 'not-allowed' : 'pointer' }}
       >
-        {running ? '⟳ Refreshing…' : '⟳ Refresh All Metadata'}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon spin={running} /> {running ? 'Refreshing…' : 'Refresh All Metadata'}</span>
       </button>
     </div>
   );
@@ -533,9 +534,13 @@ export default function Admin() {
         {msg && <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'rgba(0,200,100,0.1)', border: '1px solid rgba(0,200,100,0.2)', borderRadius: '8px', color: '#00c864', fontSize: '14px' }}>✓ {msg}</div>}
         {error && <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'rgba(255,68,68,0.1)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: '8px', color: '#ff4444', fontSize: '14px' }}>⚠ {error}</div>}
 
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto' }}>
+        {/* Tab bar: the divider is drawn inside (inset shadow) rather than with the
+            tabs overlapping a border, so nothing sticks out and the bar can't scroll
+            up/down. On narrow screens the tabs can still be swiped sideways. */}
+        <div className="admin-tabs" style={{ display: 'flex', gap: '4px', marginBottom: '32px', boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.06)', overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none', overscrollBehaviorX: 'contain' }}>
+          <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
           {tabs.map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', marginBottom: '-1px', transition: 'color 0.15s' }}>
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', whiteSpace: 'nowrap', flexShrink: 0, transition: 'color 0.15s' }}>
               {tab}
             </button>
           ))}
@@ -572,7 +577,7 @@ export default function Admin() {
                   disabled={scanning || !stats?.libraries?.length}
                   style={{ padding: '12px 28px', background: (scanning || !stats?.libraries?.length) ? '#333' : '#00c2ff', color: (scanning || !stats?.libraries?.length) ? '#555' : '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: (scanning || !stats?.libraries?.length) ? 'not-allowed' : 'pointer' }}
                 >
-                  ⟳ Start Scan
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon /> Start Scan</span>
                 </button>
               </div>
             )}
@@ -634,7 +639,7 @@ export default function Admin() {
                       onMouseEnter={e => { if (!scanning) e.currentTarget.style.background = 'rgba(0,194,255,0.2)'; }}
                       onMouseLeave={e => { if (!scanning) e.currentTarget.style.background = 'rgba(0,194,255,0.1)'; }}
                     >
-                      ⟳ Scan
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon /> Scan</span>
                     </button>
                     <button
                       onClick={() => setEditLib({ id: lib.id, path: lib.path })}

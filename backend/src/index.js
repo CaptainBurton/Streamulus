@@ -70,6 +70,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`========================================`);
 
   // Fix stored file paths left over from a different media mount.
+  // then read any missing runtimes (used for "Ends at" times and progress bars).
   require('./services/path-repair').repairAllPaths()
-    .catch(err => console.error('[paths] Repair failed:', err.message));
+    .catch(err => console.error('[paths] Repair failed:', err.message))
+    .then(() => require('./services/durations').fillMissingDurations())
+    .catch(err => console.error('[durations] Failed:', err.message));
 });

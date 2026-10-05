@@ -182,6 +182,7 @@ async function getHLSSession(filePath, startTime = 0) {
 
   const settings = getSettings();
   const { duration: totalDuration, vCodec, aCodec } = await probeFile(filePath);
+  require('./durations').recordDuration(filePath, totalDuration); // for "Ends at" times
   // Copy mode: if source is already H.264, skip video re-encoding (10-50x faster segment gen)
   const copyMode = vCodec === 'h264';
   // Only copy audio when both video AND audio can be passthrough — AAC in TS is universally supported.
@@ -458,8 +459,13 @@ async function getSegmentPath(key, segmentName) {
     pauseSession(session, 'seek');
     session.seekPoints.push({ fromIdx: requestedIdx, dir: seekDir });
     session.ffmpegDone = false;
+    // Timestamps must match the player's timeline, which starts at 0 where this
+    // session started (the initial FFmpeg's output starts at 0) — not the file's
+    // own time. Using seekSec put every skip in a resumed stream off by the
+    // resume position, so the player stalled waiting for the right timestamps.
+    const tsOffset = requestedIdx * session.settings.segmentDuration;
     const proc = spawn('ffmpeg',
-      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, seekSec, session.copyMode, session.audioCopy),
+      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, tsOffset, session.copyMode, session.audioCopy),
       { stdio: ['ignore', 'ignore', 'pipe'] });
     session.process = proc;
     proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
