@@ -309,6 +309,7 @@ export default function Admin() {
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
     audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4', progressMinSeconds: '10',
+    upNextSeconds: '30',
   });
   const [newLib, setNewLib] = useState({ name: '', path: '', type: 'movies' });
   const [editLib, setEditLib] = useState(null); // { id, path } while editing a library's path
@@ -353,6 +354,7 @@ export default function Admin() {
         audioChannels: configRes.data.audioChannels || '2',
         hlsSegmentDuration: configRes.data.hlsSegmentDuration || '4',
         progressMinSeconds: configRes.data.progressMinSeconds || '10',
+        upNextSeconds: configRes.data.upNextSeconds || '30',
       });
       setPreferredLanguage(configRes.data.preferredLanguage || 'en');
       setPreferredCountry(configRes.data.preferredCountry || 'US');
@@ -434,7 +436,7 @@ export default function Admin() {
     try {
       await axios.put('/api/admin/config', encSettings);
       flash('Encoding settings saved — applies to next video played.');
-    } catch { flash('Failed to save encoding settings', true); }
+    } catch (err) { flash(err.response?.data?.error || 'Failed to save encoding settings', true); }
   };
 
   const handleSaveRegional = async () => {
@@ -1040,6 +1042,29 @@ export default function Admin() {
                   <option value="2">2 seconds (precise seeking)</option>
                   <option value="4">4 seconds (default)</option>
                   <option value="6">6 seconds (fewer requests)</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Up Next Countdown</span>
+                  <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>How many seconds before the end of an episode the Up Next card appears</div>
+                </div>
+                <select
+                  value={encSettings.upNextSeconds}
+                  onChange={e => setEncSettings(s => ({ ...s, upNextSeconds: e.target.value }))}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none', flexShrink: 0 }}
+                >
+                  {!['10', '15', '20', '30', '45', '60', '90', '120'].includes(String(encSettings.upNextSeconds)) && (
+                    <option value={encSettings.upNextSeconds}>{encSettings.upNextSeconds} seconds</option>
+                  )}
+                  <option value="10">10 seconds</option>
+                  <option value="15">15 seconds</option>
+                  <option value="20">20 seconds</option>
+                  <option value="30">30 seconds (default)</option>
+                  <option value="45">45 seconds</option>
+                  <option value="60">1 minute</option>
+                  <option value="90">1 minute 30 seconds</option>
+                  <option value="120">2 minutes</option>
                 </select>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>

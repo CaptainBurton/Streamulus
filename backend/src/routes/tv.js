@@ -117,7 +117,12 @@ router.get('/episode/:id/next', authenticate, (req, res) => {
     )
     ORDER BY season ASC, episode_number ASC LIMIT 1
   `).get(ep.show_id, ep.season, ep.episode_number, ep.season);
-  res.json({ next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title } : null });
+  // How many seconds before the end the player shows the Up Next card (Admin > Settings).
+  const upNextSeconds = parseInt(db.prepare("SELECT value FROM config WHERE key = 'up_next_seconds'").get()?.value || '30') || 30;
+  res.json({
+    next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title } : null,
+    upNextSeconds,
+  });
 });
 
 router.get('/episode/:id', authenticate, (req, res) => {

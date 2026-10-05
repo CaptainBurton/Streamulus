@@ -76,7 +76,7 @@ export default function Watch() {
   const totalDurRef    = useRef(0);
   const prewarmFired   = useRef(false);
   // Set to true when user explicitly dismisses the Up Next card with ✕;
-  // prevents the card from reappearing while still in the final 30 s.
+  // prevents the card from reappearing while still in the Up Next window.
   // Reset on every episode change and when playback moves back past the threshold.
   const dismissedRef   = useRef(false);
   // Prevents double-navigation if both the absTime effect and onEnded fire.
@@ -122,6 +122,8 @@ export default function Watch() {
   const [nextEp,         setNextEp]         = useState(null);
   const [showNextEpCard, setShowNextEpCard] = useState(false);
   const nextEpRef = useRef(null);
+  // Seconds before the end the Up Next card appears (Admin > Settings > Up Next Countdown).
+  const [upNextSecs, setUpNextSecs] = useState(30);
 
   // AirPlay
   const [airplayAvailable, setAirplayAvailable] = useState(false);
@@ -564,7 +566,10 @@ export default function Watch() {
     setShowNextEpCard(false);
     if (type !== 'episode') return;
     axios.get(`/api/tv/episode/${id}/next`)
-      .then(r => setNextEp(r.data.next))
+      .then(r => {
+        setNextEp(r.data.next);
+        if (r.data.upNextSeconds > 0) setUpNextSecs(r.data.upNextSeconds);
+      })
       .catch(() => {});
   }, [type, id]);
 
@@ -576,8 +581,8 @@ export default function Watch() {
   // it is tied to the actual playhead rather than a wall-clock timer.
   //
   // Timeline:
-  //   remaining > 30 s  → hide card, reset dismissed flag
-  //   2 s < remaining ≤ 30 s → show card (unless user dismissed with ✕)
+  //   remaining > upNextSecs  → hide card, reset dismissed flag
+  //   2 s < remaining ≤ upNextSecs → show card (unless user dismissed with ✕)
   //   remaining ≤ 2 s   → hide card and navigate (always, even if dismissed)
   //
   // curTime < 5 guard prevents a false trigger on episode start: durationchange
@@ -599,7 +604,7 @@ export default function Watch() {
       return;
     }
 
-    if (remaining > 30) {
+    if (remaining > upNextSecs) {
       dismissedRef.current = false;
       setShowNextEpCard(false);
       return;
@@ -613,7 +618,7 @@ export default function Watch() {
     }
 
     if (!dismissedRef.current) setShowNextEpCard(true);
-  }, [absTime, totalDur, type, nextEp, curTime, navigate]);
+  }, [absTime, totalDur, type, nextEp, curTime, navigate, upNextSecs]);
 
   // Fallback: if the HLS stream stalls on the last segment and never fires
   // `ended`, the absTime effect above won't reach ≤2 s because currentTime
@@ -1015,7 +1020,7 @@ export default function Watch() {
             </div>
           </div>
 
-          {/* ── Up Next card (TV episodes only, shown 30 s before end) ──────── */}
+          {/* ── Up Next card (TV episodes only, shown upNextSecs before end) ── */}
           {showNextEpCard && nextEp && (
             <div style={{
               position: 'fixed', bottom: '110px', right: '28px', zIndex: 120,
@@ -1044,7 +1049,7 @@ export default function Watch() {
               <div style={{ height: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', marginBottom: '12px', overflow: 'hidden' }}>
                 <div style={{
                   height: '100%', background: '#00c2ff', borderRadius: '2px',
-                  width: `${Math.max(0, Math.min(100, ((totalDur - absTime) / 30) * 100))}%`,
+                  width: `${Math.max(0, Math.min(100, ((totalDur - absTime) / upNextSecs) * 100))}%`,
                   transition: 'width 1s linear',
                 }} />
               </div>

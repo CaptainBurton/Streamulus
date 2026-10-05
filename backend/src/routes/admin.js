@@ -193,6 +193,7 @@ router.get('/config', requireAdmin, (req, res) => {
     audioChannels:      get('audio_channels')       ?? '2',
     hlsSegmentDuration: get('hls_segment_duration') ?? '4',
     progressMinSeconds: get('progress_min_seconds') ?? '10',
+    upNextSeconds:      get('up_next_seconds')      ?? '30',
     preferredLanguage:  get('preferred_language')   ?? 'en',
     preferredCountry:   get('preferred_country')    ?? 'US',
   });
@@ -203,8 +204,12 @@ router.put('/config', requireAdmin, (req, res) => {
     tmdbApiKey, tvdbApiKey, omdbApiKey, imdbApiKey,
     movieSourceOrder, tvSourceOrder,
     videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration,
-    progressMinSeconds, preferredLanguage, preferredCountry,
+    progressMinSeconds, upNextSeconds, preferredLanguage, preferredCountry,
   } = req.body;
+  if (upNextSeconds !== undefined) {
+    const secs = parseInt(upNextSeconds);
+    if (!(secs >= 5 && secs <= 300)) return res.status(400).json({ error: 'Up Next countdown must be between 5 and 300 seconds' });
+  }
   const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
   if (tmdbApiKey       !== undefined) upsert.run('tmdb_api_key',       tmdbApiKey);
   if (tvdbApiKey       !== undefined) { upsert.run('tvdb_api_key', tvdbApiKey); require('../services/tvdb').invalidateCache(); }
@@ -219,6 +224,7 @@ router.put('/config', requireAdmin, (req, res) => {
   if (audioChannels    !== undefined) upsert.run('audio_channels',     audioChannels);
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
+  if (upNextSeconds !== undefined) upsert.run('up_next_seconds', String(parseInt(upNextSeconds)));
   if (preferredLanguage !== undefined) upsert.run('preferred_language', preferredLanguage);
   if (preferredCountry  !== undefined) {
     const current = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value ?? 'US';
