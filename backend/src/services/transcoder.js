@@ -119,12 +119,12 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
 }
 
 
-// Minimum number of HLS segments that must be written to disk before the
-// ready-promise resolves and the player is allowed to begin playback.
-// Waiting for more segments gives the transcoder a head start so the player
-// never immediately catches up to real-time encoding speed.
-// 3 segments × default 4 s/seg = 12 s of guaranteed initial buffer.
-const INITIAL_SEGMENT_BUFFER = 3;
+// Number of HLS segments that must be written to disk before the manifest is
+// returned. One is enough: the manifest already lists every segment (the
+// precomputed VOD manifest), and requests for segments that aren't written yet
+// wait in getSegmentPath until FFmpeg produces them. Waiting for more only
+// delayed the first frame (3 × 4 s segments = 12 s of video encoded up front).
+const INITIAL_SEGMENT_BUFFER = 1;
 
 async function getHLSSession(filePath, startTime = 0) {
   const key = makeKey(filePath, startTime);

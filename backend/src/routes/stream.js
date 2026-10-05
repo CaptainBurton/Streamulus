@@ -319,12 +319,18 @@ router.post('/thumbnail/prewarm/:type/:id', authenticate, (req, res) => {
   spriteJobs.add(jobKey);
   try { fs.mkdirSync(sDir, { recursive: true }); } catch {}
 
+  // Decode keyframes only (-skip_frame nokey): far less CPU than decoding every
+  // frame, and 1-in-10 s preview frames don't need frame accuracy. Lowest CPU
+  // priority so it never slows down the transcode the viewer is watching.
   const proc = spawn('ffmpeg', [
+    '-skip_frame', 'nokey',
     '-i', filePath,
     '-vf', 'fps=1/10,scale=160:90',
+    '-threads', '1',
     '-q:v', '5', '-y',
     path.join(sDir, 'thumb%05d.jpg'),
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  try { os.setPriority(proc.pid, 19); } catch {}
 
   proc.stderr.on('data', d => process.stderr.write(`[thumb-sprite] ${d}`));
   proc.on('error', () => { spriteJobs.delete(jobKey); });

@@ -112,6 +112,8 @@ export default function Watch() {
   // Total file duration, derived as max(startPos + segmentDur) across all seeks.
   // Kept separate so seeking doesn't inflate totalDur with stale segment durations.
   const [totalFileDur, setTotalFileDur] = useState(0);
+  // Absolute time (s) up to which video is buffered ahead of the playhead.
+  const [bufferedEnd, setBufferedEnd] = useState(0);
 
   // Seek thumbnail
   const [thumbSrc,    setThumbSrc]    = useState(null);
@@ -148,6 +150,7 @@ export default function Watch() {
   totalDurRef.current = totalDur;
   const displayTime = dragTime ?? absTime;
   const progress = totalDur > 0 ? Math.min(displayTime / totalDur, 1) : 0;
+  const bufferedProgress = totalDur > 0 ? Math.min(Math.max(bufferedEnd, absTime) / totalDur, 1) : 0;
 
   // ── Load media metadata ───────────────────────────────────────────────────
   useEffect(() => {
@@ -193,9 +196,6 @@ export default function Watch() {
         const r = await axios.get(`/api/stream/check/${type}/${id}`);
         if (!r.data.ok) { setError(r.data.error); setBuffering(false); return; }
         addLog(`File OK: ${r.data.filePath}`);
-        // Start thumbnail sprite generation early so frames are ready by the time
-        // the user hovers over the progress bar (takes several seconds for a full file).
-        if (!prewarmFired.current) { prewarmFired.current = true; axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, {}).catch(() => {}); }
       } catch { addLog('File check failed — continuing'); }
       if (cancelled) return;
 
@@ -213,7 +213,18 @@ export default function Watch() {
       const hideBuf = () => { if (cancelled) return; clearTimeout(bufferTimerRef.current); setBuffering(false); };
 
       video.onwaiting = showBuf;
-      video.onplaying = () => { if (!cancelled) { playbackReadyRef.current = true; setHasPlayed(true); hideBuf(); addLog('Playing!'); } };
+      video.onplaying = () => {
+        if (cancelled) return;
+        playbackReadyRef.current = true; setHasPlayed(true); hideBuf(); addLog('Playing!');
+        // Generate seek-preview thumbnails only once playback is under way, so
+        // that FFmpeg job doesn't compete with the transcode for the first frames.
+        if (!prewarmFired.current) {
+          prewarmFired.current = true;
+          setTimeout(() => {
+            if (!cancelled) axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, {}).catch(() => {});
+          }, 15000);
+        }
+      };
       video.oncanplay = hideBuf;
 
       // On Apple devices (macOS Safari, iOS) prefer native HLS so the video
@@ -443,6 +454,21 @@ export default function Watch() {
     const onPlay  = () => setPaused(false);
     const onPause = () => setPaused(true);
     const onVol   = () => { setVolume(v.volume); setMuted(v.muted); };
+    // Like YouTube/Netflix: show the buffered range the playhead is in, i.e.
+    // how far playback can continue without waiting for more data.
+    const onBuffer = () => {
+      const t = v.currentTime || 0;
+      let end = t;
+      for (let i = 0; i < v.buffered.length; i++) {
+        if (v.buffered.start(i) <= t + 0.5 && v.buffered.end(i) > end) end = v.buffered.end(i);
+      }
+      setBufferedEnd(startPosRef.current + end);
+    };
+    const onEmptied = () => setBufferedEnd(startPosRef.current);
+    v.addEventListener('progress',   onBuffer);
+    v.addEventListener('timeupdate', onBuffer);
+    v.addEventListener('seeked',     onBuffer);
+    v.addEventListener('emptied',    onEmptied);
     v.addEventListener('timeupdate',    onTime);
     v.addEventListener('durationchange', onDur);
     v.addEventListener('loadedmetadata', onDur);
@@ -450,6 +476,10 @@ export default function Watch() {
     v.addEventListener('pause', onPause);
     v.addEventListener('volumechange', onVol);
     return () => {
+      v.removeEventListener('progress',   onBuffer);
+      v.removeEventListener('timeupdate', onBuffer);
+      v.removeEventListener('seeked',     onBuffer);
+      v.removeEventListener('emptied',    onEmptied);
       v.removeEventListener('timeupdate',    onTime);
       v.removeEventListener('durationchange', onDur);
       v.removeEventListener('loadedmetadata', onDur);
@@ -527,6 +557,8 @@ export default function Watch() {
     dismissedRef.current = false;
     navigatingRef.current = false;
     playbackReadyRef.current = false;
+    prewarmFired.current = false;
+    setBufferedEnd(0);
     clearTimeout(autoAdvanceTimerRef.current);
     setNextEp(null);
     setShowNextEpCard(false);
@@ -890,8 +922,8 @@ export default function Watch() {
                 onMouseMove={handleProgMove}
                 onTouchStart={(e) => { e.preventDefault(); isDragging.current = true; showControls(); }}
               >
-                {/* Buffered indicator (subtle) */}
-                <div style={{ position: 'absolute', inset: 0, borderRadius: '4px', background: 'rgba(255,255,255,0.12)' }} />
+                {/* Buffered ahead of the playhead */}
+                <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: `${bufferedProgress * 100}%`, borderRadius: '4px', background: 'rgba(255,255,255,0.38)', transition: 'width 0.4s linear' }} />
                 {/* Played */}
                 <div style={{ width: `${progress * 100}%`, height: '100%', background: '#00c2ff', borderRadius: '4px', position: 'relative', transition: isDragging.current ? 'none' : 'width 0.25s linear' }}>
                   {/* Thumb */}
@@ -1044,9 +1076,6 @@ export default function Watch() {
                 <div className="spinner" />
                 <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
                 <DebugLog />
-                <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '380px' }}>
-                  First load takes 5–15 s. Seeking far ahead restarts the transcoder.
-                </div>
               </div>
             )
           )}
