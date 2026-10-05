@@ -87,13 +87,14 @@ struct PosterLink<Value: Hashable>: View {
 struct WideCard: View {
     let title: String
     let subtitle: String?
-    let imageURL: URL?
+    /// Tried in order: a still from where you stopped, then artwork.
+    let imageURLs: [URL]
     let progress: Double?
     var width: CGFloat = 480
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: imageURL)
+            FallbackImage(urls: imageURLs)
             LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.headline).lineLimit(1)
@@ -132,7 +133,7 @@ struct Shelf<Content: View>: View {
     }
 }
 
-/// Profile picture, or the first letter on a gradient (orange for Streamlings).
+/// Round profile picture, or the first letter on a gradient (orange for Streamlings).
 struct ProfileAvatar: View {
     let profile: Profile
     var size: CGFloat = 200
@@ -156,7 +157,7 @@ struct ProfileAvatar: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.14))
+        .clipShape(Circle())
     }
 }
 
@@ -186,6 +187,135 @@ struct Pill: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .glassEffect(.regular, in: .capsule)
+    }
+}
+
+/// Tries each URL in turn until one loads (e.g. a still frame, then artwork).
+struct FallbackImage: View {
+    let urls: [URL]
+    var placeholder: String? = nil
+    @State private var index = 0
+
+    var body: some View {
+        if index < urls.count {
+            AsyncImage(url: urls[index]) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                case .failure:
+                    Color(white: 0.14).onAppear { index += 1 }
+                case .empty:
+                    Color(white: 0.14)
+                @unknown default:
+                    Color(white: 0.14)
+                }
+            }
+            .id(index)
+        } else {
+            RemoteImage(url: nil, placeholder: placeholder)
+        }
+    }
+}
+
+/// The title's logo artwork, or the title as text if there isn't one.
+struct TitleLogoView: View {
+    let url: URL?
+    let title: String
+    var maxWidth: CGFloat = 820
+    var maxHeight: CGFloat = 230
+    var fontSize: CGFloat = 66
+
+    var body: some View {
+        if let url {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFit()
+                        .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: .leading)
+                        .shadow(color: .black.opacity(0.6), radius: 16)
+                        .accessibilityLabel(title)
+                case .failure:
+                    titleText
+                default:
+                    Color.clear.frame(width: maxWidth * 0.6, height: maxHeight * 0.6)
+                }
+            }
+        } else {
+            titleText
+        }
+    }
+
+    private var titleText: some View {
+        Text(title).font(.system(size: fontSize, weight: .bold)).lineLimit(2).shadow(radius: 10)
+    }
+}
+
+/// Poster that fills its grid column (Movies / TV Shows tabs).
+struct GridPoster<Value: Hashable>: View {
+    let value: Value
+    let title: String
+    var subtitle: String? = nil
+    let imageURL: URL?
+    var progress: Double? = nil
+    var onFocus: (() -> Void)? = nil
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NavigationLink(value: value) {
+                ZStack(alignment: .bottom) {
+                    RemoteImage(url: imageURL, placeholder: title)
+                    if let progress, progress > 0 { ProgressStrip(fraction: progress) }
+                }
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .clipped()
+            }
+            .buttonStyle(.card)
+            .focused($isFocused)
+            .onChange(of: isFocused) { _, focused in
+                if focused { onFocus?() }
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption).lineLimit(1)
+                if let subtitle { Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+            }
+        }
+    }
+}
+
+/// "Cast" row: round headshots with names.
+struct CastShelf: View {
+    let cast: [CastMember]
+    @EnvironmentObject private var session: Session
+
+    var body: some View {
+        Shelf("Cast") {
+            ForEach(cast) { person in
+                VStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill(Color(white: 0.16))
+                        if let url = session.imageURL(person.profilePath) {
+                            AsyncImage(url: url) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Color.clear
+                            }
+                        } else {
+                            Image(systemName: "person.fill").font(.system(size: 60)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(width: 170, height: 170)
+                    .clipShape(Circle())
+                    Text(person.name).font(.caption.weight(.semibold)).lineLimit(1)
+                    if let character = person.character, !character.isEmpty {
+                        Text(character).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .frame(width: 200)
+            }
+        }
     }
 }
 

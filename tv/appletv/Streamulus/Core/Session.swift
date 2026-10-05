@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Which screen the app shows, and the signed-in account/profile.
 @MainActor
@@ -15,7 +16,11 @@ final class Session: ObservableObject {
 
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var user: User?
-    @Published private(set) var profile: Profile?
+    @Published private(set) var profile: Profile? {
+        didSet { if profile != oldValue { Task { await refreshTabAvatar() } } }
+    }
+    /// Small round picture of the current profile for the tab bar.
+    @Published private(set) var tabAvatar: UIImage?
     @Published private(set) var serverURL: URL?
 
     private var api: APIClient?
@@ -122,9 +127,11 @@ final class Session: ObservableObject {
         return response.profiles
     }
 
-    func selectProfile(_ target: Profile, pin: String?) async throws {
+    /// Switch profile. `pin` / `password` when the profile list says it needs one.
+    func selectProfile(_ target: Profile, pin: String? = nil, password: String? = nil) async throws {
         var body: [String: Any] = [:]
         if let pin { body["pin"] = pin }
+        if let password { body["password"] = password }
         let response: SelectProfileResponse = try await post("/api/profiles/\(target.id)/select", body: body)
         Keychain.set(response.token, for: Self.tokenKey)
         api?.token = response.token
@@ -161,6 +168,47 @@ final class Session: ObservableObject {
         return api
     }
 
+    // MARK: Tab bar avatar
+
+    private func refreshTabAvatar() async {
+        guard let profile else { tabAvatar = nil; return }
+        var photo: UIImage?
+        if let url = imageURL(profile.avatarPath) {
+            let result = try? await URLSession.shared.data(from: url)
+            if let result { photo = UIImage(data: result.0) }
+        }
+        guard self.profile?.id == profile.id else { return }
+        tabAvatar = Self.roundAvatar(photo: photo, profile: profile, size: 60)
+    }
+
+    /// Circle-cropped photo, or the profile's initial on its gradient.
+    private static func roundAvatar(photo: UIImage?, profile: Profile, size: CGFloat) -> UIImage {
+        let rect = CGRect(x: 0, y: 0, width: size, height: size)
+        let image = UIGraphicsImageRenderer(size: rect.size).image { context in
+            UIBezierPath(ovalIn: rect).addClip()
+            if let photo {
+                let scale = max(size / photo.size.width, size / photo.size.height)
+                let drawSize = CGSize(width: photo.size.width * scale, height: photo.size.height * scale)
+                photo.draw(in: CGRect(x: (size - drawSize.width) / 2, y: (size - drawSize.height) / 2, width: drawSize.width, height: drawSize.height))
+            } else {
+                let colors = profile.isKids
+                    ? [UIColor(red: 1, green: 0.72, blue: 0.01, alpha: 1).cgColor, UIColor(red: 0.98, green: 0.34, blue: 0.03, alpha: 1).cgColor]
+                    : [UIColor(red: 0, green: 0.76, blue: 1, alpha: 1).cgColor, UIColor(red: 0.48, green: 0.18, blue: 1, alpha: 1).cgColor]
+                if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1]) {
+                    context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size, y: size), options: [])
+                }
+                let initial = String(profile.name.prefix(1)).uppercased() as NSString
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: size * 0.45, weight: .bold),
+                    .foregroundColor: UIColor.white,
+                ]
+                let textSize = initial.size(withAttributes: attributes)
+                initial.draw(at: CGPoint(x: (size - textSize.width) / 2, y: (size - textSize.height) / 2), withAttributes: attributes)
+            }
+        }
+        return image.withRenderingMode(.alwaysOriginal)
+    }
+
     // MARK: URLs
 
     /// Artwork URL: full URLs as-is, uploads from this server, other paths from TMDB.
@@ -170,6 +218,15 @@ final class Session: ObservableObject {
         if path.hasPrefix("/uploads/") { return api?.url(path) }
         if path.hasPrefix("/") { return URL(string: "https://image.tmdb.org/t/p/w780" + path) }
         return nil
+    }
+
+    /// A frame from `seconds` into the movie/episode (Continue Watching).
+    func stillURL(type: String, id: Int, at seconds: Int) -> URL? {
+        guard let api, let token = api.token else { return nil }
+        return api.url("/api/stream/still/\(type)/\(id)", query: [
+            URLQueryItem(name: "t", value: String(seconds)),
+            URLQueryItem(name: "token", value: token),
+        ])
     }
 
     /// HLS stream for a movie/episode, starting `start` seconds in.

@@ -7,6 +7,8 @@ struct MovieDetailView: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
     @State private var details: Movie?
+    @State private var cast: [CastMember] = []
+    @State private var similar: [Movie] = []
     @State private var progress = WatchProgress.none
     @State private var saving = false
 
@@ -18,11 +20,30 @@ struct MovieDetailView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Backdrop(url: session.imageURL(shown.backdropPath ?? shown.posterPath))
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 40) {
+                header
+                if !cast.isEmpty { CastShelf(cast: cast) }
+                if !similar.isEmpty {
+                    Shelf("More Like This") {
+                        ForEach(similar) { item in
+                            PosterLink(value: item, title: item.title, subtitle: item.year.map { String($0) }, imageURL: session.imageURL(item.posterPath))
+                        }
+                    }
+                }
+            }
+            .padding(.bottom, 80)
+        }
+        .scrollIndicators(.hidden)
+        .background(Backdrop(url: session.imageURL(shown.backdropPath ?? shown.posterPath)))
+        .task(id: player.request == nil) {
+            if player.request == nil { await load() }
+        }
+    }
 
+    private var header: some View {
             VStack(alignment: .leading, spacing: 26) {
-                Text(shown.title).font(.system(size: 66, weight: .bold)).lineLimit(2)
+                TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title)
 
                 HStack(spacing: 20) {
                     if let year = shown.year { Text(String(year)) }
@@ -71,16 +92,18 @@ struct MovieDetailView: View {
                 }
                 .padding(.top, 10)
             }
-            .padding(80)
-        }
-        .task(id: player.request == nil) {
-            if player.request == nil { await load() }
-        }
+            .padding(.horizontal, 80)
+            .padding(.top, 320)
+            .frame(maxWidth: .infinity, minHeight: 940, alignment: .bottomLeading)
     }
 
     private func load() async {
         let response = try? await session.get("/api/movies/\(movie.id)/details", as: MovieDetailsResponse.self)
-        if let response { details = response.movie }
+        if let response {
+            details = response.movie
+            cast = response.cast
+            similar = response.similarLocal
+        }
         let watched = try? await session.get("/api/stream/progress/movie/\(movie.id)", as: WatchProgress.self)
         if let watched { progress = watched }
     }
@@ -127,6 +150,14 @@ struct ShowDetailView: View {
                     }
                 }
                 .padding(.horizontal, 80)
+                if let cast = details?.cast, !cast.isEmpty { CastShelf(cast: cast) }
+                if let similar = details?.similarLocal, !similar.isEmpty {
+                    Shelf("More Like This") {
+                        ForEach(similar) { item in
+                            PosterLink(value: item, title: item.title, subtitle: item.year, imageURL: session.imageURL(item.posterPath))
+                        }
+                    }
+                }
             }
             .padding(.bottom, 80)
         }
@@ -139,7 +170,7 @@ struct ShowDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text(shown.title).font(.system(size: 66, weight: .bold)).lineLimit(2)
+            TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title)
             HStack(spacing: 20) {
                 if let year = shown.year { Text(year) }
                 Text("\(seasons.count) season\(seasons.count == 1 ? "" : "s")")

@@ -68,9 +68,11 @@ struct Profile: Decodable, Identifiable, Hashable {
     let isMain: Bool
     let isKids: Bool
     let hasPin: Bool
+    /// What switching to this profile needs from the current one: "pin", "password" or nil.
+    let requires: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name
+        case id, name, requires
         case avatarPath = "avatar_url"
         case isMain = "is_main"
         case isKids = "is_kids"
@@ -87,6 +89,7 @@ extension Profile {
         isMain = c.lossyBool(.isMain)
         isKids = c.lossyBool(.isKids)
         hasPin = c.lossyBool(.hasPin)
+        requires = c.lossyString(.requires)
     }
 }
 
@@ -141,6 +144,7 @@ struct Movie: Decodable, Identifiable, Hashable {
     let overview: String?
     let posterPath: String?
     let backdropPath: String?
+    let logoPath: String?
     let rating: Double?
     let contentRating: String?
     let genres: [String]
@@ -152,6 +156,7 @@ struct Movie: Decodable, Identifiable, Hashable {
         case id, title, year, overview, rating, genres, duration
         case posterPath = "poster_url"
         case backdropPath = "backdrop_url"
+        case logoPath = "logo_url"
         case contentRating = "content_rating"
         case watchCompleted = "watch_completed"
         case watchPosition = "watch_position"
@@ -167,6 +172,7 @@ extension Movie {
         overview = c.lossyString(.overview)
         posterPath = c.lossyString(.posterPath)
         backdropPath = c.lossyString(.backdropPath)
+        logoPath = c.lossyString(.logoPath)
         rating = c.lossyDouble(.rating)
         contentRating = c.lossyString(.contentRating)
         genres = c.lossyStrings(.genres)
@@ -188,11 +194,13 @@ struct Show: Decodable, Identifiable, Hashable {
     let genres: [String]
     let totalEpisodes: Int
     let watchedEpisodes: Int
+    let logoPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id, title, overview, rating, genres
         case posterPath = "poster_url"
         case backdropPath = "backdrop_url"
+        case logoPath = "logo_url"
         case firstAirDate = "first_air_date"
         case contentRating = "content_rating"
         case totalEpisodes = "total_episodes"
@@ -216,6 +224,7 @@ extension Show {
         genres = c.lossyStrings(.genres)
         totalEpisodes = c.lossyInt(.totalEpisodes) ?? 0
         watchedEpisodes = c.lossyInt(.watchedEpisodes) ?? 0
+        logoPath = c.lossyString(.logoPath)
     }
 }
 
@@ -340,7 +349,48 @@ extension WatchProgress {
 struct MoviesResponse: Decodable { let movies: [Movie] }
 struct ShowsResponse: Decodable { let shows: [Show] }
 struct ContinueResponse: Decodable { let items: [ContinueItem] }
-struct MovieDetailsResponse: Decodable { let movie: Movie }
+struct FeaturedResponse: Decodable { let movie: Movie? }
+
+struct CastMember: Decodable, Identifiable, Hashable {
+    let id: Int
+    let name: String
+    let character: String?
+    let profilePath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, character
+        case profilePath = "profile_url"
+    }
+}
+
+extension CastMember {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lossyInt(.id) ?? 0
+        name = c.lossyString(.name) ?? ""
+        character = c.lossyString(.character)
+        profilePath = c.lossyString(.profilePath)
+    }
+}
+
+struct MovieDetailsResponse: Decodable {
+    let movie: Movie
+    let cast: [CastMember]
+    let director: String?
+    let similarLocal: [Movie]
+
+    enum CodingKeys: String, CodingKey { case movie, cast, director, similarLocal }
+}
+
+extension MovieDetailsResponse {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        movie = try c.decode(Movie.self, forKey: .movie)
+        cast = (try? c.decode([CastMember].self, forKey: .cast)) ?? []
+        director = c.lossyString(.director)
+        similarLocal = (try? c.decode([Movie].self, forKey: .similarLocal)) ?? []
+    }
+}
 struct SeasonResponse: Decodable { let episodes: [Episode] }
 
 struct ShowDetailsResponse: Decodable {
@@ -348,8 +398,10 @@ struct ShowDetailsResponse: Decodable {
     let seasons: [Season]
     let firstEpisodeId: Int?
     let started: Bool
+    let cast: [CastMember]
+    let similarLocal: [Show]
 
-    enum CodingKeys: String, CodingKey { case show, seasons, firstEpisodeId, started }
+    enum CodingKeys: String, CodingKey { case show, seasons, firstEpisodeId, started, cast, similarLocal }
 }
 
 extension ShowDetailsResponse {
@@ -359,6 +411,8 @@ extension ShowDetailsResponse {
         seasons = (try? c.decode([Season].self, forKey: .seasons)) ?? []
         firstEpisodeId = c.lossyInt(.firstEpisodeId)
         started = c.lossyBool(.started)
+        cast = (try? c.decode([CastMember].self, forKey: .cast)) ?? []
+        similarLocal = (try? c.decode([Show].self, forKey: .similarLocal)) ?? []
     }
 }
 
@@ -411,4 +465,16 @@ extension NextEpisode {
 
 struct NextEpisodeResponse: Decodable {
     let next: NextEpisode?
+    /// Seconds before the end the Up Next card appears (Admin > Settings).
+    let upNextSeconds: Int
+
+    enum CodingKeys: String, CodingKey { case next, upNextSeconds }
+}
+
+extension NextEpisodeResponse {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        next = try? c.decodeIfPresent(NextEpisode.self, forKey: .next)
+        upNextSeconds = c.lossyInt(.upNextSeconds) ?? 30
+    }
 }
