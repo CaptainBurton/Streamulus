@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct MainTabView: View {
     @EnvironmentObject private var session: Session
@@ -43,6 +44,9 @@ struct HomeView: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
     @State private var featured: Movie?
+    @State private var featuredArt: FeaturedArt?
+    @State private var rotateSeconds = 120
+    @State private var heroFocused = false
     @State private var continueItems: [ContinueItem] = []
     @State private var movies: [Movie] = []
     @State private var shows: [Show] = []
@@ -55,9 +59,9 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 30) {
                 if let featured {
                     // Back up at its buttons: show the whole banner again, not just the buttons.
-                    FeaturedHero(movie: featured) {
+                    FeaturedHero(movie: featured, art: featuredArt, onFocus: {
                         withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) }
-                    }
+                    }, onFocusChange: { heroFocused = $0 })
                     .id("top")
                 } else if session.profile?.isKids == true {
                     Pill(text: "STREAMLINGS", color: Theme.streamling).padding(.horizontal, 80)
@@ -117,6 +121,35 @@ struct HomeView: View {
         .task(id: player.request == nil) {
             if player.request == nil { await load() }
         }
+        // Switch the banner every `rotateSeconds`, but not while its buttons are
+        // focused (it shouldn't change under a click) or a video is playing.
+        .task(id: RotationKey(movieId: featured?.id, paused: heroFocused || player.request != nil, seconds: rotateSeconds)) {
+            guard let current = featured?.id, !heroFocused, player.request == nil else { return }
+            try? await Task.sleep(nanoseconds: UInt64(rotateSeconds) * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await rotateFeatured(excluding: current)
+        }
+    }
+
+    private struct RotationKey: Equatable {
+        let movieId: Int?
+        let paused: Bool
+        let seconds: Int
+    }
+
+    private func rotateFeatured(excluding current: Int) async {
+        let response = try? await session.get("/api/movies/featured", query: [URLQueryItem(name: "exclude", value: String(current))], as: FeaturedResponse.self)
+        guard let response, !Task.isCancelled else { return }
+        if let seconds = response.rotateSeconds, seconds > 0 { rotateSeconds = seconds }
+        guard let next = response.movie, next.id != current else { return }
+        // Artwork and logo fully loaded first, so the crossfade is one smooth move
+        // with nothing popping in halfway through.
+        let art = await FeaturedArt.load(for: next, session: session)
+        guard !Task.isCancelled else { return }
+        withAnimation(.easeInOut(duration: 1.0)) {
+            featured = next
+            featuredArt = art
+        }
     }
 
     private func load() async {
@@ -130,10 +163,14 @@ struct HomeView: View {
         if case .success(let items) = results.2 { shows = items }
         let failures = [Self.error(in: results.0), Self.error(in: results.1), Self.error(in: results.2)].compactMap { $0 }
         errorText = failures.first?.localizedDescription
-        // A new featured movie only on first load, so it doesn't change under the user.
+        // The first featured movie; after that it changes on its own timer.
         if featured == nil {
             let response = try? await session.get("/api/movies/featured", as: FeaturedResponse.self)
-            featured = response?.movie
+            if let movie = response?.movie {
+                featuredArt = await FeaturedArt.load(for: movie, session: session)
+                featured = movie
+            }
+            if let seconds = response?.rotateSeconds, seconds > 0 { rotateSeconds = seconds }
         }
         loaded = true
     }
@@ -153,35 +190,87 @@ struct HomeView: View {
     }
 }
 
+/// The featured movie's backdrop and title logo, downloaded and decoded ahead of
+/// time so a rotation can crossfade straight to them.
+struct FeaturedArt {
+    let movieId: Int
+    let backdrop: UIImage?
+    let logo: UIImage?
+
+    @MainActor
+    static func load(for movie: Movie, session: Session) async -> FeaturedArt {
+        let backdropURL = session.imageURL(movie.backdropPath ?? movie.posterPath)
+        let logoURL = session.imageURL(movie.logoPath)
+        async let backdrop = image(backdropURL)
+        async let logo = image(logoURL)
+        return FeaturedArt(movieId: movie.id, backdrop: await backdrop, logo: await logo)
+    }
+
+    private static func image(_ url: URL?) async -> UIImage? {
+        guard let url else { return nil }
+        let result = try? await URLSession.shared.data(from: url)
+        guard let result, let image = UIImage(data: result.0) else { return nil }
+        // Decode now rather than on the first frame of the fade.
+        return await image.byPreparingForDisplay() ?? image
+    }
+}
+
 /// Netflix-style banner at the top of Home: artwork, title logo, Play Now and More Info.
 struct FeaturedHero: View {
     let movie: Movie
+    /// Preloaded artwork for `movie` (used only if it's for this movie).
+    var art: FeaturedArt? = nil
     /// Called when focus comes to the banner's buttons.
     var onFocus: () -> Void = {}
+    /// Whether one of the banner's buttons has focus.
+    var onFocusChange: (Bool) -> Void = { _ in }
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
     @FocusState private var buttonFocus: Int?
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: session.imageURL(movie.backdropPath ?? movie.posterPath))
-                .frame(maxWidth: .infinity)
-                .frame(height: 880)
-                .clipped()
-                .overlay(LinearGradient(colors: [Theme.background.opacity(0.95), Theme.background.opacity(0.3), .clear],
-                                        startPoint: .leading, endPoint: .trailing))
-                .overlay(LinearGradient(colors: [.clear, Theme.background], startPoint: .center, endPoint: .bottom))
+            // When the movie changes: the new artwork fades in over the old (which
+            // only goes once it's covered, so there's no dip to black), while the
+            // old title/text fades out and the new fades in just after. The buttons
+            // stay put so focus isn't knocked off them.
+            ZStack {
+                backdrop
+                    .frame(maxWidth: .infinity)
+                    .frame(height: Self.height)
+                    .clipped()
+                    .id(movie.id)
+                    .transition(.asymmetric(
+                        insertion: .opacity.animation(.easeInOut(duration: 1.0)),
+                        removal: .opacity.animation(.easeInOut(duration: 0.4).delay(1.0))
+                    ))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.height)
+            .clipped()
+            .overlay(LinearGradient(colors: [Theme.background.opacity(0.95), Theme.background.opacity(0.3), .clear],
+                                    startPoint: .leading, endPoint: .trailing))
+            .overlay(LinearGradient(colors: [.clear, Theme.background], startPoint: .center, endPoint: .bottom))
 
             VStack(alignment: .leading, spacing: 22) {
-                TitleLogoView(url: session.imageURL(movie.logoPath), title: movie.title, maxWidth: 760, maxHeight: 220, fontSize: 72)
-                HStack(spacing: 18) {
-                    if let year = movie.year { Text(String(year)) }
-                    if let duration = movie.duration, duration > 0 { Text(Fmt.runtime(duration)) }
-                    if let rating = movie.contentRating { Pill(text: rating) }
-                }
-                .foregroundStyle(.secondary)
-                if let overview = movie.overview, !overview.isEmpty {
-                    Text(overview).lineLimit(3).frame(maxWidth: 1000, alignment: .leading)
+                ZStack(alignment: .bottomLeading) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        logo
+                        HStack(spacing: 18) {
+                            if let year = movie.year { Text(String(year)) }
+                            if let duration = movie.duration, duration > 0 { Text(Fmt.runtime(duration)) }
+                            if let rating = movie.contentRating { Pill(text: rating) }
+                        }
+                        .foregroundStyle(.secondary)
+                        if let overview = movie.overview, !overview.isEmpty {
+                            Text(overview).lineLimit(3).frame(maxWidth: 1000, alignment: .leading)
+                        }
+                    }
+                    .id(movie.id)
+                    .transition(.asymmetric(
+                        insertion: .opacity.animation(.easeInOut(duration: 0.6).delay(0.45)),
+                        removal: .opacity.animation(.easeOut(duration: 0.35))
+                    ))
                 }
                 GlassEffectContainer(spacing: 30) {
                     HStack(spacing: 30) {
@@ -204,6 +293,7 @@ struct FeaturedHero: View {
                 .focusSection()
                 .defaultFocus($buttonFocus, 0)
                 .onChange(of: buttonFocus) { old, new in
+                    if (old == nil) != (new == nil) { onFocusChange(new != nil) }
                     // Coming in from the tab bar or the rows below always lands on
                     // Play Now (tvOS would pick whichever button is nearest).
                     guard old == nil, let new else { return }
@@ -212,11 +302,40 @@ struct FeaturedHero: View {
                 }
             }
             .padding(.horizontal, 80)
-            .padding(.bottom, 40)
+            .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 880)
+        .frame(height: Self.height)
     }
+
+    private var matchingArt: FeaturedArt? { art?.movieId == movie.id ? art : nil }
+
+    @ViewBuilder private var backdrop: some View {
+        if let image = matchingArt?.backdrop {
+            Image(uiImage: image).resizable().scaledToFill()
+        } else {
+            RemoteImage(url: session.imageURL(movie.backdropPath ?? movie.posterPath))
+        }
+    }
+
+    @ViewBuilder private var logo: some View {
+        if let image = matchingArt?.logo {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 760, maxHeight: 190, alignment: .leading)
+                .shadow(color: .black.opacity(0.6), radius: 16)
+                .accessibilityLabel(movie.title)
+        } else {
+            // Preloaded with no logo → the title as text; not preloaded → load it here.
+            TitleLogoView(url: matchingArt == nil ? session.imageURL(movie.logoPath) : nil,
+                          title: movie.title, maxWidth: 760, maxHeight: 190, fontSize: 72)
+        }
+    }
+
+    /// Nearly the whole screen, so the text and buttons sit low and the artwork
+    /// shows above them; the Continue Watching title peeks in underneath.
+    static let height: CGFloat = 980
 
     /// Resume if it's part watched, otherwise start from the beginning.
     private func playNow() async {

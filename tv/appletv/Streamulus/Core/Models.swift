@@ -349,7 +349,11 @@ extension WatchProgress {
 struct MoviesResponse: Decodable { let movies: [Movie] }
 struct ShowsResponse: Decodable { let shows: [Show] }
 struct ContinueResponse: Decodable { let items: [ContinueItem] }
-struct FeaturedResponse: Decodable { let movie: Movie? }
+struct FeaturedResponse: Decodable {
+    let movie: Movie?
+    /// How often Home switches to another featured movie (admin setting).
+    let rotateSeconds: Int?
+}
 
 struct CastMember: Decodable, Identifiable, Hashable {
     let id: Int

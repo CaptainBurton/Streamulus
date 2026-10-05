@@ -153,11 +153,8 @@ struct ProfileAvatar: View {
                 .font(.system(size: size * 0.42, weight: .bold))
                 .foregroundStyle(.white)
             if let url = session.imageURL(profile.avatarPath) {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.clear
-                }
+                // Plays GIF profile pictures (AsyncImage only shows the first frame).
+                AnimatedRemoteImage(url: url, maxPixelSize: size * 2)
             }
         }
         .frame(width: size, height: size)
