@@ -202,8 +202,13 @@ struct FeaturedHero: View {
                 }
                 // Reachable with "up" from any Continue Watching card, not only the first.
                 .focusSection()
-                .onChange(of: buttonFocus) { _, focused in
-                    if focused != nil { onFocus() }
+                .defaultFocus($buttonFocus, 0)
+                .onChange(of: buttonFocus) { old, new in
+                    // Coming in from the tab bar or the rows below always lands on
+                    // Play Now (tvOS would pick whichever button is nearest).
+                    guard old == nil, let new else { return }
+                    if new != 0 { buttonFocus = 0 }
+                    onFocus()
                 }
             }
             .padding(.horizontal, 80)
@@ -345,19 +350,18 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
 
     /// Sorted by title ignoring "The", "A", "An", grouped by first letter.
     private var sections: [LetterGroup] {
-        let sorted = items.sorted {
-            Self.sortKey(title($0)).localizedCaseInsensitiveCompare(Self.sortKey(title($1))) == .orderedAscending
-        }
-        var result: [LetterGroup] = []
-        for item in sorted {
-            let letter = Self.indexLetter(title(item))
-            if let last = result.last, last.letter == letter {
-                result[result.count - 1].items.append(item)
-            } else {
-                result.append(LetterGroup(letter: letter, items: [item]))
+        // Group by letter first, so each letter appears once ("#" first, then A–Z)
+        // whatever order the sort puts accented or punctuated titles in.
+        var byLetter: [String: [Item]] = [:]
+        for item in items { byLetter[Self.indexLetter(title(item)), default: []].append(item) }
+        return byLetter.keys
+            .sorted { $0 == "#" ? $1 != "#" : ($1 == "#" ? false : $0 < $1) }
+            .map { letter in
+                let sorted = byLetter[letter, default: []].sorted {
+                    Self.sortKey(title($0)).localizedCaseInsensitiveCompare(Self.sortKey(title($1))) == .orderedAscending
+                }
+                return LetterGroup(letter: letter, items: sorted)
             }
-        }
-        return result
     }
 
     static func sortKey(_ title: String) -> String {
@@ -368,8 +372,11 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
         return trimmed
     }
 
+    /// "Élite" → E, "'Salem's Lot" → S, "2 Fast 2 Furious" → #.
     static func indexLetter(_ title: String) -> String {
-        guard let first = sortKey(title).uppercased().first, first.isASCII, first.isLetter else { return "#" }
+        let folded = sortKey(title).folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US"))
+        let start = folded.drop { !$0.isLetter && !$0.isNumber }
+        guard let first = start.uppercased().first, first.isASCII, first.isLetter else { return "#" }
         return String(first)
     }
 

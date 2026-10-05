@@ -75,8 +75,10 @@ final class PlaybackController: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 Task { @MainActor in
-                    self?.isPlaying = status == .playing
-                    self?.isBuffering = status == .waitingToPlayAtSpecifiedRate
+                    guard let self else { return }
+                    let playing = status == .playing, buffering = status == .waitingToPlayAtSpecifiedRate
+                    if self.isPlaying != playing { self.isPlaying = playing }
+                    if self.isBuffering != buffering { self.isBuffering = buffering }
                 }
             }
             .store(in: &cancellables)
@@ -149,10 +151,15 @@ final class PlaybackController: ObservableObject {
     }
 
     private func tick() {
+        // Only publish real changes: every change redraws the glass controls.
         let seconds = player.currentTime().seconds
-        if seconds.isFinite, pendingSeek == nil { position = Double(current.start) + seconds }
+        if seconds.isFinite, pendingSeek == nil {
+            let newPosition = Double(current.start) + seconds
+            if abs(newPosition - position) >= 0.25 { position = newPosition }
+        }
         if let itemDuration = player.currentItem?.duration.seconds, itemDuration.isFinite, itemDuration > 0 {
-            duration = Double(current.start) + itemDuration
+            let newDuration = Double(current.start) + itemDuration
+            if newDuration != duration { duration = newDuration }
         }
         if isPlaying, Date().timeIntervalSince(lastSaved) >= 10 {
             lastSaved = Date()

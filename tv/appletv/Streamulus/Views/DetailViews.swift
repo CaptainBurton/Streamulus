@@ -41,8 +41,10 @@ struct MovieDetailView: View {
         // Back up at the buttons: show the whole first screen again. (The header
         // is one screen tall, so this is just "scroll to the top" — tvOS on its
         // own only scrolls far enough to show the buttons, cutting off the title.)
-        .onChange(of: headerFocus) { _, focused in
-            if focused != nil { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) } }
+        .onChange(of: headerFocus) { old, new in
+            guard old == nil, let new else { return } // only when coming into the buttons
+            if new != 0 { headerFocus = 0 } // land on Play / Resume
+            withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) }
         }
         }
         .background(Backdrop(url: session.imageURL(shown.backdropPath ?? shown.posterPath)))
@@ -178,8 +180,10 @@ struct ShowDetailView: View {
         .scrollIndicators(.hidden)
         .ignoresSafeArea()
         // Back up at the buttons: show the whole first screen again.
-        .onChange(of: headerFocus) { _, focused in
-            if focused != nil { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) } }
+        .onChange(of: headerFocus) { old, new in
+            guard old == nil, let new else { return } // only when coming into the buttons
+            if new != 0, upNext != nil { headerFocus = 0 } // land on Play / Resume
+            withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) }
         }
         }
         .background(Backdrop(url: session.imageURL(shown.backdropPath ?? shown.posterPath)))
