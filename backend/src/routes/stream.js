@@ -550,10 +550,11 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, 
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: `File not found on disk: ${filePath}` });
 
   const start = Math.max(0, parseFloat(req.query.start || '0') || 0);
-  console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s`);
+  const compat = req.query.compat === '1'; // always re-encode (Apple TV retry after a failed stream)
+  console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s${compat ? ' (compat)' : ''}`);
 
   try {
-    const key = await getHLSSession(filePath, start);
+    const key = await getHLSSession(filePath, start, { compat });
     if (res.writableEnded) return; // client disconnected while transcoding
     const segBase = `/api/stream/hls/${type}/${id}/segment?token=${req.query.token}&key=${key}`;
     const manifest = getManifestContent(key, segBase);
