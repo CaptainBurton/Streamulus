@@ -468,6 +468,8 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
     let subtitle: (Item) -> String?
     let imageURL: (Item) -> URL?
     let progress: (Item) -> Double?
+    /// Shown above the grid, scrolling with it (e.g. a genre's filter chips).
+    var header: AnyView? = nil
 
     @State private var currentLetter: String?
     @State private var bubbleVisible = false
@@ -537,6 +539,14 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
             let columns = Array(repeating: GridItem(.fixed(width), spacing: Self.spacing, alignment: .top), count: Self.postersPerRow)
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
+                    // Inside the scroll content, not above the scroll view: the grid
+                    // draws outside its bounds (so focused posters can grow) and
+                    // would slide over anything placed above it.
+                    if let header {
+                        header
+                            .frame(width: geo.size.width, alignment: .leading)
+                            .focusSection()
+                    }
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 50) {
                         ForEach(groups) { group in
                             Section {

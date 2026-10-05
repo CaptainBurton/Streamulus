@@ -190,12 +190,19 @@ struct BlurredArtBackground: View {
         ZStack {
             Theme.background
             if let shown {
-                Image(uiImage: shown)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFill()
-                    .blur(radius: 40, opaque: true)
-                    .saturation(1.2)
+                // Filled into, and clipped to, the background's own frame — a
+                // poster scaled to fill a wide screen is much taller than it and
+                // would otherwise spill over whatever is above.
+                Color.clear
+                    .overlay {
+                        Image(uiImage: shown)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFill()
+                            .blur(radius: 40, opaque: true)
+                            .saturation(1.2)
+                    }
+                    .clipped()
                     .opacity(0.6)
                     .id(shownURL)
                     .transition(.opacity)

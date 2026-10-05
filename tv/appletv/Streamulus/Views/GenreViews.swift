@@ -112,24 +112,25 @@ struct GenreDetailView: View {
         }
     }
 
+    private var filterBar: some View {
+        HStack(alignment: .center, spacing: 36) {
+            Text(name).font(.title2.weight(.heavy))
+            HStack(spacing: 20) {
+                ForEach(Filter.allCases) { option in
+                    Button { filter = option } label: {
+                        Text("\(option.rawValue)  \(count(option))")
+                    }
+                    .buttonStyle(SeasonChipStyle(isSelected: option == filter))
+                    .disabled(count(option) == 0)
+                }
+            }
+        }
+        .padding(.horizontal, 80)
+        .padding(.top, 30)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 36) {
-                Text(name).font(.title2.weight(.heavy))
-                HStack(spacing: 20) {
-                    ForEach(Filter.allCases) { option in
-                        Button { filter = option } label: {
-                            Text("\(option.rawValue)  \(count(option))")
-                        }
-                        .buttonStyle(SeasonChipStyle(isSelected: option == filter))
-                        .disabled(count(option) == 0)
-                    }
-                }
-                .focusSection()
-            }
-            .padding(.horizontal, 80)
-            .padding(.top, 20)
-
             LibraryGrid(
                 items: items,
                 title: { item in
@@ -150,9 +151,10 @@ struct GenreDetailView: View {
                     case .show(let show): return session.imageURL(show.posterPath)
                     }
                 },
-                progress: { _ in nil }
+                progress: { _ in nil },
+                // The title and All / Movies / TV Shows chips scroll with the grid.
+                header: AnyView(filterBar)
             )
-            .id(filter) // start at the top when the filter changes
         }
         .overlay {
             if loading {
