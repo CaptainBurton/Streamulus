@@ -57,4 +57,8 @@ app.listen(PORT, '0.0.0.0', () => {
     console.error(`  Video transcoding will not work until ffmpeg is installed.`);
   }
   console.log(`========================================`);
+
+  // Fix stored file paths left over from a different media mount.
+  require('./services/path-repair').repairAllPaths()
+    .catch(err => console.error('[paths] Repair failed:', err.message));
 });

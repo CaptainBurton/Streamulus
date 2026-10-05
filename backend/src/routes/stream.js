@@ -7,6 +7,7 @@ const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
 const { getHLSSession, getManifestContent, getSegmentPath, getSessionTotalDuration } = require('../services/transcoder');
 const { posterUrl, backdropUrl } = require('../services/tmdb');
+const { resolveFilePath } = require('../services/path-repair');
 
 const router = express.Router();
 
@@ -18,13 +19,9 @@ router.use((req, res, next) => {
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
+// Repairs the stored path first if the file has moved (see path-repair.js).
 function getFilePath(type, id) {
-  if (type === 'movie') {
-    const row = db.prepare('SELECT file_path FROM movies WHERE id = ?').get(id);
-    return row?.file_path || null;
-  }
-  const row = db.prepare('SELECT file_path FROM episodes WHERE id = ?').get(id);
-  return row?.file_path || null;
+  return resolveFilePath(type === 'movie' ? 'movies' : 'episodes', id);
 }
 
 // ─── pre-flight check ─────────────────────────────────────────────────────────
