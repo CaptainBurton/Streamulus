@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
+import ProfileAvatar from '../components/ProfileAvatar';
+import StreamlingsAdmin from '../components/StreamlingsAdmin';
 
 function StatCard({ label, value, icon }) {
   return (
@@ -288,6 +290,8 @@ function FixDuplicates() {
   );
 }
 
+const TAG = (color) => ({ padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color, border: `1px solid ${color}55` });
+
 export default function Admin() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
@@ -518,7 +522,7 @@ export default function Admin() {
 
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
-  const tabs = ['overview', 'libraries', 'users', 'settings'];
+  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'settings'];
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
@@ -529,7 +533,7 @@ export default function Admin() {
         {msg && <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'rgba(0,200,100,0.1)', border: '1px solid rgba(0,200,100,0.2)', borderRadius: '8px', color: '#00c864', fontSize: '14px' }}>✓ {msg}</div>}
         {error && <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'rgba(255,68,68,0.1)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: '8px', color: '#ff4444', fontSize: '14px' }}>⚠ {error}</div>}
 
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto' }}>
           {tabs.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', marginBottom: '-1px', transition: 'color 0.15s' }}>
               {tab}
@@ -689,7 +693,8 @@ export default function Admin() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {users.map(user => (
-                <div key={user.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div key={user.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '14px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                     <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #00c2ff, #7b2fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
                       {user.username[0].toUpperCase()}
@@ -708,10 +713,29 @@ export default function Admin() {
                     </button>
                   </div>
                 </div>
+                {/* Profiles under this account — main profile first */}
+                {user.profiles?.length > 0 && (
+                  <div style={{ marginTop: '12px', marginLeft: '17px', paddingLeft: '22px', borderLeft: '2px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {user.profiles.map(p => (
+                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '-22px', top: '50%', width: '16px', borderTop: '2px solid rgba(255,255,255,0.08)' }} />
+                        <ProfileAvatar profile={p} size={28} radius="7px" />
+                        <span style={{ fontSize: '14px', color: '#ddd', fontWeight: 500 }}>{p.name}</span>
+                        {p.is_main && <span style={TAG('#00c2ff')}>Main</span>}
+                        {p.is_kids && <span style={TAG('#ffb703')}>Streamling</span>}
+                        {p.has_pin && <span style={TAG('#888')}>🔒 PIN</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                </div>
               ))}
             </div>
           </div>
         )}
+
+        {/* Streamlings (kids profiles) */}
+        {activeTab === 'streamlings' && <StreamlingsAdmin flash={flash} />}
 
         {/* Settings */}
         {activeTab === 'settings' && (
