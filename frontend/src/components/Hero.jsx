@@ -124,7 +124,7 @@ export default function Hero({ item, type = 'movie', contentFade = null }) {
       {/* Content */}
       <div style={{
         position: 'absolute',
-        bottom: isMobile ? '48px' : '72px',
+        bottom: isMobile ? '32px' : '44px',
         left: isMobile ? '16px' : '48px',
         right: isMobile ? '16px' : 'auto',
         maxWidth: isMobile ? 'none' : '550px',

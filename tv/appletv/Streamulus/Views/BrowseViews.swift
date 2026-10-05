@@ -330,7 +330,7 @@ struct FeaturedHero: View {
                 }
             }
             .padding(.horizontal, 80)
-            .padding(.bottom, 24)
+            .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Self.height)
@@ -363,7 +363,7 @@ struct FeaturedHero: View {
 
     /// Nearly the whole screen, so the text and buttons sit low and the artwork
     /// shows above them; the Continue Watching title peeks in underneath.
-    static let height: CGFloat = 980
+    static let height: CGFloat = 1030
 
     /// Resume if it's part watched, otherwise start from the beginning.
     private func playNow() async {
