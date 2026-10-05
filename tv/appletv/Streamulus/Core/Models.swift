@@ -535,3 +535,89 @@ enum GenreItem: Identifiable, Hashable {
         }
     }
 }
+
+// MARK: - Subtitles
+
+struct SubtitleTrack: Decodable, Identifiable, Hashable {
+    let id: String
+    let label: String
+    let language: String?
+    let forced: Bool
+
+    enum CodingKeys: String, CodingKey { case id, label, language, forced }
+}
+
+extension SubtitleTrack {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lossyString(.id) ?? ""
+        label = c.lossyString(.label) ?? "Subtitles"
+        language = c.lossyString(.language)
+        forced = c.lossyBool(.forced)
+    }
+}
+
+struct SubtitleTracksResponse: Decodable {
+    let tracks: [SubtitleTrack]
+}
+
+struct SubtitleCue {
+    let start: Double
+    let end: Double
+    let lines: [String]
+}
+
+/// Minimal WebVTT reader for the player's own subtitle overlay. Cue times are
+/// the video file's own times.
+enum WebVTT {
+    static func parse(_ text: String) -> [SubtitleCue] {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var cues: [SubtitleCue] = []
+        for block in normalized.components(separatedBy: "\n\n") {
+            let lines = block.components(separatedBy: "\n")
+            guard let at = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let parts = lines[at].components(separatedBy: "-->")
+            guard parts.count == 2,
+                  let start = seconds(parts[0]),
+                  let end = seconds(parts[1].trimmingCharacters(in: .whitespaces).components(separatedBy: " ").first ?? ""),
+                  end > start else { continue }
+            let body = lines[(at + 1)...].map(clean).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            if !body.isEmpty { cues.append(SubtitleCue(start: start, end: end, lines: body)) }
+        }
+        return cues.sorted { $0.start < $1.start }
+    }
+
+    /// Lines of every cue showing at `time`.
+    static func lines(in cues: [SubtitleCue], at time: Double) -> [String] {
+        // First cue starting after `time`, then look back over the few before it.
+        var low = 0, high = cues.count
+        while low < high {
+            let mid = (low + high) / 2
+            if cues[mid].start > time { high = mid } else { low = mid + 1 }
+        }
+        var result: [String] = []
+        var index = low - 1
+        while index >= 0 && index >= low - 8 {
+            if cues[index].end > time { result.insert(contentsOf: cues[index].lines, at: 0) }
+            index -= 1
+        }
+        return result
+    }
+
+    private static func seconds(_ stamp: String) -> Double? {
+        let parts = stamp.trimmingCharacters(in: .whitespaces).components(separatedBy: ":").compactMap { Double($0) }
+        switch parts.count {
+        case 3: return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        case 2: return parts[0] * 60 + parts[1]
+        default: return nil
+        }
+    }
+
+    private static func clean(_ line: String) -> String {
+        line.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+    }
+}

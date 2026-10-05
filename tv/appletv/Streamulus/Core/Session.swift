@@ -157,6 +157,10 @@ final class Session: ObservableObject {
         try await signedIn { try await $0.post(path, body: body) }
     }
 
+    func getText(_ path: String) async throws -> String {
+        try await signedIn { try await $0.getText(path) }
+    }
+
     /// Runs a request; a 401 (expired token, removed profile) signs out.
     private func signedIn<T>(_ request: (APIClient) async throws -> T) async throws -> T {
         do {

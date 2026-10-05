@@ -18,6 +18,12 @@ final class APIClient {
     var token: String?
 
     private let session: URLSession
+    /// For requests the server may take minutes to answer (subtitle extraction).
+    private static let longSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 600
+        return URLSession(configuration: config)
+    }()
     private let decoder = JSONDecoder()
 
     init(baseURL: URL, token: String? = nil) {
@@ -45,8 +51,23 @@ final class APIClient {
         try await send(method: "POST", path: path, query: [], body: body)
     }
 
+    /// A text response (e.g. WebVTT subtitles). `timeout` is generous because the
+    /// server may need to read a whole video file the first time.
+    func getText(_ path: String, timeout: TimeInterval = 600) async throws -> String {
+        let data = try await sendData(method: "GET", path: path, query: [], body: nil, timeout: timeout)
+        return String(decoding: data, as: UTF8.self)
+    }
+
     private func send<T: Decodable>(method: String, path: String, query: [URLQueryItem], body: [String: Any]?) async throws -> T {
+        let data = try await sendData(method: method, path: path, query: query, body: body, timeout: nil)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func sendData(method: String, path: String, query: [URLQueryItem], body: [String: Any]?, timeout: TimeInterval?) async throws -> Data {
         var request = URLRequest(url: url(path, query: query))
+        if let timeout { request.timeoutInterval = timeout }
+        // The shared session gives up after 20 s without data; long requests use their own.
+        let urlSession = timeout == nil ? session : Self.longSession
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let token {
@@ -57,7 +78,7 @@ final class APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -67,6 +88,6 @@ final class APIClient {
                 code: json?["code"] as? String
             )
         }
-        return try decoder.decode(T.self, from: data)
+        return data
     }
 }

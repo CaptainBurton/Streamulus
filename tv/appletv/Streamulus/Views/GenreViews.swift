@@ -5,18 +5,19 @@ struct GenreRef: Hashable {
     let name: String
 }
 
-/// Genres tab: a card per genre, with the admin's image or a random title's artwork.
+/// Genres tab: a tile per genre, the size and shape of the Apple TV home screen's
+/// app tiles (5 across, 5:3), with the admin's image or a random title's banner art.
 struct GenresView: View {
     @EnvironmentObject private var session: Session
     @State private var genres: [GenreSummary] = []
     @State private var loading = true
     @State private var errorText: String?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 48, alignment: .top), count: 4)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 48, alignment: .top), count: 5)
 
     var body: some View {
         ScrollView(.vertical) {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 56) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 60) {
                 ForEach(genres) { genre in
                     NavigationLink(value: GenreRef(name: genre.name)) {
                         GenreCard(genre: genre)
@@ -52,7 +53,7 @@ struct GenresView: View {
     }
 }
 
-/// 16:9 artwork card with the genre's name over a gradient.
+/// 5:3 artwork tile (like a home screen app tile) with the genre's name over a gradient.
 struct GenreCard: View {
     let genre: GenreSummary
     @EnvironmentObject private var session: Session
@@ -71,16 +72,16 @@ struct GenreCard: View {
             RemoteImage(url: session.imageURL(genre.imageURL))
             LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 4) {
-                Text(genre.name).font(.title3.weight(.heavy)).lineLimit(1)
+                Text(genre.name).font(.headline.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
                 if !counts.isEmpty {
-                    Text(counts).font(.caption2).foregroundStyle(.secondary)
+                    Text(counts).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .shadow(color: .black.opacity(0.6), radius: 8)
-            .padding(24)
+            .padding(18)
         }
-        .aspectRatio(16.0 / 9.0, contentMode: .fit)
-        .clipped()
+        .aspectRatio(5.0 / 3.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
