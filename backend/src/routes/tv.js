@@ -218,7 +218,19 @@ router.get('/:id/details', authenticate, async (req, res) => {
     ORDER BY rating DESC LIMIT 8
   `).all(show.id, `%${firstGenre}%`).map(formatShow);
 
-  res.json({ show: formatShow(show), seasons, cast, similarLocal });
+  // For "Play from Beginning": the first episode, and whether this user has
+  // started the show at all (any episode in progress or finished).
+  const firstEpisodeId = db.prepare(
+    'SELECT id FROM episodes WHERE show_id = ? ORDER BY season, episode_number LIMIT 1'
+  ).get(show.id)?.id ?? null;
+  const started = db.prepare(`
+    SELECT COUNT(*) AS n FROM watch_history wh
+    JOIN episodes e ON e.id = wh.media_id
+    WHERE wh.user_id = ? AND wh.media_type = 'episode' AND e.show_id = ?
+      AND (wh.completed = 1 OR wh.position > 0)
+  `).get(req.user.id, show.id).n > 0;
+
+  res.json({ show: formatShow(show), seasons, cast, similarLocal, firstEpisodeId, started });
 });
 
 router.get('/:id/season/:season', authenticate, (req, res) => {

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -53,6 +53,7 @@ const fmt = (sec) => {
 export default function Watch() {
   const { type, id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // DOM / HLS refs
   const videoRef     = useRef(null);
@@ -170,7 +171,15 @@ export default function Watch() {
           const p = await axios.get(`/api/stream/progress/movie/${id}`).then(x => x.data).catch(() => ({ position: 0 }));
           return { ...m, progress: p, introEndTime: 0 };
         });
+    // Start from 0 instead of the saved position when asked to (next episode,
+    // "Play from Beginning") or when it was already watched to the end.
+    const fromStart = location.state?.fromStart === true;
+    // Consume the flag so a page refresh mid-episode resumes instead of restarting.
+    if (fromStart && window.history.state?.usr?.fromStart) {
+      window.history.replaceState({ ...window.history.state, usr: undefined }, '');
+    }
     fetch_.then((m) => {
+    if (fromStart || m.progress?.completed) m = { ...m, progress: { position: 0, completed: false } };
     setMedia(m);
     // Set Now Playing info so AirPlay / Apple TV shows the correct title
     if ('mediaSession' in navigator) {
@@ -181,7 +190,7 @@ export default function Watch() {
       });
     }
   }).catch(() => setError('Media not found.')).finally(() => setLoading(false));
-  }, [type, id]);
+  }, [type, id]); // eslint-disable-line react-hooks/exhaustive-deps -- location.state read once per episode
 
   // ── Start playback ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -613,7 +622,7 @@ export default function Watch() {
     if (remaining <= 2 && !navigatingRef.current) {
       navigatingRef.current = true;
       flushSync(() => setShowNextEpCard(false));
-      navigate(`/watch/episode/${nextEp.id}`, { replace: true });
+      navigate(`/watch/episode/${nextEp.id}`, { replace: true, state: { fromStart: true } });
       return;
     }
 
@@ -632,7 +641,7 @@ export default function Watch() {
       const next = nextEpRef.current;
       flushSync(() => setShowNextEpCard(false));
       if (next) {
-        navigate(`/watch/episode/${next.id}`, { replace: true });
+        navigate(`/watch/episode/${next.id}`, { replace: true, state: { fromStart: true } });
       } else {
         navigate(-1);
       }
@@ -1058,7 +1067,7 @@ export default function Watch() {
                   if (navigatingRef.current) return;
                   navigatingRef.current = true;
                   flushSync(() => setShowNextEpCard(false));
-                  navigate(`/watch/episode/${nextEp.id}`, { replace: true });
+                  navigate(`/watch/episode/${nextEp.id}`, { replace: true, state: { fromStart: true } });
                 }}
                 style={{ width: '100%', padding: '9px 0', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', letterSpacing: '0.3px' }}
               >

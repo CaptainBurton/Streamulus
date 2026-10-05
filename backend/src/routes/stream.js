@@ -182,6 +182,39 @@ router.post('/progress', authenticate, (req, res) => {
   res.json({ success: true });
 });
 
+// Mark a movie, episode, season or whole show as watched / unwatched for the
+// current user. Watched = completed with no resume point; unwatched = no
+// history at all (so it also leaves Continue Watching).
+// Body: { mediaType: 'movie'|'episode'|'season'|'show', mediaId, season?, watched }
+router.post('/watched', authenticate, (req, res) => {
+  const { mediaType, mediaId, season, watched } = req.body;
+  let historyType = 'episode';
+  let ids;
+  if (mediaType === 'movie') {
+    historyType = 'movie';
+    ids = db.prepare('SELECT id FROM movies WHERE id = ?').all(mediaId).map(r => r.id);
+  } else if (mediaType === 'episode') {
+    ids = db.prepare('SELECT id FROM episodes WHERE id = ?').all(mediaId).map(r => r.id);
+  } else if (mediaType === 'season') {
+    ids = db.prepare('SELECT id FROM episodes WHERE show_id = ? AND season = ?').all(mediaId, season).map(r => r.id);
+  } else if (mediaType === 'show') {
+    ids = db.prepare('SELECT id FROM episodes WHERE show_id = ?').all(mediaId).map(r => r.id);
+  } else {
+    return res.status(400).json({ error: 'mediaType must be movie, episode, season or show' });
+  }
+  if (ids.length === 0) return res.status(404).json({ error: 'Nothing found to update' });
+
+  const del = db.prepare('DELETE FROM watch_history WHERE user_id = ? AND media_type = ? AND media_id = ?');
+  const ins = db.prepare('INSERT INTO watch_history (user_id, media_type, media_id, position, completed) VALUES (?, ?, ?, 0, 1)');
+  db.transaction(() => {
+    for (const id of ids) {
+      del.run(req.user.id, historyType, id);
+      if (watched) ins.run(req.user.id, historyType, id);
+    }
+  })();
+  res.json({ success: true, updated: ids.length });
+});
+
 router.get('/progress/:mediaType/:mediaId', authenticate, (req, res) => {
   const row = db.prepare(
     'SELECT position, completed FROM watch_history WHERE user_id=? AND media_type=? AND media_id=?'

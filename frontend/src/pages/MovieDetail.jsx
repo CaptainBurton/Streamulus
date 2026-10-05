@@ -3,10 +3,16 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
+import SecondaryButton from '../components/SecondaryButton';
 import { useAuth } from '../context/AuthContext';
 
 const PLACEHOLDER_POSTER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
 const PLACEHOLDER_PERSON = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%231e1e1e"/%3E%3Ccircle cx="50" cy="38" r="20" fill="%23333"/%3E%3Cellipse cx="50" cy="80" rx="30" ry="22" fill="%23333"/%3E%3C/svg%3E';
+
+const fmtTime = (sec) => {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+};
 
 export default function MovieDetail() {
   const { id } = useParams();
@@ -17,6 +23,9 @@ export default function MovieDetail() {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [showArtwork, setShowArtwork] = useState(false);
+  // This user's progress: { position, completed }
+  const [progress, setProgress] = useState({ position: 0, completed: false });
+  const [savingWatched, setSavingWatched] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -25,6 +34,22 @@ export default function MovieDetail() {
       .catch(() => setError('Movie not found'))
       .finally(() => setLoading(false));
   }, [id, refreshKey]);
+
+  useEffect(() => {
+    axios.get(`/api/stream/progress/movie/${id}`)
+      .then(res => setProgress(res.data || { position: 0, completed: false }))
+      .catch(() => {});
+  }, [id]);
+
+  const toggleWatched = async () => {
+    const watched = !progress.completed;
+    setSavingWatched(true);
+    try {
+      await axios.post('/api/stream/watched', { mediaType: 'movie', mediaId: Number(id), watched });
+      setProgress({ position: 0, completed: watched });
+    } catch {}
+    setSavingWatched(false);
+  };
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>;
 
@@ -37,6 +62,8 @@ export default function MovieDetail() {
   );
 
   const { movie, cast, director, similarLocal } = data;
+  // Same threshold the player uses to resume.
+  const inProgress = !progress.completed && progress.position > 10;
 
   return (
     <>
@@ -148,8 +175,16 @@ export default function MovieDetail() {
                 onMouseEnter={e => { e.currentTarget.style.background = '#33cfff'; e.currentTarget.style.transform = 'scale(1.03)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = '#00c2ff'; e.currentTarget.style.transform = 'scale(1)'; }}
               >
-                ▶ Play Now
+                {inProgress ? `▶ Resume from ${fmtTime(progress.position)}` : '▶ Play Now'}
               </button>
+              {inProgress && (
+                <SecondaryButton onClick={() => navigate(`/watch/movie/${movie.id}`, { state: { fromStart: true } })}>
+                  ↺ Play from Beginning
+                </SecondaryButton>
+              )}
+              <SecondaryButton onClick={toggleWatched} disabled={savingWatched}>
+                {progress.completed ? '✓ Mark as Unwatched' : '✓ Mark as Watched'}
+              </SecondaryButton>
             </div>
           </div>
         </div>

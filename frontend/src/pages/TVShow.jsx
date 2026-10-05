@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
+import SecondaryButton from '../components/SecondaryButton';
 import { useAuth } from '../context/AuthContext';
 
 const PLACEHOLDER_POSTER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
@@ -20,6 +21,10 @@ export default function TVShow() {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [showArtwork, setShowArtwork] = useState(false);
+  const [firstEpisodeId, setFirstEpisodeId] = useState(null);
+  const [started, setStarted] = useState(false); // this user has watched any of it
+  const [savingWatched, setSavingWatched] = useState(false);
+  const [confirmUnwatch, setConfirmUnwatch] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -29,6 +34,8 @@ export default function TVShow() {
         setSeasons(res.data.seasons || []);
         setCast(res.data.cast || []);
         setSimilarLocal(res.data.similarLocal || []);
+        setFirstEpisodeId(res.data.firstEpisodeId ?? null);
+        setStarted(!!res.data.started);
       })
       .catch(() => setError('Show not found'))
       .finally(() => setLoading(false));
@@ -45,6 +52,24 @@ export default function TVShow() {
   );
 
   const allSeasonsWatched = seasons.length > 0 && seasons.every(s => s.episode_count > 0 && s.watched_count >= s.episode_count);
+
+  // Whole show. Unwatching clears every episode's progress, so it takes a second click.
+  const toggleWatched = async () => {
+    const watched = !allSeasonsWatched;
+    if (!watched && !confirmUnwatch) {
+      setConfirmUnwatch(true);
+      setTimeout(() => setConfirmUnwatch(false), 4000);
+      return;
+    }
+    setConfirmUnwatch(false);
+    setSavingWatched(true);
+    try {
+      await axios.post('/api/stream/watched', { mediaType: 'show', mediaId: Number(id), watched });
+      setSeasons(ss => ss.map(s => ({ ...s, watched_count: watched ? s.episode_count : 0 })));
+      setStarted(watched);
+    } catch {}
+    setSavingWatched(false);
+  };
 
   return (
     <>
@@ -162,6 +187,21 @@ export default function TVShow() {
                 >
                   ▶ Play
                 </button>
+              )}
+              {started && firstEpisodeId && (
+                <SecondaryButton
+                  onClick={() => navigate(`/watch/episode/${firstEpisodeId}`, { state: { fromStart: true } })}
+                  title="Play the first episode from the start"
+                >
+                  ↺ Play from Beginning
+                </SecondaryButton>
+              )}
+              {seasons.length > 0 && (
+                <SecondaryButton onClick={toggleWatched} disabled={savingWatched}>
+                  {confirmUnwatch
+                    ? 'Click again to clear all progress'
+                    : allSeasonsWatched ? '✓ Mark as Unwatched' : '✓ Mark as Watched'}
+                </SecondaryButton>
               )}
             </div>
           </div>
