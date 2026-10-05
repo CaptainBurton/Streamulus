@@ -4,6 +4,13 @@ import UIKit
 struct MainTabView: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
+    /// Current frame of an animated (GIF) profile picture in the tab bar.
+    @State private var avatarFrame = 0
+
+    private var tabAvatarImage: UIImage? {
+        let frames = session.tabAvatarFrames
+        return frames.isEmpty ? session.tabAvatar : frames[avatarFrame % frames.count]
+    }
 
     var body: some View {
         // On tvOS 26+ the system draws this tab bar as Liquid Glass.
@@ -17,6 +24,9 @@ struct MainTabView: View {
             Tab("TV Shows", systemImage: "tv.fill") {
                 NavigationStack { ShowGridView() }
             }
+            Tab("Genres", systemImage: "square.grid.2x2.fill") {
+                NavigationStack { GenresView() }
+            }
             // The profile tab shows the current profile's own picture.
             Tab {
                 NavigationStack { AccountView() }
@@ -24,7 +34,7 @@ struct MainTabView: View {
                 Label {
                     Text(session.profile?.name ?? "Profile")
                 } icon: {
-                    if let avatar = session.tabAvatar {
+                    if let avatar = tabAvatarImage {
                         Image(uiImage: avatar).renderingMode(.original)
                     } else {
                         Image(systemName: "person.crop.circle.fill")
@@ -35,6 +45,24 @@ struct MainTabView: View {
         .fullScreenCover(item: $player.request) { request in
             PlayerView(request: request, session: session, onClose: { player.request = nil })
         }
+        // Play a GIF profile picture in the tab bar by stepping through its frames
+        // (paused while a video is playing).
+        .task(id: AvatarAnimationKey(frames: session.tabAvatarFrames.count, paused: player.request != nil)) {
+            avatarFrame = 0
+            let count = session.tabAvatarFrames.count
+            guard count > 1, player.request == nil else { return }
+            let nanos = UInt64(session.tabAvatarFrameDuration * 1_000_000_000)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: nanos)
+                if Task.isCancelled { break }
+                avatarFrame = (avatarFrame + 1) % count
+            }
+        }
+    }
+
+    private struct AvatarAnimationKey: Equatable {
+        let frames: Int
+        let paused: Bool
     }
 }
 

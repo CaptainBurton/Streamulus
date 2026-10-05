@@ -21,6 +21,10 @@ final class Session: ObservableObject {
     }
     /// Small round picture of the current profile for the tab bar.
     @Published private(set) var tabAvatar: UIImage?
+    /// For a GIF profile picture: its frames (already round) and how long each
+    /// shows. The tab bar can't play an animated image, so MainTabView swaps them.
+    @Published private(set) var tabAvatarFrames: [UIImage] = []
+    @Published private(set) var tabAvatarFrameDuration: Double = 0.1
     @Published private(set) var serverURL: URL?
 
     private var api: APIClient?
@@ -171,15 +175,31 @@ final class Session: ObservableObject {
     // MARK: Tab bar avatar
 
     private func refreshTabAvatar() async {
-        guard let profile else { tabAvatar = nil; return }
+        guard let profile else {
+            tabAvatar = nil
+            tabAvatarFrames = []
+            return
+        }
         var photo: UIImage?
         if let url = imageURL(profile.avatarPath) {
-            let result = try? await URLSession.shared.data(from: url)
-            if let result { photo = UIImage(data: result.0) }
+            // Small frames are plenty for a 32 pt icon (3x for sharpness).
+            photo = await AnimatedImageLoader.load(url, maxPixelSize: 96)
         }
         guard self.profile?.id == profile.id else { return }
         // Tab bar icons are shown at their own size, so keep this within the bar's height.
-        tabAvatar = Self.roundAvatar(photo: photo, profile: profile, size: 32)
+        let size: CGFloat = 32
+        if let photo, let images = photo.images, images.count > 1 {
+            // At most ~12 changes a second; skip frames evenly for faster GIFs.
+            let frameDuration = photo.duration / Double(images.count)
+            let step = max(1, Int((0.08 / max(frameDuration, 0.001)).rounded(.up)))
+            let frames = stride(from: 0, to: images.count, by: step).map { Self.roundAvatar(photo: images[$0], profile: profile, size: size) }
+            tabAvatarFrameDuration = max(0.08, frameDuration * Double(step))
+            tabAvatarFrames = frames
+            tabAvatar = frames.first
+        } else {
+            tabAvatarFrames = []
+            tabAvatar = Self.roundAvatar(photo: photo, profile: profile, size: size)
+        }
     }
 
     /// Circle-cropped photo, or the profile's initial on its gradient.

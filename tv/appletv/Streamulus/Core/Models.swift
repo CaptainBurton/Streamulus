@@ -482,3 +482,56 @@ extension NextEpisodeResponse {
         upNextSeconds = c.lossyInt(.upNextSeconds) ?? 30
     }
 }
+
+// MARK: - Genres
+
+struct GenreSummary: Decodable, Identifiable, Hashable {
+    let name: String
+    let movieCount: Int
+    let showCount: Int
+    /// The admin's image for the genre, or a random title's artwork.
+    let imageURL: String?
+
+    var id: String { name }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case movieCount = "movie_count"
+        case showCount = "show_count"
+        case imageURL = "image_url"
+    }
+}
+
+extension GenreSummary {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.lossyString(.name) ?? ""
+        movieCount = c.lossyInt(.movieCount) ?? 0
+        showCount = c.lossyInt(.showCount) ?? 0
+        imageURL = c.lossyString(.imageURL)
+    }
+}
+
+struct GenresResponse: Decodable {
+    let genres: [GenreSummary]
+}
+
+struct GenreDetailResponse: Decodable {
+    let genre: String
+    let movies: [Movie]
+    let shows: [Show]
+}
+
+/// A movie or a show in a genre's grid. The id keeps movies and shows apart
+/// (both tables number from 1).
+enum GenreItem: Identifiable, Hashable {
+    case movie(Movie)
+    case show(Show)
+
+    var id: Int {
+        switch self {
+        case .movie(let movie): return movie.id * 2
+        case .show(let show): return show.id * 2 + 1
+        }
+    }
+}
