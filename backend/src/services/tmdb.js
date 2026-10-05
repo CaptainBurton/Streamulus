@@ -63,6 +63,16 @@ async function searchTVList(title, year) {
   return (res.data.results || []).slice(0, 12);
 }
 
+// Any TMDB path in US English (e.g. '/movie/603'), or null.
+async function getEnglish(path) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}${path}`, { params: { api_key: apiKey, language: 'en-US' }, timeout: 10000 });
+    return res.data;
+  } catch { return null; }
+}
+
 async function getMovieDetails(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
@@ -197,7 +207,7 @@ function resolveGenreNames(genreIds, isTV = false) {
 }
 
 module.exports = {
-  getApiKey, searchMovieList, searchTVList,
+  getApiKey, searchMovieList, searchTVList, getEnglish,
   searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating,
   getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
   getMovieImages, getTVImages,

@@ -132,15 +132,15 @@ router.get('/episode/:id/next', authenticate, (req, res) => {
   // How many seconds before the end the player shows the Up Next card (Admin > Settings).
   const upNextSeconds = parseInt(db.prepare("SELECT value FROM config WHERE key = 'up_next_seconds'").get()?.value || '30') || 30;
   res.json({
-    next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title } : null,
+    next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title, title_en: next.title_en } : null,
     upNextSeconds,
   });
 });
 
 router.get('/episode/:id', authenticate, (req, res) => {
   const row = db.prepare(`
-    SELECT e.season, e.episode_number, e.title as episode_title,
-           s.title as show_title, s.id as show_id
+    SELECT e.season, e.episode_number, e.title as episode_title, e.title_en as episode_title_en,
+           s.title as show_title, s.title_en as show_title_en, s.id as show_id
     FROM episodes e
     JOIN tv_shows s ON s.id = e.show_id
     WHERE e.id = ?

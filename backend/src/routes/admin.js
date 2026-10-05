@@ -472,6 +472,8 @@ router.post('/match/apply', requireAdmin, async (req, res) => {
   }
   try {
     const { episodes } = await require('../services/match').apply(type, parseInt(mediaId, 10), source, String(id));
+    // English title/overview for the new match (and its episodes, once they've updated).
+    setTimeout(() => require('../services/english').fillMissingEnglish().catch(() => {}), episodes ? 60000 : 0);
     res.json({ success: true, episodesUpdating: episodes });
   } catch (e) {
     res.status(e.status || 502).json({ error: e.message || 'Could not apply that match' });

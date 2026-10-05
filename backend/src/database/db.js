@@ -181,6 +181,14 @@ try { db.exec('ALTER TABLE tv_shows ADD COLUMN logo_path TEXT'); } catch {}
 // grouped as "Anime". NULL = not looked up yet. See services/languages.js.
 try { db.exec('ALTER TABLE movies ADD COLUMN original_language TEXT'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN original_language TEXT'); } catch {}
+// English title/overview when the stored ones aren't English (services/english.js).
+// NULL = not checked yet, '' = nothing different in English.
+for (const table of ['movies', 'tv_shows', 'episodes']) {
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN title_en TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN overview_en TEXT`); } catch {}
+}
+// Per profile: show titles and descriptions in English where available.
+try { db.exec('ALTER TABLE profiles ADD COLUMN english_titles INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN parental_lock_method TEXT NOT NULL DEFAULT 'password'"); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_wh_profile ON watch_history(profile_id, media_type, media_id)');
 

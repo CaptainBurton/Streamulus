@@ -9,6 +9,7 @@ const { getHLSSession, getManifestContent, getSegmentPath, getSessionTotalDurati
 const { posterUrl, backdropUrl } = require('../services/tmdb');
 const { resolveFilePath } = require('../services/path-repair');
 const { kidsScope, canAccess } = require('../services/kids');
+const { pick } = require('../services/locale');
 
 const router = express.Router();
 
@@ -243,7 +244,7 @@ router.get('/continue-watching', authenticate, (req, res) => {
 
   const movies = db.prepare(`
     SELECT 'movie' as type, wh.media_id as id, wh.position, wh.watched_at,
-           m.title, m.poster_path, m.backdrop_path, m.year, m.duration
+           m.title, m.title_en, m.poster_path, m.backdrop_path, m.year, m.duration
     FROM watch_history wh
     JOIN movies m ON m.id = wh.media_id
     WHERE wh.profile_id = ? AND wh.media_type='movie' AND wh.completed=0 AND wh.position>?
@@ -257,7 +258,7 @@ router.get('/continue-watching', authenticate, (req, res) => {
   const episodes = db.prepare(`
     SELECT 'episode' as type, wh.media_id as id, wh.position, wh.watched_at,
            s.title, s.poster_path, s.backdrop_path, s.id as show_id,
-           e.season, e.episode_number, e.title as episode_title, e.duration
+           s.title_en, e.season, e.episode_number, e.title as episode_title, e.title_en as episode_title_en, e.duration
     FROM watch_history wh
     JOIN episodes e ON e.id = wh.media_id
     JOIN tv_shows s ON s.id = e.show_id
@@ -265,7 +266,7 @@ router.get('/continue-watching', authenticate, (req, res) => {
     ORDER BY wh.watched_at DESC LIMIT 20
   `).all(req.profile.id, minSecs).map(e => ({
     ...e,
-    subtitle: `S${String(e.season).padStart(2,'0')}E${String(e.episode_number).padStart(2,'0')}${e.episode_title ? ` · ${e.episode_title}` : ''}`,
+    subtitle: `S${String(e.season).padStart(2,'0')}E${String(e.episode_number).padStart(2,'0')}${pick(e, 'episode_title') ? ` · ${pick(e, 'episode_title')}` : ''}`,
     poster_url: resolveImg(e.poster_path, posterUrl),
     backdrop_url: resolveImg(e.backdrop_path, backdropUrl),
   }));

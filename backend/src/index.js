@@ -79,5 +79,7 @@ app.listen(PORT, '0.0.0.0', () => {
     .then(() => require('./services/durations').fillMissingDurations())
     .catch(err => console.error('[durations] Failed:', err.message))
     .then(() => require('./services/languages').fillMissingLanguages())
-    .catch(err => console.error('[languages] Failed:', err.message));
+    .catch(err => console.error('[languages] Failed:', err.message))
+    .then(() => require('./services/english').fillMissingEnglish())
+    .catch(err => console.error('[english] Failed:', err.message));
 });

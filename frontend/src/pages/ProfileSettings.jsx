@@ -73,6 +73,8 @@ export default function ProfileSettings() {
           <ProfileEditor p={profile} self canManage={isMain} onChanged={afterProfileChange} say={say} errText={errText} />
         )}
 
+        <LanguageSection profile={profile} onChanged={refresh} say={say} errText={errText} />
+
         {!isKids && (
           <Card title="Quick Login" subtitle="Sign in your Apple TV or another device without typing your password: choose Quick Login on that device, then enter the code it shows here.">
             <Btn primary onClick={() => navigate('/quick-login')}>Enter a Quick Login code</Btn>
@@ -227,6 +229,36 @@ function AddProfile({ onAdded, say, errText }) {
 }
 
 // ── Parental lock (main profile only) ────────────────────────────────────────
+// ── Titles in English (any profile, Streamlings too) ─────────────────────────
+function LanguageSection({ profile, onChanged, say, errText }) {
+  const [busy, setBusy] = useState(false);
+  const on = !!profile.english_titles;
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      await axios.put(`/api/profiles/${profile.id}`, { english_titles: !on });
+      await onChanged();
+      say(!on ? 'Titles and descriptions will show in English' : 'Titles and descriptions will show as stored');
+    } catch (err) { say(errText(err, "Couldn't save that setting"), true); }
+    setBusy(false);
+  };
+  return (
+    <Card title="Language" subtitle="For movies and shows whose title or description is in another language (often anime and foreign shows).">
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', cursor: 'pointer' }}>
+        <span>
+          <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#ccc' }}>Show titles and descriptions in English</span>
+          <span style={{ display: 'block', fontSize: '12px', color: '#666', marginTop: '2px' }}>Where an English version is available. Applies to this profile, on the web and the Apple TV.</span>
+        </span>
+        <button type="button" role="switch" aria-checked={on} aria-label="Show titles and descriptions in English" disabled={busy} onClick={toggle}
+          style={{ width: '46px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0,
+            background: on ? '#00c2ff' : 'rgba(255,255,255,0.15)', transition: 'background 0.2s' }}>
+          <span style={{ position: 'absolute', top: '3px', left: on ? '23px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+        </button>
+      </label>
+    </Card>
+  );
+}
+
 function ParentalLockSection({ lock, onChanged, say, errText }) {
   const [busy, setBusy] = useState(false);
   const save = async (changes) => {

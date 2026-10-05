@@ -149,34 +149,112 @@ function ffmpegToVtt(args, input) {
   });
 }
 
-const inFlight = new Map();
+// ── Getting WebVTT ──────────────────────────────────────────────────────────
+// Sidecar files convert in a moment. Tracks inside the video mean reading the
+// whole file (minutes for a big movie over the network), so:
+//  - all of a file's embedded text tracks are extracted together, in one pass,
+//    started as soon as a player asks which subtitles there are (warm());
+//  - while that runs, the cues written so far are served (complete: false) and
+//    the players fetch again until it's done; the finished file is cached.
 
-// WebVTT text for a track, converted once and cached (extracting from inside a
-// big file means reading all of it, so the first time can take a while).
-async function getVtt(filePath, track) {
-  const stat = fs.statSync(filePath);
+const inFlight = new Map();     // sidecar conversions: cache key → Promise
+const extractions = new Map();  // video file → { trackIds: Set, error, done: Promise }
+
+function cacheKeyFor(filePath, track) {
   const source = track.source === 'external' ? path.join(path.dirname(filePath), track.file) : filePath;
-  const sourceStat = track.source === 'external' ? fs.statSync(source) : stat;
-  const key = crypto.createHash('sha1').update(`${source}:${track.id}:${sourceStat.size}:${sourceStat.mtimeMs}`).digest('hex');
-  const cachePath = path.join(CACHE_DIR, `${key}.vtt`);
-  if (fs.existsSync(cachePath)) return fs.readFileSync(cachePath, 'utf8');
-  if (inFlight.has(key)) return inFlight.get(key);
-
-  const job = (async () => {
-    let vtt;
-    if (track.source === 'external') {
-      const text = decodeText(fs.readFileSync(source));
-      if (track.codec === 'vtt') vtt = text.startsWith('WEBVTT') ? text : `WEBVTT\n\n${text}`;
-      else if (track.codec === 'srt') vtt = srtToVtt(text);
-      else vtt = await ffmpegToVtt(['-v', 'error', '-f', track.codec, '-i', 'pipe:0', '-f', 'webvtt', '-'], text); // ASS/SSA
-    } else {
-      vtt = await ffmpegToVtt(['-v', 'error', '-i', source, '-map', `0:${track.id.slice(1)}`, '-f', 'webvtt', '-'], null);
-    }
-    fs.writeFileSync(cachePath, vtt);
-    return vtt;
-  })();
-  inFlight.set(key, job);
-  try { return await job; } finally { inFlight.delete(key); }
+  const st = fs.statSync(source);
+  const key = crypto.createHash('sha1').update(`${source}:${track.id}:${st.size}:${st.mtimeMs}`).digest('hex');
+  return { source, cachePath: path.join(CACHE_DIR, `${key}.vtt`) };
 }
 
-module.exports = { listTracks, getVtt, language };
+// One FFmpeg pass writing every not-yet-cached embedded text track of a file.
+function startExtraction(filePath, tracks) {
+  const pending = tracks.filter(t => t.source === 'embedded' && !fs.existsSync(cacheKeyFor(filePath, t).cachePath));
+  const running = extractions.get(filePath);
+  if (running && !running.error) {
+    if (pending.every(t => running.trackIds.has(t.id))) return running;
+  }
+  if (!pending.length) return null;
+
+  const outputs = pending.map(t => ({ track: t, ...cacheKeyFor(filePath, t) }));
+  const args = ['-v', 'error', '-nostdin', '-i', filePath];
+  for (const o of outputs) {
+    // flush_packets: each cue reaches the .part file as soon as it's read, so
+    // partial subtitles can be served while the rest of the file is read.
+    args.push('-map', `0:${o.track.id.slice(1)}`, '-c:s', 'webvtt', '-flush_packets', '1', '-f', 'webvtt', '-y', `${o.cachePath}.part`);
+  }
+  const job = { trackIds: new Set(pending.map(t => t.id)), error: null, outputs };
+  job.done = new Promise((resolve) => {
+    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    proc.stderr.on('data', d => { err += d; });
+    const timer = setTimeout(() => proc.kill('SIGKILL'), 30 * 60 * 1000);
+    const finish = (ok, message) => {
+      clearTimeout(timer);
+      for (const o of outputs) {
+        try {
+          if (ok) fs.renameSync(`${o.cachePath}.part`, o.cachePath);
+          else fs.rmSync(`${o.cachePath}.part`, { force: true });
+        } catch {}
+      }
+      if (!ok) job.error = message;
+      console.log(`[subtitles] ${ok ? 'Extracted' : 'Failed'} ${outputs.length} track(s): ${path.basename(filePath)}${ok ? '' : ` — ${message}`}`);
+      if (extractions.get(filePath) === job && ok) extractions.delete(filePath);
+      resolve();
+    };
+    proc.on('error', e => finish(false, e.message));
+    proc.on('exit', (code, signal) => finish(code === 0, err.trim().split('\n').pop() || (signal ? `ffmpeg ${signal}` : `ffmpeg exit ${code}`)));
+  });
+  extractions.set(filePath, job);
+  console.log(`[subtitles] Extracting ${outputs.length} embedded track(s): ${path.basename(filePath)}`);
+  return job;
+}
+
+// Start extracting a file's embedded subtitles in the background (player opened).
+function warm(filePath, tracks) {
+  try { startExtraction(filePath, tracks); } catch (e) { console.error(`[subtitles] warm: ${e.message}`); }
+}
+
+// Everything up to the last complete cue of a file still being written.
+function completeCues(text) {
+  if (!text.startsWith('WEBVTT')) return 'WEBVTT\n\n';
+  const cut = text.lastIndexOf('\n\n');
+  return cut > 0 ? text.slice(0, cut + 2) : 'WEBVTT\n\n';
+}
+
+// { text, complete } for a track. Incomplete text is a valid WebVTT file with
+// the cues extracted so far.
+async function getVtt(filePath, track) {
+  const { source, cachePath } = cacheKeyFor(filePath, track);
+  if (fs.existsSync(cachePath)) return { text: fs.readFileSync(cachePath, 'utf8'), complete: true };
+
+  if (track.source === 'external') {
+    if (!inFlight.has(cachePath)) {
+      inFlight.set(cachePath, (async () => {
+        const text = decodeText(fs.readFileSync(source));
+        let vtt;
+        if (track.codec === 'vtt') vtt = text.startsWith('WEBVTT') ? text : `WEBVTT\n\n${text}`;
+        else if (track.codec === 'srt') vtt = srtToVtt(text);
+        else vtt = await ffmpegToVtt(['-v', 'error', '-f', track.codec, '-i', 'pipe:0', '-f', 'webvtt', '-'], text); // ASS/SSA
+        fs.writeFileSync(cachePath, vtt);
+        return vtt;
+      })().finally(() => inFlight.delete(cachePath)));
+    }
+    return { text: await inFlight.get(cachePath), complete: true };
+  }
+
+  const job = startExtraction(filePath, [track]) || extractions.get(filePath);
+  if (!job) {
+    if (fs.existsSync(cachePath)) return { text: fs.readFileSync(cachePath, 'utf8'), complete: true };
+    throw new Error('Could not start reading subtitles');
+  }
+  // Give it a moment (short tracks / fast disks finish straight away).
+  await Promise.race([job.done, new Promise(r => setTimeout(r, 2500))]);
+  if (fs.existsSync(cachePath)) return { text: fs.readFileSync(cachePath, 'utf8'), complete: true };
+  if (job.error) throw new Error(`Could not read subtitles: ${job.error}`);
+  let partial = '';
+  try { partial = fs.readFileSync(`${cachePath}.part`, 'utf8'); } catch {}
+  return { text: completeCues(partial), complete: false };
+}
+
+module.exports = { listTracks, getVtt, warm, language };

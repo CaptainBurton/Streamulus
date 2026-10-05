@@ -97,7 +97,8 @@ async function applyMovie(movie, source, id) {
   }
   // logo_path NULL: fetch the new title's logo next time it's shown.
   db.prepare(`UPDATE movies SET title=?, year=?, tmdb_id=?, imdb_id=?, overview=?, poster_path=?, backdrop_path=?,
-              rating=?, genres=?, imdb_rating=?, content_rating=?, original_language=?, logo_path=NULL WHERE id=?`)
+              rating=?, genres=?, imdb_rating=?, content_rating=?, original_language=?, logo_path=NULL,
+              title_en=NULL, overview_en=NULL WHERE id=?`)
     .run(row.title || movie.title, row.year || null, row.tmdb_id, row.imdb_id, row.overview, row.poster_path,
          row.backdrop_path, row.rating, row.genres, row.imdb_rating, row.content_rating, row.original_language, movie.id);
 }
@@ -112,7 +113,7 @@ function refreshEpisodes(showId, lookup) {
       await Promise.all(episodes.slice(i, i + 4).map(async ep => {
         const d = await lookup(ep.season, ep.episode_number).catch(() => null);
         if (!d) return;
-        db.prepare('UPDATE episodes SET title=?, overview=?, still_path=? WHERE id=?')
+        db.prepare('UPDATE episodes SET title=?, overview=?, still_path=?, title_en=NULL, overview_en=NULL WHERE id=?')
           .run(d.name || ep.title, d.overview || ep.overview, d.still_path || ep.still_path, ep.id);
         updated++;
       }));
@@ -178,7 +179,8 @@ async function applyShow(show, source, id) {
     if (od) Object.assign(row, { imdb_id: row.imdb_id || od.imdb_id, imdb_rating: od.imdb_rating, content_rating: od.content_rating });
   }
   db.prepare(`UPDATE tv_shows SET title=?, tmdb_id=?, tvdb_id=?, imdb_id=?, overview=?, poster_path=?, backdrop_path=?,
-              rating=?, genres=?, status=?, first_air_date=?, imdb_rating=?, content_rating=?, original_language=?, logo_path=NULL WHERE id=?`)
+              rating=?, genres=?, status=?, first_air_date=?, imdb_rating=?, content_rating=?, original_language=?, logo_path=NULL,
+              title_en=NULL, overview_en=NULL WHERE id=?`)
     .run(row.title || show.title, row.tmdb_id, row.tvdb_id, row.imdb_id, row.overview, row.poster_path, row.backdrop_path,
          row.rating, row.genres, row.status, row.first_air_date, row.imdb_rating, row.content_rating, row.original_language, show.id);
   return episodeLookup ? refreshEpisodes(show.id, episodeLookup) : 0;

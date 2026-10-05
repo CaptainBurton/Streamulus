@@ -21,6 +21,7 @@ function publicProfile(p) {
     is_main: !!p.is_main,
     is_kids: !!p.is_kids,
     has_pin: !!p.pin_hash,
+    english_titles: !!p.english_titles,
   };
 }
 

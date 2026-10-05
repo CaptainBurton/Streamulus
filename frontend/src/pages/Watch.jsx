@@ -686,22 +686,32 @@ export default function Watch() {
     return () => { cancelled = true; };
   }, [type, id]);
 
+  // Subtitles inside the video file are read on the server while you watch: the
+  // first answer may hold only the cues read so far (X-Subtitles-Complete: 0),
+  // so ask again every few seconds until it's all there.
   useEffect(() => {
     setSubCues([]); setSubError('');
     if (!subTrackId) return;
     lastSubRef.current = subTrackId;
     let cancelled = false;
+    let timer = null;
     setSubLoading(true);
-    axios.get(`/api/subtitles/${type}/${id}/${subTrackId}.vtt`, { responseType: 'text', transformResponse: [d => d] })
-      .then(res => { if (!cancelled) setSubCues(parseVtt(res.data)); })
+    const fetchCues = () => axios.get(`/api/subtitles/${type}/${id}/${subTrackId}.vtt`, { responseType: 'text', transformResponse: [d => d] })
+      .then(res => {
+        if (cancelled) return;
+        setSubCues(parseVtt(res.data));
+        setSubLoading(false);
+        if (res.headers['x-subtitles-complete'] === '0') timer = setTimeout(fetchCues, 4000);
+      })
       .catch(err => {
         if (cancelled) return;
         let msg = 'Could not load subtitles';
         try { msg = JSON.parse(err.response?.data || '{}').error || msg; } catch {}
         setSubError(msg);
-      })
-      .finally(() => { if (!cancelled) setSubLoading(false); });
-    return () => { cancelled = true; };
+        setSubLoading(false);
+      });
+    fetchCues();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [subTrackId, type, id]);
 
   const chooseSubtitle = useCallback((track) => {

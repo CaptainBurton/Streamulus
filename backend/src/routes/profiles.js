@@ -85,9 +85,13 @@ router.post('/', authenticate, (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   const target = getOwnProfile(req, req.params.id);
   if (!target) return res.status(404).json({ error: 'Profile not found' });
-  if (!canEdit(req, target)) return res.status(403).json({ error: "You can't edit this profile" });
+  // Anyone (Streamlings too) can switch English titles for themselves.
+  const onlyEnglish = Object.keys(req.body || {}).every(k => k === 'english_titles');
+  const ownProfile = target.id === req.profile.id;
+  if (!canEdit(req, target) && !(onlyEnglish && ownProfile)) return res.status(403).json({ error: "You can't edit this profile" });
 
   const updates = {};
+  if (req.body.english_titles !== undefined) updates.english_titles = req.body.english_titles ? 1 : 0;
   if (req.body.name !== undefined) {
     const name = cleanName(req.body.name);
     if (!name) return res.status(400).json({ error: 'Profile name must be 1–20 characters' });
