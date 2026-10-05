@@ -273,3 +273,4 @@ router.get('/:id/season/:season', authenticate, (req, res) => {
 });
 
 module.exports = router;
+module.exports.formatShow = formatShow;

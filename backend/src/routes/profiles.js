@@ -201,3 +201,4 @@ router.post('/:id/select', authenticate, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.imageExt = imageExt;

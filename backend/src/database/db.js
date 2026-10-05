@@ -157,6 +157,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_profiles_user ON profiles(user_id);
 
   -- Admin's per-title choices for Streamlings; overrides the age-rating rule.
+  -- Admin-chosen artwork for a genre card (otherwise a random title's artwork).
+  CREATE TABLE IF NOT EXISTS genre_images (
+    name TEXT PRIMARY KEY,
+    image_path TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS kids_overrides (
     media_type TEXT NOT NULL,   -- 'movie' | 'show'
     media_id INTEGER NOT NULL,

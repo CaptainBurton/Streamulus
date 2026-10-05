@@ -4,6 +4,7 @@ import Navbar from '../components/Navbar';
 import RefreshIcon from '../components/RefreshIcon';
 import ProfileAvatar from '../components/ProfileAvatar';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
+import GenresAdmin from '../components/GenresAdmin';
 
 function StatCard({ label, value, icon }) {
   return (
@@ -537,7 +538,7 @@ export default function Admin() {
 
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
-  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'settings'];
+  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'genres', 'settings'];
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
@@ -755,6 +756,8 @@ export default function Admin() {
 
         {/* Streamlings (kids profiles) */}
         {activeTab === 'streamlings' && <StreamlingsAdmin flash={flash} />}
+
+        {activeTab === 'genres' && <GenresAdmin flash={flash} />}
 
         {/* Settings */}
         {activeTab === 'settings' && (

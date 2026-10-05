@@ -171,7 +171,10 @@ export default function Navbar() {
     { to: '/', label: 'Home' },
     { to: '/movies', label: 'Movies' },
     { to: '/tv', label: 'TV Shows' },
+    { to: '/genres', label: 'Genres' },
   ];
+  // A genre's own page (/genre/Action) keeps "Genres" highlighted.
+  const isActive = (to) => location.pathname === to || (to === '/genres' && location.pathname.startsWith('/genre/'));
 
   const handleLogout = () => {
     logout();
@@ -214,10 +217,10 @@ export default function Navbar() {
                   to={to}
                   style={{
                     ...styles.link,
-                    ...(location.pathname === to ? styles.activeLink : {}),
+                    ...(isActive(to) ? styles.activeLink : {}),
                   }}
-                  onMouseEnter={e => { if (location.pathname !== to) e.target.style.color = '#fff'; }}
-                  onMouseLeave={e => { if (location.pathname !== to) e.target.style.color = '#b3b3b3'; }}
+                  onMouseEnter={e => { if (!isActive(to)) e.target.style.color = '#fff'; }}
+                  onMouseLeave={e => { if (!isActive(to)) e.target.style.color = '#b3b3b3'; }}
                 >
                   {label}
                 </Link>
@@ -352,13 +355,13 @@ export default function Navbar() {
               to={to}
               style={{
                 ...styles.mobileLinkItem,
-                ...(location.pathname === to ? styles.mobileLinkItemActive : {}),
+                ...(isActive(to) ? styles.mobileLinkItemActive : {}),
               }}
               onClick={closeBothMenus}
               onMouseEnter={e => { e.currentTarget.style.color = '#fff'; }}
               onMouseLeave={e => {
                 e.currentTarget.style.color =
-                  location.pathname === to ? '#fff' : '#b3b3b3';
+                  isActive(to) ? '#fff' : '#b3b3b3';
               }}
             >
               {label}

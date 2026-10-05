@@ -163,3 +163,4 @@ router.get('/:id/details', authenticate, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.formatMovie = formatMovie;
