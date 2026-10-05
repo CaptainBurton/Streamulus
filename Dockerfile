@@ -32,12 +32,19 @@ COPY backend/ .
 # Copy built frontend into backend's public directory
 COPY --from=frontend-builder /app/frontend/dist ./public
 
+# Record when this image was built (after both copies, so a change to either the
+# backend or frontend updates it). Printed at startup and by /api/health so you
+# can confirm a redeploy is running the new build.
+RUN date -u '+%Y-%m-%d %H:%M UTC' > /app/BUILD_DATE
+
 # Create default mount points
 RUN mkdir -p /data /movies /tv
 
 EXPOSE 8096
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
-  CMD node -e "require('http').get('http://127.0.0.1:8096/api/setup/status',r=>{process.exit(r.statusCode<500?0:1)}).on('error',()=>process.exit(1))"
+# Lightweight check: BusyBox wget against /api/health (no database or disk work),
+# instead of starting a whole Node.js process every 30 s.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget -q -T 5 -O /dev/null "http://127.0.0.1:${PORT:-8096}/api/health" || exit 1
 
 CMD ["node", "src/index.js"]

@@ -10,6 +10,15 @@ const PORT = process.env.PORT || 8096;
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
+// When this image was built (written by the Dockerfile) — shows which build is running.
+const BUILD_DATE = (() => {
+  try { return fs.readFileSync(path.join(__dirname, '../BUILD_DATE'), 'utf8').trim(); } catch { return 'unknown'; }
+})();
+
+// Docker health check: answers without touching the database or disk, so it
+// only fails if the server itself is down or stuck.
+app.get('/api/health', (req, res) => res.json({ ok: true, build: BUILD_DATE }));
+
 // API routes
 app.use('/api/setup', require('./routes/setup'));
 app.use('/api/auth', require('./routes/auth'));
@@ -46,7 +55,8 @@ if (fs.existsSync(publicDir)) {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`========================================`);
   console.log(`  Streamulus running on port ${PORT}`);
-  console.log(`  Build date: ${new Date().toISOString()}`);
+  console.log(`  Image built: ${BUILD_DATE}`);
+  console.log(`  Started:     ${new Date().toISOString()}`);
 
   // Check FFmpeg at startup — result appears immediately in Portainer container logs
   try {

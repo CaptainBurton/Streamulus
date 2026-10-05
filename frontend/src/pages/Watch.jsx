@@ -72,6 +72,7 @@ export default function Watch() {
   // Stable callback refs (used inside keyboard / drag handlers to avoid stale closures)
   const startHlsAtRef = useRef(null);
   const skipRef       = useRef(null);
+  const seekToRef     = useRef(null);
   const fsRef          = useRef(null);
   const isDragging     = useRef(false);
   const totalDurRef    = useRef(0);
@@ -520,7 +521,7 @@ export default function Watch() {
       if (!isDragging.current) return;
       isDragging.current = false;
       const pos = posAt(e.clientX);
-      if (pos !== null && startHlsAtRef.current) startHlsAtRef.current(Math.max(0, Math.floor(pos)));
+      if (pos !== null) seekToRef.current?.(pos);
       setDragTime(null);
     };
     const onTMove = (e) => { if (isDragging.current) setDragTime(posAt(e.touches[0].clientX)); };
@@ -528,7 +529,7 @@ export default function Watch() {
       if (!isDragging.current) return;
       isDragging.current = false;
       const pos = posAt(e.changedTouches[0].clientX);
-      if (pos !== null && startHlsAtRef.current) startHlsAtRef.current(Math.max(0, Math.floor(pos)));
+      if (pos !== null) seekToRef.current?.(pos);
       setDragTime(null);
     };
     window.addEventListener('mousemove', onMove);
@@ -693,18 +694,29 @@ export default function Watch() {
     showControls();
   }, [showControls]);
 
+  // Seek to an absolute position. The current stream's playlist runs from where
+  // it started to the end of the file, so anything after that start is a plain
+  // playhead move (the server restarts its transcode at that point). Only going
+  // back before the stream's start needs a new stream — which tears down the
+  // player and probes the file again, so it's much slower.
+  const seekTo = useCallback((absPos) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const rel = absPos - startPosRef.current;
+    if (rel >= 0 && isFinite(v.duration) && v.duration > 0 && rel <= v.duration) {
+      v.currentTime = rel;
+    } else {
+      startHlsAtRef.current?.(Math.max(0, Math.floor(absPos)));
+    }
+  }, []);
+  seekToRef.current = seekTo;
+
   const handleSkip = useCallback((delta) => {
     const v = videoRef.current;
     if (!v) return;
     showControls();
-    const newAbs = startPosRef.current + v.currentTime + delta;
-    const newRel = newAbs - startPosRef.current;
-    if (newRel >= 0 && v.duration > 0 && newRel <= v.duration) {
-      v.currentTime = newRel;
-    } else if (startHlsAtRef.current) {
-      startHlsAtRef.current(Math.max(0, Math.floor(newAbs)));
-    }
-  }, [showControls]);
+    seekTo(startPosRef.current + v.currentTime + delta);
+  }, [showControls, seekTo]);
 
   skipRef.current = handleSkip;
 
@@ -981,7 +993,7 @@ export default function Watch() {
 
               {/* Start from beginning */}
               <button
-                onClick={() => startHlsAtRef.current?.(0)}
+                onClick={() => seekTo(0)}
                 style={{ ...S.iBtn, marginRight: showVol ? '0px' : '4px', transition: 'margin 0.2s' }}
                 className="pbtn player-restart-btn"
                 title="Start from beginning"
