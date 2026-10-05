@@ -70,9 +70,10 @@ export function AuthProvider({ children }) {
     return completeLogin(res.data);
   };
 
-  // Switch to another profile; pin is needed for PIN-locked profiles.
-  const selectProfile = async (profileId, pin) => {
-    const res = await axios.post(`/api/profiles/${profileId}/select`, pin ? { pin } : {});
+  // Switch to another profile. credentials: { pin } or { password } when the
+  // profile list says that switch needs one (PIN lock / parental lock).
+  const selectProfile = async (profileId, credentials = {}) => {
+    const res = await axios.post(`/api/profiles/${profileId}/select`, credentials);
     setToken(res.data.token);
     setProfile(res.data.profile);
     setPick(false);

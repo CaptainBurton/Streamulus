@@ -4,6 +4,7 @@ import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
 import SecondaryButton from '../components/SecondaryButton';
+import TitleLogo from '../components/TitleLogo';
 import RefreshIcon from '../components/RefreshIcon';
 import { useNow, formatRuntime, endsAt } from '../components/endsAt';
 import { useAuth } from '../context/AuthContext';
@@ -123,9 +124,8 @@ export default function MovieDetail() {
 
           {/* Info */}
           <div style={{ flex: 1, minWidth: '280px', paddingTop: '120px' }}>
-            <h1 style={{ fontSize: '42px', fontWeight: '800', lineHeight: 1.1, marginBottom: '16px', letterSpacing: '-0.5px' }}>
-              {movie.title}
-            </h1>
+            <TitleLogo logoUrl={movie.logo_url} title={movie.title} style={{ marginBottom: '20px' }}
+              textStyle={{ fontSize: '42px', fontWeight: '800', lineHeight: 1.1, marginBottom: '16px', letterSpacing: '-0.5px' }} />
 
             {/* Meta row */}
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>

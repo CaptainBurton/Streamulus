@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import TitleLogo from './TitleLogo';
 
 export default function Hero({ item, type = 'movie' }) {
   const navigate = useNavigate();
@@ -100,16 +101,21 @@ export default function Hero({ item, type = 'movie' }) {
           {item.rating && `★ ${item.rating.toFixed(1)} · `}{type === 'movie' ? 'Movie' : 'TV Show'}
         </div>
 
-        <h1 style={{
-          fontSize: isMobile ? '28px' : '52px',
-          fontWeight: '800',
-          lineHeight: 1.05,
-          marginBottom: '12px',
-          textShadow: '0 2px 8px rgba(0,0,0,0.5)',
-          letterSpacing: isMobile ? '-0.5px' : '-1px',
-        }}>
-          {title}
-        </h1>
+        <TitleLogo
+          logoUrl={item.logo_url}
+          title={title}
+          maxWidth={isMobile ? 260 : 520}
+          maxHeight={isMobile ? 90 : 170}
+          style={{ marginBottom: '16px' }}
+          textStyle={{
+            fontSize: isMobile ? '28px' : '52px',
+            fontWeight: '800',
+            lineHeight: 1.05,
+            marginBottom: '12px',
+            textShadow: '0 2px 8px rgba(0,0,0,0.5)',
+            letterSpacing: isMobile ? '-0.5px' : '-1px',
+          }}
+        />
 
         {item.year && (
           <div style={{ fontSize: '15px', color: '#aaa', marginBottom: '16px' }}>

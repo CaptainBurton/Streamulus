@@ -70,12 +70,18 @@ router.get('/recent', authenticate, (req, res) => {
   res.json({ movies });
 });
 
-router.get('/featured', authenticate, (req, res) => {
+router.get('/featured', authenticate, async (req, res) => {
   const scope = kidsScope(req);
   const movie = scope
     ? db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL AND id IN (SELECT value FROM json_each(?)) ORDER BY RANDOM() LIMIT 1').get(scope.moviesJson)
     : db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL ORDER BY RANDOM() LIMIT 1').get();
-  res.json({ movie: movie ? formatMovie(movie) : null });
+  if (!movie) return res.json({ movie: null });
+  // Title logo for the banner; don't hold the Home page up for more than 2.5 s.
+  const logo = await Promise.race([
+    ensureLogo('movie', movie).catch(() => null),
+    new Promise(r => setTimeout(() => r(null), 2500)),
+  ]);
+  res.json({ movie: { ...formatMovie(movie), logo_url: logo } });
 });
 
 router.get('/:id', authenticate, (req, res) => {
