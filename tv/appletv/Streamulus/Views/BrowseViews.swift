@@ -1,39 +1,55 @@
 import SwiftUI
 import UIKit
 
+/// True while focus is inside a tab's content (not the tab bar itself).
+private struct ContentFocusedKey: FocusedValueKey { typealias Value = Bool }
+
+extension FocusedValues {
+    var contentFocused: Bool? {
+        get { self[ContentFocusedKey.self] }
+        set { self[ContentFocusedKey.self] = newValue }
+    }
+}
+
 struct MainTabView: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
     @State private var selection: AppTab = .home
+    /// Current frame of an animated (GIF) profile picture in the tab bar.
+    @State private var avatarFrame = 0
+    @FocusedValue(\.contentFocused) private var contentFocused
 
     enum AppTab: Hashable { case home, movies, shows, genres, profile }
+
+    private var tabAvatarImage: UIImage? {
+        let frames = session.tabAvatarFrames
+        return frames.isEmpty ? session.tabAvatar : frames[avatarFrame % frames.count]
+    }
 
     var body: some View {
         // On tvOS 26+ the system draws this tab bar as Liquid Glass. Each tab has a
         // fixed value so the selection can't be lost when a label changes.
         TabView(selection: $selection) {
             Tab("Home", systemImage: "house.fill", value: AppTab.home) {
-                NavigationStack { HomeView() }
+                NavigationStack { HomeView() }.focusedSceneValue(\.contentFocused, true)
             }
             Tab("Movies", systemImage: "film.fill", value: AppTab.movies) {
-                NavigationStack { MovieGridView() }
+                NavigationStack { MovieGridView() }.focusedSceneValue(\.contentFocused, true)
             }
             Tab("TV Shows", systemImage: "tv.fill", value: AppTab.shows) {
-                NavigationStack { ShowGridView() }
+                NavigationStack { ShowGridView() }.focusedSceneValue(\.contentFocused, true)
             }
             Tab("Genres", systemImage: "square.grid.2x2.fill", value: AppTab.genres) {
-                NavigationStack { GenresView() }
+                NavigationStack { GenresView() }.focusedSceneValue(\.contentFocused, true)
             }
-            // The profile tab shows the current profile's own picture — a still
-            // one: swapping the icon to animate a GIF made the tab bar lose its
-            // place (moving onto this tab jumped back to Genres).
+            // The profile tab shows the current profile's own picture.
             Tab(value: AppTab.profile) {
-                NavigationStack { AccountView() }
+                NavigationStack { AccountView() }.focusedSceneValue(\.contentFocused, true)
             } label: {
                 Label {
                     Text(session.profile?.name ?? "Profile")
                 } icon: {
-                    if let avatar = session.tabAvatar {
+                    if let avatar = tabAvatarImage {
                         Image(uiImage: avatar).renderingMode(.original)
                     } else {
                         Image(systemName: "person.crop.circle.fill")
@@ -44,6 +60,27 @@ struct MainTabView: View {
         .fullScreenCover(item: $player.request) { request in
             PlayerView(request: request, session: session, onClose: { player.request = nil })
         }
+        // A GIF profile picture plays in the tab bar by stepping through its
+        // frames — only while focus is in the page, not the tab bar: changing
+        // the icon while moving along the tab bar made it lose its place
+        // (moving onto the profile tab jumped back to Genres). Also paused
+        // while a video plays.
+        .task(id: AvatarAnimationKey(frames: session.tabAvatarFrames.count,
+                                     paused: contentFocused != true || player.request != nil)) {
+            let count = session.tabAvatarFrames.count
+            guard count > 1, contentFocused == true, player.request == nil else { return }
+            let nanos = UInt64(session.tabAvatarFrameDuration * 1_000_000_000)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: nanos)
+                if Task.isCancelled { break }
+                avatarFrame = (avatarFrame + 1) % count
+            }
+        }
+    }
+
+    private struct AvatarAnimationKey: Equatable {
+        let frames: Int
+        let paused: Bool
     }
 }
 
@@ -64,6 +101,15 @@ struct HomeView: View {
     @State private var loadedFor: Profile?
     @State private var rotateSeconds = 120
     @State private var heroFocused = false
+    /// Which Home row item has focus, and which area (row, or the banner) had it last.
+    @FocusState private var rowFocus: AnyHashable?
+    @State private var lastArea: Int?
+
+    private struct RowItem: Hashable {
+        let row: Int
+        let id: String
+    }
+    private static let bannerArea = -1
     @State private var continueItems: [ContinueItem] = []
     @State private var movies: [Movie] = []
     @State private var shows: [Show] = []
@@ -78,7 +124,10 @@ struct HomeView: View {
                     // Back up at its buttons: show the whole banner again, not just the buttons.
                     FeaturedHero(movie: featured, art: featuredArt, onFocus: {
                         withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) }
-                    }, onFocusChange: { heroFocused = $0 })
+                    }, onFocusChange: { focused in
+                        heroFocused = focused
+                        if focused { lastArea = Self.bannerArea }
+                    })
                     .id("top")
                 } else if session.profile?.isKids == true {
                     Pill(text: "STREAMLINGS", color: Theme.streamling).padding(.horizontal, 80)
@@ -100,6 +149,7 @@ struct HomeView: View {
                                 )
                             }
                             .buttonStyle(.card)
+                            .focused($rowFocus, equals: AnyHashable(RowItem(row: 0, id: item.id)))
                         }
                     }
                 }
@@ -107,7 +157,8 @@ struct HomeView: View {
                 if !movies.isEmpty {
                     Shelf("Recently Added Movies") {
                         ForEach(movies) { movie in
-                            PosterLink(value: movie, title: movie.title, subtitle: movie.year.map { String($0) }, imageURL: session.imageURL(movie.posterPath))
+                            PosterLink(value: movie, title: movie.title, subtitle: movie.year.map { String($0) }, imageURL: session.imageURL(movie.posterPath),
+                                       focusBinding: $rowFocus, focusValue: AnyHashable(RowItem(row: 1, id: String(movie.id))))
                         }
                     }
                 }
@@ -115,7 +166,8 @@ struct HomeView: View {
                 if !shows.isEmpty {
                     Shelf("Recently Added Shows") {
                         ForEach(shows) { show in
-                            PosterLink(value: show, title: show.title, subtitle: show.year, imageURL: session.imageURL(show.posterPath))
+                            PosterLink(value: show, title: show.title, subtitle: show.year, imageURL: session.imageURL(show.posterPath),
+                                       focusBinding: $rowFocus, focusValue: AnyHashable(RowItem(row: 2, id: String(show.id))))
                         }
                     }
                 }
@@ -130,6 +182,15 @@ struct HomeView: View {
             .padding(.bottom, 60)
         }
         .scrollIndicators(.hidden)
+        // Moving into a row from the banner or another row lands on its first
+        // item (tvOS picks the nearest one, often far along a scrolled row).
+        // Coming back from a detail page keeps the item you opened.
+        .onChange(of: rowFocus) { _, new in
+            guard let item = new?.base as? RowItem else { return }
+            defer { lastArea = item.row }
+            guard let last = lastArea, last != item.row, let first = firstItem(inRow: item.row), first != item else { return }
+            rowFocus = AnyHashable(first)
+        }
         // Edge to edge, so the banner artwork fills the screen; rows keep their own 80 pt margin.
         .contentMargins(.horizontal, 0, for: .scrollContent)
         .ignoresSafeArea(edges: [.top, .horizontal])
@@ -159,6 +220,15 @@ struct HomeView: View {
         let movieId: Int?
         let paused: Bool
         let seconds: Int
+    }
+
+    private func firstItem(inRow row: Int) -> RowItem? {
+        switch row {
+        case 0: return continueItems.first.map { RowItem(row: 0, id: $0.id) }
+        case 1: return movies.first.map { RowItem(row: 1, id: String($0.id)) }
+        case 2: return shows.first.map { RowItem(row: 2, id: String($0.id)) }
+        default: return nil
+        }
     }
 
     private func rotateFeatured(excluding current: Int) async {
@@ -329,7 +399,7 @@ struct FeaturedHero: View {
                 }
             }
             .padding(.horizontal, 80)
-            .padding(.bottom, 16)
+            .padding(.bottom, 40)
         }
         .containerRelativeFrame(.horizontal, alignment: .leading)
         .frame(height: Self.height)
@@ -362,7 +432,7 @@ struct FeaturedHero: View {
 
     /// Nearly the whole screen, so the text and buttons sit low and the artwork
     /// shows above them; the Continue Watching title peeks in underneath.
-    static let height: CGFloat = 1030
+    static let height: CGFloat = 1080
 
     /// Resume if it's part watched, otherwise start from the beginning.
     private func playNow() async {

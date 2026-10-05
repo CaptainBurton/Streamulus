@@ -62,6 +62,9 @@ struct PosterLink<Value: Hashable>: View {
     let imageURL: URL?
     var progress: Double? = nil
     var width: CGFloat = 250
+    /// Optional focus tracking (Home rows land on their first item).
+    var focusBinding: FocusState<AnyHashable?>.Binding? = nil
+    var focusValue: AnyHashable? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -74,12 +77,27 @@ struct PosterLink<Value: Hashable>: View {
                 .clipped()
             }
             .buttonStyle(.card)
+            .modifier(OptionalFocus(binding: focusBinding, value: focusValue))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.caption).lineLimit(1)
                 if let subtitle { Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
             }
             .frame(width: width, alignment: .leading)
+        }
+    }
+}
+
+/// `.focused(binding, equals: value)` when both are given.
+struct OptionalFocus: ViewModifier {
+    let binding: FocusState<AnyHashable?>.Binding?
+    let value: AnyHashable?
+
+    func body(content: Content) -> some View {
+        if let binding, let value {
+            content.focused(binding, equals: value)
+        } else {
+            content
         }
     }
 }
