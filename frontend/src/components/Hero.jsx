@@ -87,7 +87,8 @@ export default function Hero({ item, type = 'movie', contentFade = null }) {
   return (
     <div style={{
       position: 'relative',
-      height: '80vh',
+      // Taller on desktop so the title and buttons sit low, Netflix-style.
+      height: isMobile ? '80vh' : '90vh',
       minHeight: '500px',
       overflow: 'hidden',
     }}>
