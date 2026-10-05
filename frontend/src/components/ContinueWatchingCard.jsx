@@ -29,21 +29,24 @@ export default function ContinueWatchingCard({ item }) {
       onClick={() => navigate(`/watch/${item.type}/${item.id}`)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      // The zoom is on this outer element and the rounded clip on the inner one —
+      // clipping and scaling the same element lost the corners mid-animation.
       style={{
         position: 'relative',
         borderRadius: '8px',
-        overflow: 'hidden',
         cursor: 'pointer',
         flexShrink: 0,
         width: '300px',
-        aspectRatio: '16 / 9',
-        background: '#1e1e1e',
         transition: 'transform 0.25s, box-shadow 0.25s',
         transform: hovered ? 'scale(1.05) translateY(-4px)' : 'scale(1)',
         boxShadow: hovered ? '0 16px 40px rgba(0,0,0,0.8)' : '0 2px 8px rgba(0,0,0,0.4)',
         zIndex: hovered ? 10 : 1,
       }}
     >
+    <div style={{
+      position: 'relative', borderRadius: '8px', overflow: 'hidden', aspectRatio: '16 / 9', background: '#1e1e1e',
+      WebkitMaskImage: '-webkit-radial-gradient(white, black)', // keeps Safari's rounded clip while scaled
+    }}>
       {src && (
         <img
           src={src}
@@ -80,6 +83,7 @@ export default function ContinueWatchingCard({ item }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '18px',
         opacity: hovered ? 1 : 0, transition: 'opacity 0.2s', pointerEvents: 'none',
       }}>▶</div>
+    </div>
     </div>
   );
 }

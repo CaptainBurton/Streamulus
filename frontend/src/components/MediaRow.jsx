@@ -71,8 +71,10 @@ export default function MediaRow({ title, items = [], type = 'movie' }) {
             display: 'flex',
             gap: '12px',
             overflowX: 'auto',
-            paddingBottom: '8px',
-            paddingRight: '32px',
+            // Room for the hover zoom and shadow: a scrolling box clips whatever
+            // sticks out of it (that's what squared off the cards' corners).
+            padding: '16px 32px 24px 12px',
+            margin: '-16px 0 -16px -12px',
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
           }}

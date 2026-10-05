@@ -46,8 +46,11 @@ function ContinueWatchingRow({ items }) {
           ‹
         </button>
         <div ref={rowRef} onScroll={onScroll} style={{
-          display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '8px',
-          paddingRight: '32px', scrollbarWidth: 'none', msOverflowStyle: 'none',
+          display: 'flex', gap: '12px', overflowX: 'auto',
+          // Room for the hover zoom and shadow: a scrolling box clips whatever
+          // sticks out of it (that's what squared off the cards' corners).
+          padding: '16px 32px 24px 12px', margin: '-16px 0 -16px -12px',
+          scrollbarWidth: 'none', msOverflowStyle: 'none',
         }}>
           {items.map(item => <ContinueWatchingCard key={`${item.type}-${item.id}`} item={item} />)}
         </div>
