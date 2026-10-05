@@ -325,6 +325,9 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
     @State private var currentLetter: String?
     @State private var bubbleVisible = false
     @State private var bubbleTask: Task<Void, Never>?
+    /// Artwork of the highlighted title, shown blurred behind the grid.
+    @State private var backgroundArt: URL?
+    @State private var artTask: Task<Void, Never>?
 
     /// Posters per row, across the full screen width.
     /// (Computed: generic types can't have stored static properties.)
@@ -398,7 +401,10 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
                                         imageURL: imageURL(item),
                                         progress: progress(item),
                                         width: width,
-                                        onFocus: { focusMoved(to: group.letter) }
+                                        onFocus: {
+                                            focusMoved(to: group.letter)
+                                            showArt(imageURL(item))
+                                        }
                                     )
                                 }
                             } header: {
@@ -444,6 +450,16 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
         }
         // The whole screen width; tvOS otherwise keeps ~80 pt in from each side.
         .ignoresSafeArea(edges: .horizontal)
+        .background(BlurredArtBackground(url: backgroundArt))
+    }
+
+    /// Change the background once focus settles, not for every poster flown past.
+    private func showArt(_ url: URL?) {
+        artTask?.cancel()
+        artTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if !Task.isCancelled { backgroundArt = url }
+        }
     }
 
     private func focusMoved(to letter: String) {

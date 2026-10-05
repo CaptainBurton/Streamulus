@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct Logo: View {
     var size: CGFloat = 72
@@ -175,6 +176,60 @@ struct Backdrop: View {
             LinearGradient(colors: [Theme.background.opacity(0.9), .clear], startPoint: .leading, endPoint: .trailing)
         }
         .ignoresSafeArea()
+    }
+}
+
+/// Apple Music–style background: the artwork, heavily blurred and darkened,
+/// crossfading when it changes. The image is shrunk to a tiny thumbnail and
+/// scaled back up, which softens it cheaply, so only a light blur is needed.
+struct BlurredArtBackground: View {
+    let url: URL?
+    @State private var shown: UIImage?
+    @State private var shownURL: URL?
+
+    private static let cache = NSCache<NSURL, UIImage>()
+
+    var body: some View {
+        ZStack {
+            Theme.background
+            if let shown {
+                Image(uiImage: shown)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+                    .blur(radius: 40, opaque: true)
+                    .saturation(1.2)
+                    .opacity(0.6)
+                    .id(shownURL)
+                    .transition(.opacity)
+            }
+            // Keep posters and text readable on bright artwork.
+            LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+        }
+        .ignoresSafeArea()
+        .task(id: url) {
+            guard let url, url != shownURL else { return }
+            let image = await Self.thumbnail(url)
+            guard !Task.isCancelled, let image else { return }
+            withAnimation(.easeInOut(duration: 0.6)) {
+                shown = image
+                shownURL = url
+            }
+        }
+    }
+
+    private static func thumbnail(_ url: URL) async -> UIImage? {
+        if let cached = cache.object(forKey: url as NSURL) { return cached }
+        let result = try? await URLSession.shared.data(from: url)
+        guard let result, let full = UIImage(data: result.0) else { return nil }
+        let size = CGSize(width: 48, height: 72)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let small = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            full.draw(in: CGRect(origin: .zero, size: size))
+        }
+        cache.setObject(small, forKey: url as NSURL)
+        return small
     }
 }
 

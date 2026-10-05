@@ -55,7 +55,7 @@ struct MovieDetailView: View {
 
     private var header: some View {
             VStack(alignment: .leading, spacing: 26) {
-                TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title, maxHeight: 200)
+                TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title, maxHeight: 170)
 
                 HStack(spacing: 20) {
                     if let year = shown.year { Text(String(year)) }
@@ -75,7 +75,7 @@ struct MovieDetailView: View {
                 }
 
                 if let overview = shown.overview, !overview.isEmpty {
-                    Text(overview).lineLimit(4).frame(maxWidth: 1150, alignment: .leading)
+                    Text(overview).lineLimit(3).frame(maxWidth: 1150, alignment: .leading)
                 }
 
                 GlassEffectContainer(spacing: 30) {
@@ -196,7 +196,7 @@ struct ShowDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 24) {
-            TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title, maxHeight: 200)
+            TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title, maxHeight: 170)
             HStack(spacing: 20) {
                 if let year = shown.year { Text(year) }
                 Text("\(seasons.count) season\(seasons.count == 1 ? "" : "s")")
@@ -346,14 +346,13 @@ private struct SeasonChip: View {
 }
 
 extension View {
-    /// The top of a movie/show page: exactly one screen tall (less a strip so the
-    /// next row peeks in), content at the bottom-left with the buttons fully on
-    /// screen. It used to be taller than the screen, so the buttons sat below the
-    /// bottom edge until focus scrolled to them.
+    /// The top of a movie/show page: one screen tall less a thin strip where the
+    /// next row peeks in, content low at the bottom-left (buttons fully on screen)
+    /// so most of the backdrop shows above it.
     func detailHeaderFrame() -> some View {
         padding(.horizontal, 80)
-            .padding(.bottom, 50)
-            .containerRelativeFrame(.vertical, alignment: .bottomLeading) { height, _ in height - 110 }
+            .padding(.bottom, 30)
+            .containerRelativeFrame(.vertical, alignment: .bottomLeading) { height, _ in height - 50 }
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
