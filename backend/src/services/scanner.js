@@ -11,22 +11,24 @@ function getSource(key, fallback) {
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.m2ts']);
 
-function getVideoFiles(dirPath) {
+// Async on purpose: on a large or network-mounted library a synchronous walk
+// blocks the whole server — every request, and the Docker health check, waits
+// until it finishes, which marks the container unhealthy.
+async function getVideoFiles(dirPath) {
   const files = [];
-  if (!fs.existsSync(dirPath)) return files;
-  function walk(dir) {
+  async function walk(dir) {
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        walk(full);
+        await walk(full);
       } else if (entry.isFile() && VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
         files.push(full);
       }
     }
   }
-  walk(dirPath);
+  await walk(dirPath);
   return files;
 }
 
@@ -253,7 +255,7 @@ async function scanAllWithProgress(onProgress, filterLibraryId = null) {
 
     onProgress({ type: 'library_start', library: lib.name, path: lib.path, kind: lib.type });
 
-    const files = getVideoFiles(lib.path);
+    const files = await getVideoFiles(lib.path);
     onProgress({ type: 'found', library: lib.name, count: files.length });
 
     if (files.length === 0) {
@@ -309,9 +311,10 @@ async function scanAll() {
   }).filter(Boolean);
 }
 
-function validatePath(dirPath) {
-  const exists = fs.existsSync(dirPath);
-  const files = exists ? getVideoFiles(dirPath) : [];
+async function validatePath(dirPath) {
+  let exists = false;
+  try { exists = (await fs.promises.stat(dirPath)).isDirectory(); } catch {}
+  const files = exists ? await getVideoFiles(dirPath) : [];
   return { exists, fileCount: files.length };
 }
 

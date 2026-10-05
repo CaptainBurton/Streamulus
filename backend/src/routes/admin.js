@@ -73,10 +73,10 @@ router.post('/scan', requireAdmin, async (req, res) => {
 });
 
 // Validate a path before adding as library
-router.get('/validate-path', requireAdmin, (req, res) => {
+router.get('/validate-path', requireAdmin, async (req, res) => {
   const { path: dirPath } = req.query;
   if (!dirPath) return res.status(400).json({ error: 'path query param required' });
-  res.json(validatePath(dirPath));
+  res.json(await validatePath(dirPath));
 });
 
 router.get('/libraries', requireAdmin, (req, res) => {
@@ -84,17 +84,17 @@ router.get('/libraries', requireAdmin, (req, res) => {
   res.json({ libraries });
 });
 
-router.post('/libraries', requireAdmin, (req, res) => {
+router.post('/libraries', requireAdmin, async (req, res) => {
   const { name, path: libPath, type } = req.body;
   if (!name || !libPath || !type) return res.status(400).json({ error: 'name, path, and type required' });
   if (!['movies', 'tv'].includes(type)) return res.status(400).json({ error: 'type must be movies or tv' });
 
-  const { exists, fileCount } = validatePath(libPath);
+  const { exists, fileCount } = await validatePath(libPath);
   const result = db.prepare('INSERT INTO libraries (name, path, type) VALUES (?, ?, ?)').run(name, libPath, type);
   res.json({ id: result.lastInsertRowid, name, path: libPath, type, pathExists: exists, fileCount });
 });
 
-router.put('/libraries/:id', requireAdmin, (req, res) => {
+router.put('/libraries/:id', requireAdmin, async (req, res) => {
   const lib = db.prepare('SELECT * FROM libraries WHERE id = ?').get(req.params.id);
   if (!lib) return res.status(404).json({ error: 'Library not found' });
 
@@ -123,7 +123,7 @@ router.put('/libraries/:id', requireAdmin, (req, res) => {
     }
   })();
 
-  const { exists, fileCount } = validatePath(newPath);
+  const { exists, fileCount } = await validatePath(newPath);
   res.json({ success: true, remapped, pathExists: exists, fileCount });
 });
 
