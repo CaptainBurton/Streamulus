@@ -35,6 +35,7 @@ final class PlaybackController: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var isBuffering = true
     @Published private(set) var pendingSeek: Double?      // where the user is skipping to
+    @Published private(set) var buffered: Double = 0      // seconds into the file that are loaded
     @Published private(set) var upNext: NextEpisode?
     @Published private(set) var upNextSeconds = 30
     @Published var upNextDismissed = false
@@ -95,6 +96,7 @@ final class PlaybackController: ObservableObject {
         title = request.title
         subtitle = request.subtitle
         position = Double(request.start)
+        buffered = Double(request.start)
         duration = 0
         pendingSeek = nil
         upNext = nil
@@ -160,6 +162,17 @@ final class PlaybackController: ObservableObject {
         if let itemDuration = player.currentItem?.duration.seconds, itemDuration.isFinite, itemDuration > 0 {
             let newDuration = Double(current.start) + itemDuration
             if newDuration != duration { duration = newDuration }
+        }
+        // How far ahead is loaded (the lighter part of the progress bar).
+        if let ranges = player.currentItem?.loadedTimeRanges, seconds.isFinite {
+            var end = seconds
+            for value in ranges {
+                let range = value.timeRangeValue
+                let start = range.start.seconds, rangeEnd = (range.start + range.duration).seconds
+                if start.isFinite, rangeEnd.isFinite, start <= seconds + 1, rangeEnd > end { end = rangeEnd }
+            }
+            let newBuffered = Double(current.start) + end
+            if abs(newBuffered - buffered) >= 1 { buffered = newBuffered }
         }
         if isPlaying, Date().timeIntervalSince(lastSaved) >= 10 {
             lastSaved = Date()
@@ -369,9 +382,9 @@ struct PlayerView: View {
                 Spacer()
             }
             .padding(.horizontal, 90)
-            .padding(.top, 60)
-            .padding(.bottom, 80)
-            .background(LinearGradient(colors: [.black.opacity(0.8), .clear], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+            .padding(.top, 48)
+            .padding(.bottom, 70)
+            .background(LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom))
 
             Spacer()
 
@@ -379,6 +392,7 @@ struct PlayerView: View {
                 ScrubBar(
                     shown: controller.pendingSeek ?? controller.position,
                     played: controller.position,
+                    buffered: controller.buffered,
                     duration: controller.duration,
                     seeking: controller.pendingSeek != nil
                 )
@@ -395,19 +409,29 @@ struct PlayerView: View {
                 .font(.callout.monospacedDigit())
             }
             .padding(.horizontal, 40)
-            .padding(.vertical, 30)
+            .padding(.vertical, 28)
             .glassEffect(.regular, in: .rect(cornerRadius: 40))
             .padding(.horizontal, 60)
             .padding(.bottom, 50)
         }
+        // Our own margins instead of the TV safe area (~60 pt top and bottom), which
+        // on top of the padding left big gaps above the title and below the bar.
+        .ignoresSafeArea(edges: .vertical)
     }
 
+    /// Compact card in the bottom-right corner: what's next, a countdown, and two small buttons.
     private func upNextCard(_ next: NextEpisode) -> some View {
         let fraction = min(1, max(0, controller.remaining / Double(controller.upNextSeconds)))
-        return VStack(alignment: .leading, spacing: 16) {
-            Text("UP NEXT").font(.caption.weight(.heavy)).foregroundStyle(Theme.accent)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("UP NEXT").font(.caption2.weight(.heavy)).foregroundStyle(Theme.accent)
+                Spacer()
+                Text("\(Int(controller.remaining.rounded(.up)))s")
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             Text("S\(next.season) E\(next.episodeNumber)" + (next.title.map { " · \($0)" } ?? ""))
-                .font(.headline)
+                .font(.callout.weight(.semibold))
                 .lineLimit(2)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -415,30 +439,33 @@ struct PlayerView: View {
                     Capsule().fill(Theme.accent).frame(width: geo.size.width * fraction)
                 }
             }
-            .frame(height: 6)
-            HStack(spacing: 20) {
+            .frame(height: 4)
+            HStack(spacing: 14) {
                 Button {
                     controller.playNextNow()
                 } label: {
                     Label("Play Now", systemImage: "play.fill")
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(CompactButtonStyle(prominent: true))
                 .focused($focus, equals: .playNext)
 
                 Button("Hide") {
                     controller.dismissUpNext()
                     focus = .surface
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(CompactButtonStyle())
                 .focused($focus, equals: .hideUpNext)
             }
+            .padding(.top, 4)
         }
-        .padding(30)
-        .frame(width: 600, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 36))
+        .padding(22)
+        .frame(width: 440, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 28))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-        .padding(.trailing, 80)
-        .padding(.bottom, showControls ? 260 : 80)
+        .padding(.trailing, 60)
+        // Above the control panel while it's showing, otherwise near the corner.
+        .padding(.bottom, showControls ? 210 : 50)
+        .ignoresSafeArea(edges: .vertical)
     }
 
     private func errorPanel(_ message: String) -> some View {
@@ -447,7 +474,7 @@ struct PlayerView: View {
             Text("This video couldn't be played").font(.title3.weight(.semibold))
             Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 900)
             Button("Close", action: close)
-                .buttonStyle(.glassProminent)
+                .buttonStyle(ActionButtonStyle(prominent: true))
                 .focused($focus, equals: .closeError)
         }
         .padding(50)
@@ -492,6 +519,7 @@ struct PlayerView: View {
 struct ScrubBar: View {
     let shown: Double
     let played: Double
+    var buffered: Double = 0
     let duration: Double
     let seeking: Bool
 
@@ -500,9 +528,11 @@ struct ScrubBar: View {
             let width = geo.size.width
             let shownFraction = duration > 0 ? min(max(shown / duration, 0), 1) : 0
             let playedFraction = duration > 0 ? min(max(played / duration, 0), 1) : 0
+            let bufferedFraction = duration > 0 ? min(max(buffered / duration, playedFraction), 1) : 0
             let knob: CGFloat = seeking ? 34 : 22
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.25))
+                Capsule().fill(Color.white.opacity(0.2))
+                Capsule().fill(Color.white.opacity(0.35)).frame(width: width * bufferedFraction)
                 Capsule().fill(Theme.accent).frame(width: width * playedFraction)
                 Circle()
                     .fill(Color.white)

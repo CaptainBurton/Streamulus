@@ -85,13 +85,13 @@ struct MovieDetailView: View {
                         } label: {
                             Label(inProgress ? "Resume from \(Fmt.clock(progress.position))" : "Play", systemImage: "play.fill")
                         }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(ActionButtonStyle(prominent: true))
                         .focused($headerFocus, equals: 0)
                         if inProgress {
                             Button { play(from: 0) } label: {
                                 Label("Play from Beginning", systemImage: "arrow.counterclockwise")
                             }
-                            .buttonStyle(.glass)
+                            .buttonStyle(ActionButtonStyle())
                             .focused($headerFocus, equals: 1)
                         }
                         Button {
@@ -100,7 +100,7 @@ struct MovieDetailView: View {
                             Label(progress.completed ? "Mark as Unwatched" : "Mark as Watched",
                                   systemImage: progress.completed ? "eye.slash" : "checkmark")
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(ActionButtonStyle())
                         .focused($headerFocus, equals: 2)
                         .disabled(saving)
                     }
@@ -213,7 +213,7 @@ struct ShowDetailView: View {
                         Button { play(next) } label: {
                             Label("\(next.inProgress ? "Resume" : "Play") \(next.label)", systemImage: "play.fill")
                         }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(ActionButtonStyle(prominent: true))
                         .focused($headerFocus, equals: 0)
                     }
                     if details?.started == true, let first = details?.firstEpisodeId {
@@ -222,7 +222,7 @@ struct ShowDetailView: View {
                         } label: {
                             Label("Play from Beginning", systemImage: "arrow.counterclockwise")
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(ActionButtonStyle())
                         .focused($headerFocus, equals: 1)
                     }
                     Button {
@@ -230,7 +230,7 @@ struct ShowDetailView: View {
                     } label: {
                         Label(allWatched ? "Mark as Unwatched" : "Mark as Watched", systemImage: allWatched ? "eye.slash" : "checkmark")
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(ActionButtonStyle())
                     .focused($headerFocus, equals: 2)
                     .disabled(saving || seasons.isEmpty)
                 }

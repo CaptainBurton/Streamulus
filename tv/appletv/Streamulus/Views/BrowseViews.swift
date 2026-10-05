@@ -190,13 +190,13 @@ struct FeaturedHero: View {
                         } label: {
                             Label("Play Now", systemImage: "play.fill")
                         }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(ActionButtonStyle(prominent: true))
                         .focused($buttonFocus, equals: 0)
 
                         NavigationLink(value: movie) {
                             Label("More Info", systemImage: "info.circle")
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(ActionButtonStyle())
                         .focused($buttonFocus, equals: 1)
                     }
                 }
@@ -542,15 +542,15 @@ struct AccountView: View {
                     Button { session.switchProfile() } label: {
                         Label("Switch Profile", systemImage: "person.2.fill")
                     }
-                    .buttonStyle(.glassProminent)
+                    .buttonStyle(ActionButtonStyle(prominent: true))
                     Button { session.signOut() } label: {
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(ActionButtonStyle())
                     Button { session.changeServer() } label: {
                         Label("Change Server", systemImage: "server.rack")
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(ActionButtonStyle())
                 }
             }
 
