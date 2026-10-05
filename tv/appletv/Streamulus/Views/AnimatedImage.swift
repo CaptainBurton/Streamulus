@@ -4,6 +4,11 @@ import ImageIO
 
 /// Remote image that plays animated GIFs (and animated PNG/WebP) — SwiftUI's
 /// AsyncImage only ever shows the first frame. Used for profile pictures.
+///
+/// Pure SwiftUI on purpose (a TimelineView stepping through the frames): an
+/// embedded UIKit image view broke the tab bar's page snapshots when switching
+/// tabs ("Adding '_UIReplicantView' as a subview of UIHostingController.view")
+/// and moving onto the profile tab bounced back to the previous tab.
 struct AnimatedRemoteImage: View {
     let url: URL?
     /// Frames are decoded at no more than this many pixels across, to keep
@@ -11,43 +16,31 @@ struct AnimatedRemoteImage: View {
     var maxPixelSize: CGFloat = 512
 
     @State private var image: UIImage?
+    @State private var started = Date()
 
     var body: some View {
         ZStack {
             if let image {
-                AnimatedImageView(image: image)
+                if let frames = image.images, frames.count > 1 {
+                    let frameDuration = max(0.02, image.duration / Double(frames.count))
+                    TimelineView(.periodic(from: started, by: frameDuration)) { context in
+                        let index = Int(context.date.timeIntervalSince(started) / frameDuration) % frames.count
+                        Image(uiImage: frames[max(0, index)])
+                            .resizable()
+                            .scaledToFill()
+                    }
+                } else {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                }
             }
         }
         .task(id: url) {
             image = nil
             guard let url else { return }
             image = await AnimatedImageLoader.load(url, maxPixelSize: maxPixelSize)
-        }
-    }
-}
-
-/// UIImageView plays a UIImage built from frames on its own; SwiftUI's Image doesn't.
-private struct AnimatedImageView: UIViewRepresentable {
-    let image: UIImage
-
-    func makeUIView(context: Context) -> UIImageView {
-        let view = UIImageView()
-        view.contentMode = .scaleAspectFill
-        view.clipsToBounds = true
-        // Take the size SwiftUI gives it, not the image's own size.
-        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        view.setContentHuggingPriority(.defaultLow, for: .vertical)
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        view.image = image
-        view.startAnimating()
-        return view
-    }
-
-    func updateUIView(_ view: UIImageView, context: Context) {
-        if view.image !== image {
-            view.image = image
-            view.startAnimating()
+            started = Date()
         }
     }
 }
