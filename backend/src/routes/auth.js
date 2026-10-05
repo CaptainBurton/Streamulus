@@ -75,4 +75,20 @@ router.put('/account/password', authenticate, async (req, res) => {
   res.json({ success: true });
 });
 
+// Parental lock (main profile): whether leaving a Streamling needs a check, and
+// whether that check is the profile's PIN or the account password.
+router.put('/account/parental-lock', authenticate, (req, res) => {
+  if (!req.profile.is_main || req.profile.is_kids) {
+    return res.status(403).json({ error: 'Only the main profile can change the parental lock' });
+  }
+  const { enabled, method } = req.body;
+  if (method !== undefined && !['pin', 'password'].includes(method)) {
+    return res.status(400).json({ error: "Method must be 'pin' or 'password'" });
+  }
+  if (enabled !== undefined) db.prepare('UPDATE users SET parental_lock = ? WHERE id = ?').run(enabled ? 1 : 0, req.user.id);
+  if (method !== undefined) db.prepare('UPDATE users SET parental_lock_method = ? WHERE id = ?').run(method, req.user.id);
+  const u = db.prepare('SELECT parental_lock, parental_lock_method FROM users WHERE id = ?').get(req.user.id);
+  res.json({ parentalLock: { enabled: u.parental_lock !== 0, method: u.parental_lock_method } });
+});
+
 module.exports = router;

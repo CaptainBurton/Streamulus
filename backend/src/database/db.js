@@ -165,6 +165,13 @@ db.exec(`
   );
 `);
 try { db.exec('ALTER TABLE watch_history ADD COLUMN profile_id INTEGER'); } catch {}
+// Parental lock: leaving a Streamling for an adult profile needs the account
+// password, or that profile's PIN when the method is 'pin' and it has one.
+try { db.exec('ALTER TABLE users ADD COLUMN parental_lock INTEGER NOT NULL DEFAULT 1'); } catch {}
+// Title logo artwork URL from TMDB ('' = none available). See services/logos.js.
+try { db.exec('ALTER TABLE movies ADD COLUMN logo_path TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN logo_path TEXT'); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN parental_lock_method TEXT NOT NULL DEFAULT 'password'"); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_wh_profile ON watch_history(profile_id, media_type, media_id)');
 
 // Give every existing account a main profile and move its history onto it.

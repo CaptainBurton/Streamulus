@@ -344,6 +344,91 @@ router.get('/thumbnail/:type/:id', authenticate, guardKids, (req, res) => {
   });
 });
 
+// ─── still frame (Continue Watching) ──────────────────────────────────────────
+//
+// GET /still/:type/:id?t=<seconds> → a 640px-wide JPEG of that moment, so
+// Continue Watching shows where you stopped instead of generic artwork.
+// Rounded to 10 s and cached on disk; only the newest still per title is kept.
+// At most two extractions run at once so a full Home page can't swamp the server.
+
+const stillsDir = path.join(process.env.DATA_DIR || '/data', 'stills');
+fs.mkdirSync(stillsDir, { recursive: true });
+const STILL_CONCURRENCY = 2;
+let stillsRunning = 0;
+const stillQueue = [];
+const stillJobs = new Map(); // outPath -> Promise<boolean>
+
+function runStillJob(fn) {
+  return new Promise((resolve) => {
+    const start = () => {
+      stillsRunning++;
+      fn().then(resolve, () => resolve(false)).finally(() => {
+        stillsRunning--;
+        const next = stillQueue.shift();
+        if (next) next();
+      });
+    };
+    if (stillsRunning < STILL_CONCURRENCY) start(); else stillQueue.push(start);
+  });
+}
+
+function extractStill(filePath, t, outPath) {
+  return new Promise((resolve) => {
+    const tmp = `${outPath}.tmp.jpg`;
+    const proc = spawn('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error',
+      '-ss', String(t), '-i', filePath,
+      '-frames:v', '1', '-vf', 'scale=640:-2', '-q:v', '4', '-y', tmp,
+    ], { stdio: 'ignore' });
+    try { os.setPriority(proc.pid, 10); } catch {}
+    const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 20000);
+    proc.on('error', () => { clearTimeout(timer); resolve(false); });
+    proc.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code === 0 && fs.existsSync(tmp)) {
+        fs.renameSync(tmp, outPath);
+        resolve(true);
+      } else {
+        try { fs.rmSync(tmp, { force: true }); } catch {}
+        resolve(false);
+      }
+    });
+  });
+}
+
+router.get('/still/:type/:id', authenticate, guardKids, async (req, res) => {
+  const { type, id } = req.params;
+  if (!['movie', 'episode'].includes(type)) return res.status(400).json({ error: 'Bad type' });
+  const t = Math.max(0, Math.round((parseFloat(req.query.t) || 0) / 10) * 10);
+  const prefix = `${type}-${parseInt(id, 10)}-`;
+  const outPath = path.join(stillsDir, `${prefix}${t}.jpg`);
+  const send = () => {
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(outPath);
+  };
+  if (fs.existsSync(outPath)) return send();
+
+  const filePath = getFilePath(type, id);
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+
+  if (!stillJobs.has(outPath)) {
+    const job = runStillJob(() => extractStill(filePath, t, outPath)).then((ok) => {
+      stillJobs.delete(outPath);
+      // Keep only the newest still for this title.
+      if (ok) {
+        for (const f of fs.readdirSync(stillsDir)) {
+          if (f.startsWith(prefix) && f !== path.basename(outPath)) fs.rm(path.join(stillsDir, f), { force: true }, () => {});
+        }
+      }
+      return ok;
+    });
+    stillJobs.set(outPath, job);
+  }
+  const ok = await stillJobs.get(outPath);
+  if (!ok || res.headersSent) return ok ? undefined : res.status(404).json({ error: 'Could not read a frame' });
+  send();
+});
+
 // ─── thumbnail sprite pre-warm (one FFmpeg pass, background) ─────────────────
 //
 // Called once from the frontend when total duration is known.  Runs a single

@@ -3,6 +3,7 @@ const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
 const { kidsScope, canAccess } = require('../services/kids');
 const { fillMissingDurations } = require('../services/durations');
+const { ensureLogo } = require('../services/logos');
 const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits, getTVContentRating, searchTV } = require('../services/tmdb');
 
 const router = express.Router();
@@ -200,11 +201,14 @@ router.get('/:id/details', authenticate, async (req, res) => {
   }
 
   let cast = [];
+  let logoUrl = null;
   if (tmdbId) {
-    const [credits, contentRating] = await Promise.all([
+    const [credits, contentRating, logo] = await Promise.all([
       getTVCredits(tmdbId),
       show.content_rating ? Promise.resolve(null) : getTVContentRating(tmdbId),
+      ensureLogo('show', { ...show, tmdb_id: tmdbId }).catch(() => null),
     ]);
+    logoUrl = logo;
 
     if (contentRating) {
       db.prepare('UPDATE tv_shows SET content_rating = ? WHERE id = ?').run(contentRating, show.id);
@@ -243,7 +247,7 @@ router.get('/:id/details', authenticate, async (req, res) => {
       AND (wh.completed = 1 OR wh.position > 0)
   `).get(req.profile.id, show.id).n > 0;
 
-  res.json({ show: formatShow(show), seasons, cast, similarLocal, firstEpisodeId, started });
+  res.json({ show: { ...formatShow(show), logo_url: logoUrl }, seasons, cast, similarLocal, firstEpisodeId, started });
 });
 
 router.get('/:id/season/:season', authenticate, (req, res) => {
