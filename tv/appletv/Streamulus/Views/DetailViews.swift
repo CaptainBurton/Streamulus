@@ -147,6 +147,7 @@ struct ShowDetailView: View {
     @State private var episodes: [Episode] = []
     @State private var saving = false
     @FocusState private var headerFocus: Int? // which header button has focus
+    @FocusState private var seasonFocus: Int?
 
     private var shown: Show { details?.show ?? show }
     private var seasons: [Season] { details?.seasons ?? [] }
@@ -241,25 +242,32 @@ struct ShowDetailView: View {
 
     private var seasonPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            GlassEffectContainer(spacing: 24) {
-                HStack(spacing: 24) {
-                    ForEach(seasons) { s in
-                        // The selected season is the prominent (tinted) glass button.
-                        if s.season == season {
-                            Button { season = s.season } label: { Text("Season \(s.season)").fontWeight(.bold) }
-                                .buttonStyle(.glassProminent)
-                        } else {
-                            Button { season = s.season } label: { Text("Season \(s.season)") }
-                                .buttonStyle(.glass)
+            HStack(spacing: 20) {
+                ForEach(seasons) { s in
+                    // One button and one style for every season, so nothing is rebuilt
+                    // or restyled when the selection changes — only the colours animate.
+                    Button { season = s.season } label: {
+                        HStack(spacing: 10) {
+                            Text(s.season == 0 ? "Specials" : "Season \(s.season)")
+                            if s.episodeCount > 0 && s.watchedCount >= s.episodeCount {
+                                Image(systemName: "checkmark.circle.fill").imageScale(.small)
+                            }
                         }
                     }
+                    .buttonStyle(SeasonChipStyle(isSelected: s.season == season))
+                    .focused($seasonFocus, equals: s.season)
                 }
             }
             .padding(.horizontal, 80)
-            .padding(.vertical, 20)
+            .padding(.vertical, 24)
         }
         .scrollClipDisabled()
         .focusSection()
+        // Coming into the row from above or below lands on the selected season.
+        .defaultFocus($seasonFocus, season)
+        .onChange(of: seasonFocus) { old, new in
+            if old == nil, new != nil, let season, new != season { seasonFocus = season }
+        }
     }
 
     private func load() async {
@@ -292,6 +300,48 @@ struct ShowDetailView: View {
         await load()
         await loadEpisodes()
         saving = false
+    }
+}
+
+/// Season picker chip. Three clear looks:
+/// - selected: accent fill, dark text
+/// - focused: white fill, dark text, slightly larger (plus an accent ring if it's
+///   also the selected season, so you can still tell which one is showing)
+/// - otherwise: dim translucent fill, light text
+struct SeasonChipStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        SeasonChip(configuration: configuration, isSelected: isSelected)
+    }
+}
+
+private struct SeasonChip: View {
+    let configuration: ButtonStyleConfiguration
+    let isSelected: Bool
+    @Environment(\.isFocused) private var isFocused
+
+    private var fill: Color {
+        if isFocused { return .white }
+        return isSelected ? Theme.accent : Color.white.opacity(0.12)
+    }
+
+    private var textColor: Color {
+        isFocused || isSelected ? Color.black : Color.white.opacity(0.85)
+    }
+
+    var body: some View {
+        configuration.label
+            .font(.callout.weight(isSelected ? .bold : .semibold))
+            .foregroundStyle(textColor)
+            .padding(.horizontal, 34)
+            .padding(.vertical, 16)
+            .background(Capsule().fill(fill))
+            .overlay(Capsule().strokeBorder(Theme.accent, lineWidth: isFocused && isSelected ? 4 : 0))
+            .scaleEffect(configuration.isPressed ? 1.02 : (isFocused ? 1.08 : 1))
+            .shadow(color: .black.opacity(isFocused ? 0.5 : 0), radius: 18, y: 8)
+            .animation(.easeOut(duration: 0.18), value: isFocused)
+            .animation(.easeOut(duration: 0.18), value: isSelected)
     }
 }
 
