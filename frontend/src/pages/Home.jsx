@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import Hero from '../components/Hero';
+import { CrossfadeHero } from '../components/Hero';
 import MediaRow from '../components/MediaRow';
 import ContinueWatchingCard from '../components/ContinueWatchingCard';
 
@@ -67,6 +67,31 @@ export default function Home() {
   const [recentShows, setRecentShows] = useState([]);
   const [continueWatching, setContinueWatching] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [rotateSeconds, setRotateSeconds] = useState(120);
+  const featuredId = featured?.id;
+
+  // Switch the banner to another movie every `rotateSeconds` (admin setting).
+  // The new backdrop and logo are downloaded first so the crossfade is smooth.
+  useEffect(() => {
+    if (!featuredId) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await axios.get('/api/movies/featured', { params: { exclude: featuredId } });
+        const next = res.data.movie;
+        if (res.data.rotateSeconds > 0) setRotateSeconds(res.data.rotateSeconds);
+        if (!next || cancelled) return;
+        const preload = src => (src ? new Promise(resolve => {
+          const img = new Image();
+          img.onload = img.onerror = resolve;
+          img.src = src;
+        }) : null);
+        await Promise.all([preload(next.backdrop_url || next.poster_url), preload(next.logo_url)]);
+        if (!cancelled) setFeatured(next);
+      } catch { /* keep the current one */ }
+    }, rotateSeconds * 1000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [featuredId, rotateSeconds]);
 
   useEffect(() => {
     Promise.all([
@@ -76,6 +101,7 @@ export default function Home() {
       axios.get('/api/stream/continue-watching').catch(() => ({ data: { items: [] } })),
     ]).then(([featuredRes, moviesRes, showsRes, continueRes]) => {
       setFeatured(featuredRes.data.movie);
+      if (featuredRes.data.rotateSeconds > 0) setRotateSeconds(featuredRes.data.rotateSeconds);
       setRecentMovies(moviesRes.data.movies || []);
       setRecentShows(showsRes.data.shows || []);
       setContinueWatching(continueRes.data.items || []);
@@ -93,7 +119,7 @@ export default function Home() {
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
       <Navbar />
-      <Hero item={featured} type="movie" />
+      <CrossfadeHero item={featured} type="movie" />
       <div style={{ paddingTop: '32px', paddingBottom: '60px' }}>
         <ContinueWatchingRow items={continueWatching} />
         <MediaRow title="Recently Added Movies" items={recentMovies} type="movie" />

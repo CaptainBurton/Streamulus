@@ -213,6 +213,7 @@ router.get('/config', requireAdmin, (req, res) => {
     hlsSegmentDuration: get('hls_segment_duration') ?? '4',
     progressMinSeconds: get('progress_min_seconds') ?? '10',
     upNextSeconds:      get('up_next_seconds')      ?? '30',
+    featuredRotateSeconds: get('featured_rotate_seconds') ?? '120',
     preferredLanguage:  get('preferred_language')   ?? 'en',
     preferredCountry:   get('preferred_country')    ?? 'US',
   });
@@ -224,7 +225,15 @@ router.put('/config', requireAdmin, (req, res) => {
     movieSourceOrder, tvSourceOrder,
     videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration,
     progressMinSeconds, upNextSeconds, preferredLanguage, preferredCountry,
+    featuredRotateSeconds,
   } = req.body;
+  if (featuredRotateSeconds !== undefined) {
+    const raw = String(featuredRotateSeconds).trim();
+    const secs = Number(raw);
+    if (!/^\d+$/.test(raw) || secs < 10 || secs > 86400) {
+      return res.status(400).json({ error: 'Featured movie interval must be a whole number of seconds between 10 and 86400 (24 hours)' });
+    }
+  }
   if (upNextSeconds !== undefined) {
     const secs = parseInt(upNextSeconds);
     if (!(secs >= 5 && secs <= 300)) return res.status(400).json({ error: 'Up Next countdown must be between 5 and 300 seconds' });
@@ -244,6 +253,7 @@ router.put('/config', requireAdmin, (req, res) => {
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
   if (upNextSeconds !== undefined) upsert.run('up_next_seconds', String(parseInt(upNextSeconds)));
+  if (featuredRotateSeconds !== undefined) upsert.run('featured_rotate_seconds', String(Number(String(featuredRotateSeconds).trim())));
   if (preferredLanguage !== undefined) upsert.run('preferred_language', preferredLanguage);
   if (preferredCountry  !== undefined) {
     const current = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value ?? 'US';

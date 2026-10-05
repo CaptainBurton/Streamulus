@@ -310,6 +310,7 @@ export default function Admin() {
   const [tvSourceOrder, setTvSourceOrder] = useState(['tvdb', 'tmdb', 'imdb']);
   const [preferredLanguage, setPreferredLanguage] = useState('en');
   const [preferredCountry, setPreferredCountry] = useState('US');
+  const [featuredRotate, setFeaturedRotate] = useState('120');
   const [debugLogs, setDebugLogs] = useState(() => localStorage.getItem('streamulus_debug_logs') === 'true');
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
@@ -363,6 +364,7 @@ export default function Admin() {
       });
       setPreferredLanguage(configRes.data.preferredLanguage || 'en');
       setPreferredCountry(configRes.data.preferredCountry || 'US');
+      setFeaturedRotate(String(configRes.data.featuredRotateSeconds || '120'));
     } catch { }
   };
 
@@ -442,6 +444,18 @@ export default function Admin() {
       await axios.put('/api/admin/config', encSettings);
       flash('Encoding settings saved — applies to next video played.');
     } catch (err) { flash(err.response?.data?.error || 'Failed to save encoding settings', true); }
+  };
+
+  const handleSaveFeatured = async () => {
+    const raw = featuredRotate.trim();
+    if (!/^\d+$/.test(raw) || Number(raw) < 10 || Number(raw) > 86400) {
+      flash('Enter a whole number of seconds between 10 and 86400 (e.g. 60 for one minute).', true);
+      return;
+    }
+    try {
+      await axios.put('/api/admin/config', { featuredRotateSeconds: raw });
+      flash('Featured movie interval saved — applies the next time Home is opened.');
+    } catch (err) { flash(err.response?.data?.error || 'Failed to save featured movie interval', true); }
   };
 
   const handleSaveRegional = async () => {
@@ -1120,6 +1134,41 @@ export default function Admin() {
                 style={{ marginTop: '20px', padding: '10px 24px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
               >
                 Save Encoding Settings
+              </button>
+            </div>
+
+            {/* Home Page */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Home Page</h3>
+              <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>
+                The featured movie banner at the top of Home, on the web and the Apple TV app.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', padding: '12px 0' }}>
+                <div>
+                  <label htmlFor="featured-rotate" style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Featured Movie Interval</label>
+                  <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>
+                    Seconds before the featured movie changes — e.g. 60 for every minute (default 120)
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    id="featured-rotate"
+                    type="text"
+                    inputMode="numeric"
+                    value={featuredRotate}
+                    onChange={e => setFeaturedRotate(e.target.value.replace(/[^\d]/g, ''))}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveFeatured(); }}
+                    placeholder="120"
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', width: '110px', outline: 'none', textAlign: 'right' }}
+                  />
+                  <span style={{ fontSize: '13px', color: '#888' }}>seconds</span>
+                </div>
+              </div>
+              <button
+                onClick={handleSaveFeatured}
+                style={{ marginTop: '12px', padding: '10px 24px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Save Home Page Settings
               </button>
             </div>
 

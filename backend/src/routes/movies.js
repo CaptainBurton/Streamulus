@@ -70,18 +70,29 @@ router.get('/recent', authenticate, (req, res) => {
   res.json({ movies });
 });
 
+// How often the Home banner switches to another movie (admin setting, seconds).
+function featuredRotateSeconds() {
+  const secs = parseInt(db.prepare("SELECT value FROM config WHERE key = 'featured_rotate_seconds'").get()?.value || '120');
+  return secs > 0 ? secs : 120;
+}
+
+// ?exclude=<id>: the movie currently shown, so a rotation always changes it
+// (unless it's the only one).
 router.get('/featured', authenticate, async (req, res) => {
   const scope = kidsScope(req);
-  const movie = scope
-    ? db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL AND id IN (SELECT value FROM json_each(?)) ORDER BY RANDOM() LIMIT 1').get(scope.moviesJson)
-    : db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL ORDER BY RANDOM() LIMIT 1').get();
-  if (!movie) return res.json({ movie: null });
+  const exclude = parseInt(req.query.exclude) || 0;
+  const pick = (excludeId) => scope
+    ? db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL AND id != ? AND id IN (SELECT value FROM json_each(?)) ORDER BY RANDOM() LIMIT 1').get(excludeId, scope.moviesJson)
+    : db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL AND id != ? ORDER BY RANDOM() LIMIT 1').get(excludeId);
+  const movie = pick(exclude) || (exclude ? pick(0) : null);
+  const rotateSeconds = featuredRotateSeconds();
+  if (!movie) return res.json({ movie: null, rotateSeconds });
   // Title logo for the banner; don't hold the Home page up for more than 2.5 s.
   const logo = await Promise.race([
     ensureLogo('movie', movie).catch(() => null),
     new Promise(r => setTimeout(() => r(null), 2500)),
   ]);
-  res.json({ movie: { ...formatMovie(movie), logo_url: logo } });
+  res.json({ movie: { ...formatMovie(movie), logo_url: logo }, rotateSeconds });
 });
 
 router.get('/:id', authenticate, (req, res) => {
