@@ -13,8 +13,8 @@ services:
       # Your media folders. The right-hand side is fixed: in the app, libraries
       # are always /tv and /movies. Set the host folders with the TV_PATH and
       # MOVIES_PATH environment variables (Portainer: stack > Environment variables).
-      - ${TV_PATH:-/mnt/series-movies/Series}:/tv
-      - ${MOVIES_PATH:-/mnt/series-movies/Movies}:/movies
+      - ${TV_PATH:-/mnt/movies-series/Series}:/tv
+      - ${MOVIES_PATH:-/mnt/movies-series/Movies}:/movies
     environment:
       - NODE_ENV=production
       - PORT=8096

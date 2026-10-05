@@ -47,8 +47,8 @@ Set where your media lives on the server with two environment variables. In Port
 
 | Variable | Example | Mounted inside the container at |
 |---|---|---|
-| `TV_PATH` | `/mnt/series-movies/Series` | `/tv` |
-| `MOVIES_PATH` | `/mnt/series-movies/Movies` | `/movies` |
+| `TV_PATH` | `/mnt/movies-series/Series` | `/tv` |
+| `MOVIES_PATH` | `/mnt/movies-series/Movies` | `/movies` |
 
 In the app, libraries are always `/tv` and `/movies`, whatever the server folders are called.
 
