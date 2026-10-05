@@ -43,13 +43,18 @@ Then open `http://your-server-ip:8096` and complete the setup wizard.
 
 ## Configuration
 
-Edit `docker-compose.yml` before deploying:
+Set where your media lives on the server with two environment variables. In Portainer, add them under the stack's **Environment variables**:
+
+| Variable | Example | Mounted inside the container at |
+|---|---|---|
+| `TV_PATH` | `/mnt/series-movies/Series` | `/tv` |
+| `MOVIES_PATH` | `/mnt/series-movies/Movies` | `/movies` |
+
+In the app, libraries are always `/tv` and `/movies`, whatever the server folders are called.
+
+Also change the secret in `docker-compose.yml`:
 
 ```yaml
-volumes:
-  - /your/actual/movies/path:/movies   # change this
-  - /your/actual/tv/path:/tv           # change this
-
 environment:
   - JWT_SECRET=your-strong-random-secret-here  # change this!
 ```

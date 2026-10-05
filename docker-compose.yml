@@ -10,10 +10,11 @@ services:
     volumes:
       # Persistent app data (database, config)
       - streamulus_data:/data
-      # Media is mounted at the same path inside the container as on the server,
-      # so library paths in Admin > Libraries match the server's real folders
-      # (e.g. /mnt/series-movies/Series).
-      - /mnt/series-movies:/mnt/series-movies
+      # Your media folders. The right-hand side is fixed: in the app, libraries
+      # are always /tv and /movies. Set the host folders with the TV_PATH and
+      # MOVIES_PATH environment variables (Portainer: stack > Environment variables).
+      - ${TV_PATH:-/mnt/series-movies/Series}:/tv
+      - ${MOVIES_PATH:-/mnt/series-movies/Movies}:/movies
     environment:
       - NODE_ENV=production
       - PORT=8096
