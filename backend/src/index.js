@@ -27,6 +27,7 @@ app.use('/api/profiles', require('./routes/profiles'));
 app.use('/api/movies', require('./routes/movies'));
 app.use('/api/tv', require('./routes/tv'));
 app.use('/api/genres', require('./routes/genres'));
+app.use('/api/subtitles', require('./routes/subtitles'));
 app.use('/api/stream', require('./routes/stream'));
 app.use('/api/admin', require('./routes/admin'));
 
@@ -76,5 +77,7 @@ app.listen(PORT, '0.0.0.0', () => {
   require('./services/path-repair').repairAllPaths()
     .catch(err => console.error('[paths] Repair failed:', err.message))
     .then(() => require('./services/durations').fillMissingDurations())
-    .catch(err => console.error('[durations] Failed:', err.message));
+    .catch(err => console.error('[durations] Failed:', err.message))
+    .then(() => require('./services/languages').fillMissingLanguages())
+    .catch(err => console.error('[languages] Failed:', err.message));
 });

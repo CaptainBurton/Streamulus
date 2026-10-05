@@ -449,6 +449,35 @@ router.post('/movies/:id/refresh', requireAdmin, async (req, res) => {
   res.json({ success: true, found: !!result });
 });
 
+// ── Fix Match ───────────────────────────────────────────────────
+// Search the configured metadata sources (Settings → source order) for the
+// right movie/show, then apply the chosen result to a library item.
+
+router.get('/match/search', requireAdmin, async (req, res) => {
+  const type = req.query.type === 'show' ? 'show' : 'movie';
+  const query = String(req.query.query || '').trim();
+  const year = /^\d{4}$/.test(String(req.query.year || '').trim()) ? parseInt(req.query.year, 10) : null;
+  if (!query) return res.status(400).json({ error: 'Enter a title to search for' });
+  const result = await require('../services/match').search(type, query, year);
+  if (!result.sources.length) {
+    return res.status(400).json({ error: `No metadata source is set up for ${type === 'movie' ? 'movies' : 'TV shows'} — add an API key in Settings.` });
+  }
+  res.json(result);
+});
+
+router.post('/match/apply', requireAdmin, async (req, res) => {
+  const { type, mediaId, source, id } = req.body || {};
+  if (!['movie', 'show'].includes(type) || !['tmdb', 'tvdb', 'imdb'].includes(source) || !id || !mediaId) {
+    return res.status(400).json({ error: 'type, mediaId, source and id are required' });
+  }
+  try {
+    const { episodes } = await require('../services/match').apply(type, parseInt(mediaId, 10), source, String(id));
+    res.json({ success: true, episodesUpdating: episodes });
+  } catch (e) {
+    res.status(e.status || 502).json({ error: e.message || 'Could not apply that match' });
+  }
+});
+
 // ── Artwork management ──────────────────────────────────────────
 
 const mapImg = (img) => ({

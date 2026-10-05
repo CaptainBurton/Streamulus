@@ -68,6 +68,46 @@ async function searchSeries(title) {
   }
 }
 
+// Fix Match: several candidates rather than the best guess.
+async function searchSeriesList(title, year) {
+  const token = await getToken();
+  if (!token) return [];
+  const params = { query: title, type: 'series', limit: 12 };
+  if (year) params.year = year;
+  const r = await axios.get(`${BASE}/search`, { headers: { Authorization: `Bearer ${token}` }, params, timeout: 10000 });
+  return (r.data.data || []).map(hit => {
+    const rawId = hit.tvdb_id || (hit.objectID?.startsWith('series/') ? hit.objectID.split('/')[1] : null);
+    return {
+      tvdb_id: rawId ? parseInt(rawId, 10) : null,
+      name: hit.name,
+      year: hit.year || null,
+      overview: hit.overviews?.eng || hit.overview || null,
+      poster: toFullUrl(hit.image_url || hit.thumbnail || hit.poster || null),
+    };
+  }).filter(h => h.tvdb_id);
+}
+
+// Full record for one series (Fix Match): name, English overview, genres, status, first aired.
+async function getSeriesInfo(tvdbId) {
+  const token = await getToken();
+  if (!token) return null;
+  const headers = { Authorization: `Bearer ${token}` };
+  const r = await axios.get(`${BASE}/series/${tvdbId}/extended`, { headers, params: { meta: 'translations', short: true }, timeout: 10000 });
+  const d = r.data.data || {};
+  const eng = (list) => (list || []).find(t => t.language === 'eng');
+  return {
+    tvdb_id: d.id || tvdbId,
+    name: eng(d.translations?.nameTranslations)?.name || d.name || null,
+    overview: eng(d.translations?.overviewTranslations)?.overview || d.overview || null,
+    genres: Array.isArray(d.genres) ? d.genres.map(g => g.name).filter(Boolean) : [],
+    status: d.status?.name || null,
+    first_air_date: d.firstAired || (d.year ? `${d.year}-01-01` : null),
+    image: toFullUrl(d.image || null),
+    // TVDB uses three-letter codes ('jpn'); stored as two-letter ('ja').
+    original_language: d.originalLanguage ? (require('./subtitles').language(d.originalLanguage)?.code || d.originalLanguage) : '',
+  };
+}
+
 async function getSeriesArtwork(tvdbId) {
   const token = await getToken();
   if (!token) return { poster: null, backdrop: null, seasonPosters: new Map() };
@@ -226,4 +266,4 @@ function isConfigured() {
   return !!getKey();
 }
 
-module.exports = { searchSeries, getSeriesArtwork, getSeasonPosters, getEpisodeDetails, invalidateCache, isConfigured };
+module.exports = { searchSeries, searchSeriesList, getSeriesInfo, getSeriesArtwork, getSeasonPosters, getEpisodeDetails, invalidateCache, isConfigured };

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
+import FixMatch from '../components/FixMatch';
 import SecondaryButton from '../components/SecondaryButton';
 import TitleLogo from '../components/TitleLogo';
 import RefreshIcon from '../components/RefreshIcon';
@@ -23,6 +24,7 @@ export default function TVShow() {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [showArtwork, setShowArtwork] = useState(false);
+  const [showFixMatch, setShowFixMatch] = useState(false);
   const [firstEpisodeId, setFirstEpisodeId] = useState(null);
   const [started, setStarted] = useState(false); // this user has watched any of it
   const [savingWatched, setSavingWatched] = useState(false);
@@ -118,6 +120,16 @@ export default function TVShow() {
                 onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#888'; }}
               >
                 ✎ Edit Artwork
+              </button>
+            )}
+            {user?.role === 'admin' && (
+              <button
+                onClick={() => setShowFixMatch(true)}
+                style={{ marginTop: '8px', width: '220px', padding: '8px 0', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#888', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,194,255,0.1)'; e.currentTarget.style.borderColor = 'rgba(0,194,255,0.3)'; e.currentTarget.style.color = '#00c2ff'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#888'; }}
+              >
+                ⌕ Fix Match
               </button>
             )}
           </div>
@@ -315,6 +327,16 @@ export default function TVShow() {
         itemId={id}
         onClose={() => setShowArtwork(false)}
         onSaved={() => { setShowArtwork(false); setRefreshKey(k => k + 1); }}
+      />
+    )}
+    {showFixMatch && (
+      <FixMatch
+        type="show"
+        itemId={id}
+        initialTitle={show.title}
+        initialYear={show.first_air_date?.slice(0, 4) || ''}
+        onClose={() => setShowFixMatch(false)}
+        onMatched={() => { setShowFixMatch(false); setRefreshKey(k => k + 1); }}
       />
     )}
     </>

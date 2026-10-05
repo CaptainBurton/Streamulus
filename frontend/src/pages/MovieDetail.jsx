@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
+import FixMatch from '../components/FixMatch';
 import SecondaryButton from '../components/SecondaryButton';
 import TitleLogo from '../components/TitleLogo';
 import RefreshIcon from '../components/RefreshIcon';
@@ -26,6 +27,7 @@ export default function MovieDetail() {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [showArtwork, setShowArtwork] = useState(false);
+  const [showFixMatch, setShowFixMatch] = useState(false);
   // This user's progress: { position, completed }
   const [progress, setProgress] = useState({ position: 0, completed: false });
   const [savingWatched, setSavingWatched] = useState(false);
@@ -118,6 +120,16 @@ export default function MovieDetail() {
                 onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#888'; }}
               >
                 ✎ Edit Artwork
+              </button>
+            )}
+            {user?.role === 'admin' && (
+              <button
+                onClick={() => setShowFixMatch(true)}
+                style={{ marginTop: '8px', width: '220px', padding: '8px 0', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#888', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,194,255,0.1)'; e.currentTarget.style.borderColor = 'rgba(0,194,255,0.3)'; e.currentTarget.style.color = '#00c2ff'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#888'; }}
+              >
+                ⌕ Fix Match
               </button>
             )}
           </div>
@@ -257,6 +269,16 @@ export default function MovieDetail() {
         itemId={id}
         onClose={() => setShowArtwork(false)}
         onSaved={() => { setShowArtwork(false); setRefreshKey(k => k + 1); }}
+      />
+    )}
+    {showFixMatch && (
+      <FixMatch
+        type="movie"
+        itemId={id}
+        initialTitle={movie.title}
+        initialYear={movie.year || ''}
+        onClose={() => setShowFixMatch(false)}
+        onMatched={() => { setShowFixMatch(false); setRefreshKey(k => k + 1); }}
       />
     )}
     </>

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { parseVtt, linesAt } from '../components/subtitles';
 import axios from 'axios';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -131,6 +132,15 @@ export default function Watch() {
   const [airplayAvailable, setAirplayAvailable] = useState(false);
 
   // Diag
+  // Subtitles: tracks for this title, the chosen one (null = off) and its cues.
+  const [subTracks,   setSubTracks]   = useState([]);
+  const [subTrackId,  setSubTrackId]  = useState(null);
+  const [subCues,     setSubCues]     = useState([]);
+  const [subLoading,  setSubLoading]  = useState(false);
+  const [subError,    setSubError]    = useState('');
+  const [showSubMenu, setShowSubMenu] = useState(false);
+  const lastSubRef = useRef(null); // for the C key: turn the last track back on
+
   const [diagInfo,    setDiagInfo]    = useState(null);
   const [diagLoad,    setDiagLoad]    = useState(false);
   const [dbgLog,      setDbgLog]      = useState([]);
@@ -155,6 +165,7 @@ export default function Watch() {
   const displayTime = dragTime ?? absTime;
   const progress = totalDur > 0 ? Math.min(displayTime / totalDur, 1) : 0;
   const bufferedProgress = totalDur > 0 ? Math.min(Math.max(bufferedEnd, absTime) / totalDur, 1) : 0;
+  const subLines = subTrackId ? linesAt(subCues, absTime) : [];
 
   // ── Load media metadata ───────────────────────────────────────────────────
   useEffect(() => {
@@ -655,6 +666,64 @@ export default function Watch() {
     return () => video.removeEventListener('ended', onEnded);
   }, [type, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Subtitles ──────────────────────────────────────────────────────────────
+  // Tracks for this title; turn on the viewer's last-used language if there is one.
+  useEffect(() => {
+    setSubTracks([]); setSubTrackId(null); setSubCues([]); setSubError(''); setShowSubMenu(false);
+    if (!['movie', 'episode'].includes(type)) return;
+    let cancelled = false;
+    axios.get(`/api/subtitles/${type}/${id}`).then(res => {
+      if (cancelled) return;
+      const tracks = res.data.tracks || [];
+      setSubTracks(tracks);
+      let lang = null;
+      try { lang = localStorage.getItem('streamulus_subtitle_lang'); } catch {}
+      if (lang && lang !== 'off') {
+        const pick = tracks.find(t => t.language === lang && !t.forced) || tracks.find(t => t.language === lang);
+        if (pick) setSubTrackId(pick.id);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [type, id]);
+
+  useEffect(() => {
+    setSubCues([]); setSubError('');
+    if (!subTrackId) return;
+    lastSubRef.current = subTrackId;
+    let cancelled = false;
+    setSubLoading(true);
+    axios.get(`/api/subtitles/${type}/${id}/${subTrackId}.vtt`, { responseType: 'text', transformResponse: [d => d] })
+      .then(res => { if (!cancelled) setSubCues(parseVtt(res.data)); })
+      .catch(err => {
+        if (cancelled) return;
+        let msg = 'Could not load subtitles';
+        try { msg = JSON.parse(err.response?.data || '{}').error || msg; } catch {}
+        setSubError(msg);
+      })
+      .finally(() => { if (!cancelled) setSubLoading(false); });
+    return () => { cancelled = true; };
+  }, [subTrackId, type, id]);
+
+  const chooseSubtitle = useCallback((track) => {
+    setSubTrackId(track?.id ?? null);
+    setShowSubMenu(false);
+    try { localStorage.setItem('streamulus_subtitle_lang', track ? (track.language || 'off') : 'off'); } catch {}
+  }, []);
+
+  // C toggles subtitles (back to the last track used, or the first one).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target?.tagName === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key !== 'c' && e.key !== 'C') return;
+      if (!subTracks.length) return;
+      e.preventDefault();
+      if (subTrackId) chooseSubtitle(null);
+      else chooseSubtitle(subTracks.find(t => t.id === lastSubRef.current) || subTracks.find(t => !t.forced) || subTracks[0]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [subTracks, subTrackId, chooseSubtitle]);
+
   // ── AirPlay availability (WebKit/Safari only) ─────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
@@ -821,6 +890,26 @@ export default function Watch() {
         onClick={togglePlay}
         style={{ width: '100%', height: '100vh', background: '#000', display: 'block' }}
       />
+
+      {/* ── Subtitles (drawn by us, timed to the file's own clock) ───────────── */}
+      {subLines.length > 0 && (
+        <div aria-live="polite" className="player-subtitles" style={{
+          position: 'fixed', left: '50%', transform: 'translateX(-50%)', zIndex: 105, pointerEvents: 'none',
+          bottom: showBar ? '120px' : '56px', transition: 'bottom 0.25s ease',
+          width: 'min(90vw, 1400px)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+        }}>
+          {subLines.map((line, i) => {
+            const italic = /<i>/.test(line);
+            return (
+              <span key={i} style={{
+                background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '2px 10px', borderRadius: '4px',
+                fontSize: 'clamp(18px, 2.4vw, 40px)', lineHeight: 1.3, textAlign: 'center', fontWeight: 600,
+                textShadow: '0 1px 3px rgba(0,0,0,0.9)', fontStyle: italic ? 'italic' : 'normal', whiteSpace: 'pre-wrap',
+              }}>{line.replace(/<\/?i>/g, '')}</span>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Loading overlay ─────────────────────────────────────────────────── */}
       {loading && (
@@ -1026,6 +1115,48 @@ export default function Watch() {
                   />
                 </div>
               </div>
+
+              {/* Subtitles */}
+              {subTracks.length > 0 && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowSubMenu(v => !v)}
+                    style={{ ...S.iBtn, color: subTrackId ? '#00c2ff' : '#fff' }}
+                    className="pbtn"
+                    title="Subtitles (C)"
+                    aria-label="Subtitles"
+                    aria-expanded={showSubMenu}
+                  >
+                    <svg viewBox="0 0 24 24" width={22} height={22} fill="currentColor" style={{ display: 'block' }}>
+                      <path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z"/>
+                    </svg>
+                  </button>
+                  {showSubMenu && (
+                    <div role="menu" aria-label="Subtitles" style={{
+                      position: 'absolute', bottom: '48px', right: 0, minWidth: '240px', maxHeight: '50vh', overflowY: 'auto',
+                      background: 'rgba(16,16,16,0.97)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px',
+                      padding: '6px', boxShadow: '0 8px 40px rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', zIndex: 130,
+                    }}>
+                      <div style={{ fontSize: '10px', color: '#666', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', padding: '8px 10px 6px' }}>Subtitles</div>
+                      {[null, ...subTracks].map(t => {
+                        const active = (t?.id ?? null) === subTrackId;
+                        return (
+                          <button key={t?.id ?? 'off'} role="menuitemradio" aria-checked={active} onClick={() => chooseSubtitle(t)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', textAlign: 'left', padding: '9px 10px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: active ? '700' : '500', background: active ? 'rgba(0,194,255,0.12)' : 'transparent', color: active ? '#00c2ff' : '#ddd' }}
+                            onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                            onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            <span style={{ width: '14px', flexShrink: 0 }}>{active ? '✓' : ''}</span>
+                            <span>{t ? t.label : 'Off'}</span>
+                            {active && t && subLoading && <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#888' }}>Loading…</span>}
+                          </button>
+                        );
+                      })}
+                      {subError && <div style={{ padding: '8px 10px', fontSize: '12px', color: '#ff6b6b' }}>{subError}</div>}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* AirPlay — only rendered in Safari where the WebKit API is available */}
               {airplayAvailable && (

@@ -43,7 +43,7 @@ export default function GenresAdmin({ flash }) {
     setBusy(name);
     try {
       await axios.delete(`/api/genres/${encodeURIComponent(name)}/image`);
-      flash(`${name} now uses a random movie's artwork`);
+      flash(`${name} now uses a random title's banner art`);
       await load();
     } catch { flash('Failed to remove image', true); } finally { setBusy(null); }
   };
@@ -59,7 +59,7 @@ export default function GenresAdmin({ flash }) {
       <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Genre Images</h3>
       <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>
         The picture on each genre's card under Genres, on the web and the Apple TV app. Genres without one show
-        the artwork of a random movie in that genre. PNG, JPG, WebP or GIF, up to 10 MB — a wide (16:9) image works best.
+        the banner art of a random movie or show in that genre. PNG, JPG, WebP or GIF, up to 10 MB — a wide (16:9) image works best.
       </p>
       <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" style={{ display: 'none' }} onChange={upload} />
 

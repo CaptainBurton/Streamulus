@@ -177,6 +177,10 @@ try { db.exec('ALTER TABLE users ADD COLUMN parental_lock INTEGER NOT NULL DEFAU
 // Title logo artwork URL from TMDB ('' = none available). See services/logos.js.
 try { db.exec('ALTER TABLE movies ADD COLUMN logo_path TEXT'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN logo_path TEXT'); } catch {}
+// Original language (ISO 639-1, e.g. 'ja'): Japanese/Korean/Chinese animation is
+// grouped as "Anime". NULL = not looked up yet. See services/languages.js.
+try { db.exec('ALTER TABLE movies ADD COLUMN original_language TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN original_language TEXT'); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN parental_lock_method TEXT NOT NULL DEFAULT 'password'"); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_wh_profile ON watch_history(profile_id, media_type, media_id)');
 

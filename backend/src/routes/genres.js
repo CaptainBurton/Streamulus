@@ -24,6 +24,17 @@ const TV_SPLIT = {
 };
 const expand = (names) => [...new Set((names || []).flatMap(n => TV_SPLIT[n] || [n]))];
 
+// TMDB has no Anime genre: animation made in Japanese, Korean or Chinese counts
+// as Anime (as does anything a source tags "Anime", like TVDB).
+const ANIME_LANGUAGES = new Set(['ja', 'ko', 'zh', 'cn']);
+function genresOf(item) {
+  const genres = expand(item.genres);
+  if (!genres.includes('Anime') && genres.includes('Animation') && ANIME_LANGUAGES.has(String(item.original_language || '').slice(0, 2))) {
+    genres.push('Anime');
+  }
+  return genres;
+}
+
 const byTitle = (a, b) => sortKey(a.title).localeCompare(sortKey(b.title), undefined, { sensitivity: 'base' });
 const sortKey = (t = '') => t.replace(/^(the|a|an)\s+/i, '');
 
@@ -33,11 +44,11 @@ function library(req) {
   const movies = (scope
     ? db.prepare('SELECT * FROM movies WHERE id IN (SELECT value FROM json_each(?))').all(scope.moviesJson)
     : db.prepare('SELECT * FROM movies').all()
-  ).map(formatMovie).map(m => ({ ...m, genres: expand(m.genres) }));
+  ).map(formatMovie).map(m => ({ ...m, genres: genresOf(m) }));
   const shows = (scope
     ? db.prepare('SELECT * FROM tv_shows WHERE id IN (SELECT value FROM json_each(?))').all(scope.showsJson)
     : db.prepare('SELECT * FROM tv_shows').all()
-  ).map(formatShow).map(s => ({ ...s, genres: expand(s.genres) }));
+  ).map(formatShow).map(s => ({ ...s, genres: genresOf(s) }));
   return { movies, shows };
 }
 
@@ -57,13 +68,13 @@ function groupByGenre({ movies, shows }) {
 const customImages = () => new Map(db.prepare('SELECT name, image_path FROM genre_images').all().map(r => [r.name, r.image_path]));
 const pickRandom = (list) => list[Math.floor(Math.random() * list.length)];
 
-// The admin's image, or the artwork of a random movie in the genre (a show if it has no movies).
+// The admin's image, or the wide banner art (backdrop) of a random movie or show
+// in the genre — wide art suits the 16:9 / 5:3 cards. Posters only as a last resort.
 function genreImage(group, custom) {
   if (custom) return `/uploads/genres/${custom}`;
-  const withBackdrop = (list) => list.filter(i => i.backdrop_url);
-  const candidates = withBackdrop(group.movies).length ? withBackdrop(group.movies)
-    : withBackdrop(group.shows).length ? withBackdrop(group.shows)
-    : [...group.movies, ...group.shows].filter(i => i.poster_url);
+  const all = [...group.movies, ...group.shows];
+  const withBackdrop = all.filter(i => i.backdrop_url);
+  const candidates = withBackdrop.length ? withBackdrop : all.filter(i => i.poster_url);
   const pick = candidates.length ? pickRandom(candidates) : null;
   return pick ? (pick.backdrop_url || pick.poster_url) : null;
 }
@@ -103,8 +114,8 @@ router.get('/:name', authenticate, (req, res) => {
 
 function knownGenre(name) {
   const groups = groupByGenre({
-    movies: db.prepare('SELECT genres FROM movies').all().map(formatMovie).map(m => ({ genres: expand(m.genres) })),
-    shows: db.prepare('SELECT genres FROM tv_shows').all().map(formatShow).map(s => ({ genres: expand(s.genres) })),
+    movies: db.prepare('SELECT genres, original_language FROM movies').all().map(formatMovie).map(m => ({ genres: genresOf(m) })),
+    shows: db.prepare('SELECT genres, original_language FROM tv_shows').all().map(formatShow).map(s => ({ genres: genresOf(s) })),
   });
   return [...groups.keys()].find(g => g.toLowerCase() === String(name).toLowerCase()) || null;
 }
