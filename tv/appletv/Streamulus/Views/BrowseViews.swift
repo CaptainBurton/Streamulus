@@ -456,6 +456,14 @@ private struct RailLetterLabel: View {
 struct AccountView: View {
     @EnvironmentObject private var session: Session
 
+    /// e.g. "1.1 (2)" — shows which build is installed on the TV.
+    static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 44) {
             if let profile = session.profile {
@@ -492,6 +500,7 @@ struct AccountView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Server: \(session.serverURL?.absoluteString ?? "")")
+                Text("App version \(Self.appVersion)")
                 Text("To sign in another TV or browser without a password, choose Quick Login on it, then approve the code from Streamulus on your phone or computer.")
             }
             .font(.callout)
