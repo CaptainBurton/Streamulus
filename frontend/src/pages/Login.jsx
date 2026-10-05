@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import QuickLoginRequest from '../components/QuickLoginRequest';
 
 export default function Login() {
   const { login } = useAuth();
@@ -7,6 +8,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [useCode, setUseCode] = useState(false); // Quick Login instead of a password
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -56,7 +58,7 @@ export default function Login() {
           }}>
             STREAMULUS
           </div>
-          <div style={{ color: '#555', fontSize: '14px' }}>Sign in to continue</div>
+          <div style={{ color: '#555', fontSize: '14px' }}>{useCode ? 'Sign in with a code' : 'Sign in to continue'}</div>
         </div>
 
         <div style={{
@@ -65,6 +67,7 @@ export default function Login() {
           borderRadius: '16px',
           padding: '36px',
         }}>
+          {useCode ? <QuickLoginRequest onCancel={() => setUseCode(false)} /> : (
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: '18px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#777', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
@@ -122,7 +125,19 @@ export default function Login() {
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '22px 0 16px', color: '#444', fontSize: '12px' }}>
+              <span style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} /> OR <span style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+            </div>
+            <button
+              type="button"
+              onClick={() => { setError(''); setUseCode(true); }}
+              style={{ width: '100%', padding: '13px', background: 'rgba(255,255,255,0.06)', color: '#ddd', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', fontSize: '15px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Sign in with a code (Quick Login)
+            </button>
           </form>
+          )}
         </div>
       </div>
     </div>

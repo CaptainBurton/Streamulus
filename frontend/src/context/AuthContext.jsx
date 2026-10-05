@@ -56,14 +56,18 @@ export function AuthProvider({ children }) {
     }
   }, [logout]);
 
-  const login = async (username, password) => {
-    const res = await axios.post('/api/auth/login', { username, password });
-    const { token, user, profile, profileCount } = res.data;
+  // Finish signing in with a token from /login or an approved Quick Login.
+  const completeLogin = ({ token, user, profile, profileCount }) => {
     setToken(token);
     setUser(user);
     setProfile(profile);
     setPick(profileCount > 1);
     return user;
+  };
+
+  const login = async (username, password) => {
+    const res = await axios.post('/api/auth/login', { username, password });
+    return completeLogin(res.data);
   };
 
   // Switch to another profile; pin is needed for PIN-locked profiles.
@@ -84,7 +88,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, profile, loading, login, logout, selectProfile, refresh,
+      user, profile, loading, login, completeLogin, logout, selectProfile, refresh,
       needsProfilePick, cancelProfilePick: () => setPick(false),
     }}>
       {children}

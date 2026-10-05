@@ -30,9 +30,10 @@ export default function ProfilePicker() {
     }
     setBusy(true);
     try {
+      const wasGate = needsProfilePick;
       await selectProfile(p.id, pinValue);
       setPinFor(null);
-      navigate('/');
+      if (!wasGate) navigate('/');
     } catch (err) {
       setError(err.response?.data?.error || "Couldn't switch profile");
       setPin('');

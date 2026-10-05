@@ -263,6 +263,7 @@ export default function Navbar() {
                 {[
                   { to: '/profiles', label: 'Switch Profile' },
                   { to: '/profile', label: profile?.is_kids ? 'My Profile' : 'Profile & Account' },
+                  ...(profile?.is_kids ? [] : [{ to: '/quick-login', label: 'Quick Login' }]),
                 ].map(item => (
                   <Link
                     key={item.to}

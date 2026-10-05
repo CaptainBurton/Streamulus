@@ -14,6 +14,7 @@ import TVSeason from './pages/TVSeason';
 import Admin from './pages/Admin';
 import ProfilePicker from './pages/ProfilePicker';
 import ProfileSettings from './pages/ProfileSettings';
+import QuickLogin from './pages/QuickLogin';
 
 function AppRoutes() {
   const { user, profile, loading, needsProfilePick } = useAuth();
@@ -50,6 +51,7 @@ function AppRoutes() {
       <Route path="/watch/:type/:id" element={<Watch />} />
       <Route path="/profiles" element={<ProfilePicker />} />
       <Route path="/profile" element={<ProfileSettings />} />
+      <Route path="/quick-login" element={<QuickLogin />} />
       <Route path="/admin" element={user.role === 'admin' && !profile?.is_kids ? <Admin /> : <Navigate to="/" />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

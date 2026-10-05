@@ -71,6 +71,12 @@ export default function ProfileSettings() {
           <ProfileEditor p={profile} self canManage={isMain} onChanged={afterProfileChange} say={say} errText={errText} />
         )}
 
+        {!isKids && (
+          <Card title="Quick Login" subtitle="Sign in your Apple TV or another device without typing your password: choose Quick Login on that device, then enter the code it shows here.">
+            <Btn primary onClick={() => navigate('/quick-login')}>Enter a Quick Login code</Btn>
+          </Card>
+        )}
+
         {isMain && !isKids && <AccountSection user={user} onChanged={refresh} say={say} errText={errText} />}
 
         {isMain && !isKids && (
