@@ -213,6 +213,7 @@ export default function Hero({ item, type = 'movie', contentFade = null }) {
             ▶ Play Now
           </button>
           <button
+            onClick={() => navigate(type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`)}
             style={{
               display: 'flex',
               alignItems: 'center',
