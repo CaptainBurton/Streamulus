@@ -230,11 +230,13 @@ final class Session: ObservableObject {
         ])
     }
 
-    /// HLS stream for a movie/episode, starting `start` seconds in.
-    func streamURL(type: MediaType, id: Int, start: Int) -> URL? {
+    /// HLS stream for a movie/episode, starting `start` seconds in. `compat` asks
+    /// the server to re-encode everything instead of copying the source.
+    func streamURL(type: MediaType, id: Int, start: Int, compat: Bool = false) -> URL? {
         guard let api, let token = api.token else { return nil }
         var query = [URLQueryItem(name: "token", value: token)]
         if start > 0 { query.append(URLQueryItem(name: "start", value: String(start))) }
+        if compat { query.append(URLQueryItem(name: "compat", value: "1")) }
         return api.url("/api/stream/hls/\(type.rawValue)/\(id)/manifest.m3u8", query: query)
     }
 }

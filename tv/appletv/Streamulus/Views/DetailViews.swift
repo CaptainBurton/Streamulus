@@ -11,6 +11,7 @@ struct MovieDetailView: View {
     @State private var similar: [Movie] = []
     @State private var progress = WatchProgress.none
     @State private var saving = false
+    @FocusState private var headerFocus: Int? // which header button has focus
 
     private var shown: Movie { details ?? movie }
     private var inProgress: Bool { !progress.completed && progress.position > 10 }
@@ -20,9 +21,10 @@ struct MovieDetailView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 40) {
-                header
+                header.id("top")
                 if !cast.isEmpty { CastShelf(cast: cast) }
                 if !similar.isEmpty {
                     Shelf("More Like This") {
@@ -35,6 +37,13 @@ struct MovieDetailView: View {
             .padding(.bottom, 80)
         }
         .scrollIndicators(.hidden)
+        // Coming back up to the buttons: show the whole header again (tvOS would
+        // only scroll far enough to reveal the buttons, cutting off the title and
+        // leaving no way to reach the top).
+        .onChange(of: headerFocus) { _, focused in
+            if focused != nil { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) } }
+        }
+        }
         .background(Backdrop(url: session.imageURL(shown.backdropPath ?? shown.posterPath)))
         .task(id: player.request == nil) {
             if player.request == nil { await load() }
@@ -74,11 +83,13 @@ struct MovieDetailView: View {
                             Label(inProgress ? "Resume from \(Fmt.clock(progress.position))" : "Play", systemImage: "play.fill")
                         }
                         .buttonStyle(.glassProminent)
+                        .focused($headerFocus, equals: 0)
                         if inProgress {
                             Button { play(from: 0) } label: {
                                 Label("Play from Beginning", systemImage: "arrow.counterclockwise")
                             }
                             .buttonStyle(.glass)
+                            .focused($headerFocus, equals: 1)
                         }
                         Button {
                             Task { await toggleWatched() }
@@ -87,6 +98,7 @@ struct MovieDetailView: View {
                                   systemImage: progress.completed ? "eye.slash" : "checkmark")
                         }
                         .buttonStyle(.glass)
+                        .focused($headerFocus, equals: 2)
                         .disabled(saving)
                     }
                 }
@@ -132,6 +144,7 @@ struct ShowDetailView: View {
     @State private var season: Int?
     @State private var episodes: [Episode] = []
     @State private var saving = false
+    @FocusState private var headerFocus: Int? // which header button has focus
 
     private var shown: Show { details?.show ?? show }
     private var seasons: [Season] { details?.seasons ?? [] }
@@ -140,9 +153,10 @@ struct ShowDetailView: View {
     private var upNext: Episode? { episodes.first { !$0.watchCompleted } }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 40) {
-                header
+                header.id("top")
                 if seasons.count > 1 { seasonPicker }
                 VStack(alignment: .leading, spacing: 24) {
                     ForEach(episodes) { episode in
@@ -160,6 +174,12 @@ struct ShowDetailView: View {
                 }
             }
             .padding(.bottom, 80)
+        }
+        .scrollIndicators(.hidden)
+        // Coming back up to the buttons: show the whole header again.
+        .onChange(of: headerFocus) { _, focused in
+            if focused != nil { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) } }
+        }
         }
         .background(Backdrop(url: session.imageURL(shown.backdropPath ?? shown.posterPath)))
         .task(id: player.request == nil) {
@@ -188,6 +208,7 @@ struct ShowDetailView: View {
                             Label("\(next.inProgress ? "Resume" : "Play") \(next.label)", systemImage: "play.fill")
                         }
                         .buttonStyle(.glassProminent)
+                        .focused($headerFocus, equals: 0)
                     }
                     if details?.started == true, let first = details?.firstEpisodeId {
                         Button {
@@ -196,6 +217,7 @@ struct ShowDetailView: View {
                             Label("Play from Beginning", systemImage: "arrow.counterclockwise")
                         }
                         .buttonStyle(.glass)
+                        .focused($headerFocus, equals: 1)
                     }
                     Button {
                         Task { await toggleWatched() }
@@ -203,6 +225,7 @@ struct ShowDetailView: View {
                         Label(allWatched ? "Mark as Unwatched" : "Mark as Watched", systemImage: allWatched ? "eye.slash" : "checkmark")
                     }
                     .buttonStyle(.glass)
+                    .focused($headerFocus, equals: 2)
                     .disabled(saving || seasons.isEmpty)
                 }
             }

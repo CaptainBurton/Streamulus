@@ -7,39 +7,39 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0CC88CD998FBB0B6C5378661 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9768CB4B36028391AEA85680 /* Models.swift */; };
-		3F8BD90284DD86D747425C75 /* DetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F35ECA8B65CCB7780568D99 /* DetailViews.swift */; };
-		4EA67387DC58E7478ECB9D6B /* Playback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42AD9393AFB5E3A7EF5B50B0 /* Playback.swift */; };
-		5CDE09AEC693FEEAC33AD0B8 /* StreamulusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B784CE316B1752E029A37D4A /* StreamulusApp.swift */; };
-		5F3C719529DE0A0E7441B3F8 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = F865E05965F3961E2E29C523 /* Components.swift */; };
-		97F5876159D492825C9AB6A9 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50EF14F97BDACFA141F7D156 /* Session.swift */; };
-		99E44A42AC24E15D61619790 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE1B73E70AB01C89721F8296 /* APIClient.swift */; };
-		AF609B1E05E78053D534A511 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 39ACE4D39C7C48A20CCE5E06 /* Assets.xcassets */; };
-		BAE20A91E6BD6FF084F4B8B8 /* Formatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FD9B1377736B7D8DEF452D /* Formatting.swift */; };
-		C18E0DFA6553AFE2FC2E3073 /* SignInViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACBD9420D1D398AE3AE8BEDC /* SignInViews.swift */; };
-		F36EE34FDDACF0617900AAE3 /* BrowseViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B203B8C543D3E6A918E19610 /* BrowseViews.swift */; };
-		F414DE3CB65C06181699C31C /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99830E4A02E17FAB69EB15D8 /* Keychain.swift */; };
+		13A6E38F071427A6BD4228C2 /* Playback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14012EE0F1177FF1AA830370 /* Playback.swift */; };
+		54699633375CB9BCD0581128 /* StreamulusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B999018F7951D10AA1AA6636 /* StreamulusApp.swift */; };
+		67119867C1DB58DFDB05847F /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13CB769524CF8A062389BA5 /* Components.swift */; };
+		6815AABECB8589B024653338 /* BrowseViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92A1142305C4E47EBB6CD01 /* BrowseViews.swift */; };
+		7320FEA40A82B34B8EE26EF1 /* SignInViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525B284FA621AC6DD583BE52 /* SignInViews.swift */; };
+		85A1AF86D6F7EC5A641B2DC2 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 457C179ACEFC7E22A419633E /* Session.swift */; };
+		B45B16D3B54C1DAF8B11E551 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BDBFABE5075A8DB5C8CB0461 /* Assets.xcassets */; };
+		C34DB4A8D543F124A624A28D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C84398972227A7E9D29F002 /* Models.swift */; };
+		C3C55FA9EDE854721E1A8B5B /* Formatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952B912DF28503CA21858DD8 /* Formatting.swift */; };
+		D79DDF463582BF9535FF9FD5 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8A1AF92C592D0FE045FE18 /* Keychain.swift */; };
+		E5A957EDEF996ECBE88DDC82 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2D8A2A1C8EA7188D9DCF859 /* APIClient.swift */; };
+		F8D5511A3B02CE06BBEABE73 /* DetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D64A7E028249DF7D20ECC31 /* DetailViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		39ACE4D39C7C48A20CCE5E06 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		42AD9393AFB5E3A7EF5B50B0 /* Playback.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Playback.swift; sourceTree = "<group>"; };
-		4615594BC3E8153C8BE892BA /* Streamulus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Streamulus.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		50EF14F97BDACFA141F7D156 /* Session.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
-		9768CB4B36028391AEA85680 /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
-		99830E4A02E17FAB69EB15D8 /* Keychain.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
-		9F35ECA8B65CCB7780568D99 /* DetailViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DetailViews.swift; sourceTree = "<group>"; };
-		A325F6296E35D052BEE77FAC /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		ACBD9420D1D398AE3AE8BEDC /* SignInViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SignInViews.swift; sourceTree = "<group>"; };
-		B203B8C543D3E6A918E19610 /* BrowseViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowseViews.swift; sourceTree = "<group>"; };
-		B784CE316B1752E029A37D4A /* StreamulusApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StreamulusApp.swift; sourceTree = "<group>"; };
-		CE1B73E70AB01C89721F8296 /* APIClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
-		D6FD9B1377736B7D8DEF452D /* Formatting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Formatting.swift; sourceTree = "<group>"; };
-		F865E05965F3961E2E29C523 /* Components.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		04C3FBD6524F380F8FF29C29 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0C84398972227A7E9D29F002 /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		0D64A7E028249DF7D20ECC31 /* DetailViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DetailViews.swift; sourceTree = "<group>"; };
+		14012EE0F1177FF1AA830370 /* Playback.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Playback.swift; sourceTree = "<group>"; };
+		1D857EE6E5BE6CF12779CCB2 /* Streamulus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Streamulus.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2A8A1AF92C592D0FE045FE18 /* Keychain.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		457C179ACEFC7E22A419633E /* Session.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
+		525B284FA621AC6DD583BE52 /* SignInViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SignInViews.swift; sourceTree = "<group>"; };
+		952B912DF28503CA21858DD8 /* Formatting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Formatting.swift; sourceTree = "<group>"; };
+		B13CB769524CF8A062389BA5 /* Components.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		B999018F7951D10AA1AA6636 /* StreamulusApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StreamulusApp.swift; sourceTree = "<group>"; };
+		BDBFABE5075A8DB5C8CB0461 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E2D8A2A1C8EA7188D9DCF859 /* APIClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		E92A1142305C4E47EBB6CD01 /* BrowseViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowseViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		3C29DB155A810A7A07271ADD /* Frameworks */ = {
+		AF8DB56E7B700759302986EC /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -49,105 +49,105 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		0ADAEA863F61E9B0D615F4E0 /* Player */ = {
+		1EF578B2958FFBA894ADB47A /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				42AD9393AFB5E3A7EF5B50B0 /* Playback.swift */,
-			);
-			name = Player;
-			path = Player;
-			sourceTree = "<group>";
-		};
-		34376B96D2A45EA5EF699D70 /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				B203B8C543D3E6A918E19610 /* BrowseViews.swift */,
-				F865E05965F3961E2E29C523 /* Components.swift */,
-				9F35ECA8B65CCB7780568D99 /* DetailViews.swift */,
-				ACBD9420D1D398AE3AE8BEDC /* SignInViews.swift */,
+				E92A1142305C4E47EBB6CD01 /* BrowseViews.swift */,
+				B13CB769524CF8A062389BA5 /* Components.swift */,
+				0D64A7E028249DF7D20ECC31 /* DetailViews.swift */,
+				525B284FA621AC6DD583BE52 /* SignInViews.swift */,
 			);
 			name = Views;
 			path = Views;
 			sourceTree = "<group>";
 		};
-		6401CEE4183DD332CF9D70DB /* Streamulus */ = {
+		572739E0EF7FF2C92AFCA453 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				97F559670C944ACF54A90258 /* App */,
-				39ACE4D39C7C48A20CCE5E06 /* Assets.xcassets */,
-				A02ABABA14E52BE12512025A /* Core */,
-				A325F6296E35D052BEE77FAC /* Info.plist */,
-				0ADAEA863F61E9B0D615F4E0 /* Player */,
-				34376B96D2A45EA5EF699D70 /* Views */,
-			);
-			name = Streamulus;
-			path = Streamulus;
-			sourceTree = "<group>";
-		};
-		97F559670C944ACF54A90258 /* App */ = {
-			isa = PBXGroup;
-			children = (
-				B784CE316B1752E029A37D4A /* StreamulusApp.swift */,
-			);
-			name = App;
-			path = App;
-			sourceTree = "<group>";
-		};
-		A02ABABA14E52BE12512025A /* Core */ = {
-			isa = PBXGroup;
-			children = (
-				CE1B73E70AB01C89721F8296 /* APIClient.swift */,
-				D6FD9B1377736B7D8DEF452D /* Formatting.swift */,
-				99830E4A02E17FAB69EB15D8 /* Keychain.swift */,
-				9768CB4B36028391AEA85680 /* Models.swift */,
-				50EF14F97BDACFA141F7D156 /* Session.swift */,
-			);
-			name = Core;
-			path = Core;
-			sourceTree = "<group>";
-		};
-		AC800134178243E5A4F5F99A /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				4615594BC3E8153C8BE892BA /* Streamulus.app */,
+				1D857EE6E5BE6CF12779CCB2 /* Streamulus.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		CA335595EF1E89427AF5AF58 /* tvOS */ = {
+		7BED29E0D8932767AF02490E /* Player */ = {
+			isa = PBXGroup;
+			children = (
+				14012EE0F1177FF1AA830370 /* Playback.swift */,
+			);
+			name = Player;
+			path = Player;
+			sourceTree = "<group>";
+		};
+		8063D02A9689C782852E3C07 /* tvOS */ = {
 			isa = PBXGroup;
 			children = (
 			);
 			name = tvOS;
 			sourceTree = "<group>";
 		};
-		D1662841BD98AF6FAB66AB70 = {
+		8B95826C0F369ED0F329D7D1 /* Streamulus */ = {
 			isa = PBXGroup;
 			children = (
-				AC800134178243E5A4F5F99A /* Products */,
-				F3D99EEEC3E7D8BC55565DEC /* Frameworks */,
-				6401CEE4183DD332CF9D70DB /* Streamulus */,
+				8E303D3FCFDD8D9D3AC3185C /* App */,
+				BDBFABE5075A8DB5C8CB0461 /* Assets.xcassets */,
+				A74F8E18B51D37824D81700D /* Core */,
+				04C3FBD6524F380F8FF29C29 /* Info.plist */,
+				7BED29E0D8932767AF02490E /* Player */,
+				1EF578B2958FFBA894ADB47A /* Views */,
 			);
+			name = Streamulus;
+			path = Streamulus;
 			sourceTree = "<group>";
 		};
-		F3D99EEEC3E7D8BC55565DEC /* Frameworks */ = {
+		8E303D3FCFDD8D9D3AC3185C /* App */ = {
 			isa = PBXGroup;
 			children = (
-				CA335595EF1E89427AF5AF58 /* tvOS */,
+				B999018F7951D10AA1AA6636 /* StreamulusApp.swift */,
+			);
+			name = App;
+			path = App;
+			sourceTree = "<group>";
+		};
+		A74F8E18B51D37824D81700D /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				E2D8A2A1C8EA7188D9DCF859 /* APIClient.swift */,
+				952B912DF28503CA21858DD8 /* Formatting.swift */,
+				2A8A1AF92C592D0FE045FE18 /* Keychain.swift */,
+				0C84398972227A7E9D29F002 /* Models.swift */,
+				457C179ACEFC7E22A419633E /* Session.swift */,
+			);
+			name = Core;
+			path = Core;
+			sourceTree = "<group>";
+		};
+		B93E816853B0976876342F36 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				8063D02A9689C782852E3C07 /* tvOS */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D3641E19BEAA914109607EE1 = {
+			isa = PBXGroup;
+			children = (
+				572739E0EF7FF2C92AFCA453 /* Products */,
+				B93E816853B0976876342F36 /* Frameworks */,
+				8B95826C0F369ED0F329D7D1 /* Streamulus */,
+			);
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		5435661C0C4AB981F4938950 /* Streamulus */ = {
+		329ECD2C48D4927B673B2A14 /* Streamulus */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 326292746E6EFF588C23ED7B /* Build configuration list for PBXNativeTarget "Streamulus" */;
+			buildConfigurationList = 1272F60A67BA979E1241D3F1 /* Build configuration list for PBXNativeTarget "Streamulus" */;
 			buildPhases = (
-				709841532ED72BF89F821CCF /* Sources */,
-				3C29DB155A810A7A07271ADD /* Frameworks */,
-				202F12CD6E92344CB1CCF9CF /* Resources */,
+				55D4F972B8B532380F4E4EE7 /* Sources */,
+				AF8DB56E7B700759302986EC /* Frameworks */,
+				3CE6914024EAD192F342AA62 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -155,20 +155,20 @@
 			);
 			name = Streamulus;
 			productName = Streamulus;
-			productReference = 4615594BC3E8153C8BE892BA /* Streamulus.app */;
+			productReference = 1D857EE6E5BE6CF12779CCB2 /* Streamulus.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		F74252FA2AFA528B6EC2F090 /* Project object */ = {
+		E17765683FAE9C7874E69C81 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 2600;
 			};
-			buildConfigurationList = A087B4A2841DE56326616409 /* Build configuration list for PBXProject "Streamulus" */;
+			buildConfigurationList = 05D9EAEC6AEAC8E76C5076EB /* Build configuration list for PBXProject "Streamulus" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -176,52 +176,161 @@
 				en,
 				Base,
 			);
-			mainGroup = D1662841BD98AF6FAB66AB70;
+			mainGroup = D3641E19BEAA914109607EE1;
 			minimizedProjectReferenceProxies = 0;
 			preferredProjectObjectVersion = 100;
-			productRefGroup = AC800134178243E5A4F5F99A /* Products */;
+			productRefGroup = 572739E0EF7FF2C92AFCA453 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				5435661C0C4AB981F4938950 /* Streamulus */,
+				329ECD2C48D4927B673B2A14 /* Streamulus */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		202F12CD6E92344CB1CCF9CF /* Resources */ = {
+		3CE6914024EAD192F342AA62 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AF609B1E05E78053D534A511 /* Assets.xcassets in Resources */,
+				B45B16D3B54C1DAF8B11E551 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		709841532ED72BF89F821CCF /* Sources */ = {
+		55D4F972B8B532380F4E4EE7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5CDE09AEC693FEEAC33AD0B8 /* StreamulusApp.swift in Sources */,
-				99E44A42AC24E15D61619790 /* APIClient.swift in Sources */,
-				BAE20A91E6BD6FF084F4B8B8 /* Formatting.swift in Sources */,
-				F414DE3CB65C06181699C31C /* Keychain.swift in Sources */,
-				0CC88CD998FBB0B6C5378661 /* Models.swift in Sources */,
-				97F5876159D492825C9AB6A9 /* Session.swift in Sources */,
-				4EA67387DC58E7478ECB9D6B /* Playback.swift in Sources */,
-				F36EE34FDDACF0617900AAE3 /* BrowseViews.swift in Sources */,
-				5F3C719529DE0A0E7441B3F8 /* Components.swift in Sources */,
-				3F8BD90284DD86D747425C75 /* DetailViews.swift in Sources */,
-				C18E0DFA6553AFE2FC2E3073 /* SignInViews.swift in Sources */,
+				54699633375CB9BCD0581128 /* StreamulusApp.swift in Sources */,
+				E5A957EDEF996ECBE88DDC82 /* APIClient.swift in Sources */,
+				C3C55FA9EDE854721E1A8B5B /* Formatting.swift in Sources */,
+				D79DDF463582BF9535FF9FD5 /* Keychain.swift in Sources */,
+				C34DB4A8D543F124A624A28D /* Models.swift in Sources */,
+				85A1AF86D6F7EC5A641B2DC2 /* Session.swift in Sources */,
+				13A6E38F071427A6BD4228C2 /* Playback.swift in Sources */,
+				6815AABECB8589B024653338 /* BrowseViews.swift in Sources */,
+				67119867C1DB58DFDB05847F /* Components.swift in Sources */,
+				F8D5511A3B02CE06BBEABE73 /* DetailViews.swift in Sources */,
+				7320FEA40A82B34B8EE26EF1 /* SignInViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		A70EAD3A207734C7242B4950 /* Debug */ = {
+		2FF2278F4FE4C443E96450E1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Streamulus/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Streamulus;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.streamulus.appletv;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		6F7D6EEBE276F2AD6C666E67 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
+		AFA4FC2E2CDB785CD2F9E6B2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Streamulus/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Streamulus;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.streamulus.appletv;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		C240A513E7EECBF00232FEA8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -284,137 +393,28 @@
 			};
 			name = Debug;
 		};
-		B47644D64EE3578FA28DE595 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
-				DEVELOPMENT_TEAM = "";
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Streamulus/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Streamulus;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 1.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.streamulus.appletv;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = appletvos;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_STRICT_CONCURRENCY = minimal;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 3;
-				TVOS_DEPLOYMENT_TARGET = 26.0;
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
-		C37736D140F051E2A7BC91BF /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
-				DEVELOPMENT_TEAM = "";
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Streamulus/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Streamulus;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 1.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.streamulus.appletv;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = appletvos;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_STRICT_CONCURRENCY = minimal;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 3;
-				TVOS_DEPLOYMENT_TARGET = 26.0;
-			};
-			name = Debug;
-		};
-		C42CA9B5AD5412BD15CC9E2C /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_CXX_LIBRARY = "libc++";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				MTL_ENABLE_DEBUG_INFO = NO;
-				MTL_FAST_MATH = YES;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = appletvos;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.0;
-				TVOS_DEPLOYMENT_TARGET = 26.0;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		326292746E6EFF588C23ED7B /* Build configuration list for PBXNativeTarget "Streamulus" */ = {
+		05D9EAEC6AEAC8E76C5076EB /* Build configuration list for PBXProject "Streamulus" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				B47644D64EE3578FA28DE595 /* Release */,
-				C37736D140F051E2A7BC91BF /* Debug */,
+				C240A513E7EECBF00232FEA8 /* Debug */,
+				6F7D6EEBE276F2AD6C666E67 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A087B4A2841DE56326616409 /* Build configuration list for PBXProject "Streamulus" */ = {
+		1272F60A67BA979E1241D3F1 /* Build configuration list for PBXNativeTarget "Streamulus" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A70EAD3A207734C7242B4950 /* Debug */,
-				C42CA9B5AD5412BD15CC9E2C /* Release */,
+				2FF2278F4FE4C443E96450E1 /* Release */,
+				AFA4FC2E2CDB785CD2F9E6B2 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = F74252FA2AFA528B6EC2F090 /* Project object */;
+	rootObject = E17765683FAE9C7874E69C81 /* Project object */;
 }

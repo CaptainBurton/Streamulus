@@ -50,6 +50,8 @@ final class PlaybackController: ObservableObject {
     private var lastSaved = Date()
     private var advancing = false
     private var stopped = false
+    /// Asking the server to re-encode everything (after this item failed once).
+    private var compat = false
 
     var remaining: Double { max(0, duration - position) }
 
@@ -83,8 +85,11 @@ final class PlaybackController: ObservableObject {
 
     // MARK: Loading
 
-    private func load(_ request: PlayRequest) {
+    /// `compat`: ask the server to fully re-encode — used to retry a stream that
+    /// failed, and kept for seeks in the same title.
+    private func load(_ request: PlayRequest, compat: Bool = false) {
         current = request
+        self.compat = compat
         title = request.title
         subtitle = request.subtitle
         position = Double(request.start)
@@ -96,7 +101,7 @@ final class PlaybackController: ObservableObject {
         advancing = false
         isBuffering = true
 
-        guard let url = session.streamURL(type: request.type, id: request.mediaId, start: request.start) else {
+        guard let url = session.streamURL(type: request.type, id: request.mediaId, start: request.start, compat: compat) else {
             errorText = "You're signed out — sign in again to play."
             return
         }
@@ -110,9 +115,7 @@ final class PlaybackController: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak item] status in
                 Task { @MainActor in
-                    if status == .failed {
-                        self?.errorText = item?.error?.localizedDescription ?? "This video couldn't be played."
-                    }
+                    if status == .failed { self?.itemFailed(item?.error) }
                 }
             }
             .store(in: &itemCancellables)
@@ -123,6 +126,19 @@ final class PlaybackController: ObservableObject {
             let id = request.mediaId
             Task { await loadUpNext(for: id) }
         }
+    }
+
+    /// Some files can't be streamed as-is (e.g. "CoreMediaErrorDomain error
+    /// -12971"); try once more with the server re-encoding everything, from
+    /// where playback got to.
+    private func itemFailed(_ error: Error?) {
+        guard !compat, !stopped else {
+            errorText = error?.localizedDescription ?? "This video couldn't be played."
+            return
+        }
+        let r = current
+        let resumeAt = max(r.start, Int(pendingSeek ?? position))
+        load(PlayRequest(type: r.type, mediaId: r.mediaId, start: resumeAt, title: r.title, subtitle: r.subtitle), compat: true)
     }
 
     private func loadUpNext(for episodeId: Int) async {
@@ -174,7 +190,7 @@ final class PlaybackController: ObservableObject {
         if target < Double(current.start) {
             // Before where this stream begins — open a new stream from there.
             let r = current
-            load(PlayRequest(type: r.type, mediaId: r.mediaId, start: Int(target), title: r.title, subtitle: r.subtitle))
+            load(PlayRequest(type: r.type, mediaId: r.mediaId, start: Int(target), title: r.title, subtitle: r.subtitle), compat: compat)
             return
         }
         _ = await player.seek(to: CMTime(seconds: target - Double(current.start), preferredTimescale: 600))
