@@ -37,9 +37,10 @@ struct MovieDetailView: View {
             .padding(.bottom, 80)
         }
         .scrollIndicators(.hidden)
-        // Coming back up to the buttons: show the whole header again (tvOS would
-        // only scroll far enough to reveal the buttons, cutting off the title and
-        // leaving no way to reach the top).
+        .ignoresSafeArea()
+        // Back up at the buttons: show the whole first screen again. (The header
+        // is one screen tall, so this is just "scroll to the top" — tvOS on its
+        // own only scrolls far enough to show the buttons, cutting off the title.)
         .onChange(of: headerFocus) { _, focused in
             if focused != nil { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) } }
         }
@@ -52,7 +53,7 @@ struct MovieDetailView: View {
 
     private var header: some View {
             VStack(alignment: .leading, spacing: 26) {
-                TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title)
+                TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title, maxHeight: 200)
 
                 HStack(spacing: 20) {
                     if let year = shown.year { Text(String(year)) }
@@ -104,9 +105,7 @@ struct MovieDetailView: View {
                 }
                 .padding(.top, 10)
             }
-            .padding(.horizontal, 80)
-            .padding(.top, 320)
-            .frame(maxWidth: .infinity, minHeight: 940, alignment: .bottomLeading)
+            .detailHeaderFrame()
     }
 
     private func load() async {
@@ -176,7 +175,8 @@ struct ShowDetailView: View {
             .padding(.bottom, 80)
         }
         .scrollIndicators(.hidden)
-        // Coming back up to the buttons: show the whole header again.
+        .ignoresSafeArea()
+        // Back up at the buttons: show the whole first screen again.
         .onChange(of: headerFocus) { _, focused in
             if focused != nil { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("top", anchor: .top) } }
         }
@@ -190,7 +190,7 @@ struct ShowDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 24) {
-            TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title)
+            TitleLogoView(url: session.imageURL(shown.logoPath), title: shown.title, maxHeight: 200)
             HStack(spacing: 20) {
                 if let year = shown.year { Text(year) }
                 Text("\(seasons.count) season\(seasons.count == 1 ? "" : "s")")
@@ -230,8 +230,7 @@ struct ShowDetailView: View {
                 }
             }
         }
-        .padding(.horizontal, 80)
-        .padding(.top, 260)
+        .detailHeaderFrame()
     }
 
     private var seasonPicker: some View {
@@ -285,6 +284,19 @@ struct ShowDetailView: View {
         await load()
         await loadEpisodes()
         saving = false
+    }
+}
+
+extension View {
+    /// The top of a movie/show page: exactly one screen tall (less a strip so the
+    /// next row peeks in), content at the bottom-left with the buttons fully on
+    /// screen. It used to be taller than the screen, so the buttons sat below the
+    /// bottom edge until focus scrolled to them.
+    func detailHeaderFrame() -> some View {
+        padding(.horizontal, 80)
+            .padding(.bottom, 50)
+            .containerRelativeFrame(.vertical, alignment: .bottomLeading) { height, _ in height - 110 }
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

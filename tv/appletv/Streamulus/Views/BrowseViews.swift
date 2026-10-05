@@ -104,7 +104,8 @@ struct HomeView: View {
             .padding(.bottom, 60)
         }
         .scrollIndicators(.hidden)
-        .ignoresSafeArea(edges: .top)
+        // Edge to edge, so the banner artwork fills the screen; rows keep their own 80 pt margin.
+        .ignoresSafeArea(edges: [.top, .horizontal])
         .mediaDestinations()
         // Reload when the player closes so Continue Watching is up to date.
         .task(id: player.request == nil) {
@@ -147,8 +148,8 @@ struct FeaturedHero: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             RemoteImage(url: session.imageURL(movie.backdropPath ?? movie.posterPath))
-                .frame(height: 880)
                 .frame(maxWidth: .infinity)
+                .frame(height: 880)
                 .clipped()
                 .overlay(LinearGradient(colors: [Theme.background.opacity(0.95), Theme.background.opacity(0.3), .clear],
                                         startPoint: .leading, endPoint: .trailing))
@@ -184,6 +185,7 @@ struct FeaturedHero: View {
             .padding(.horizontal, 80)
             .padding(.bottom, 40)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 880)
     }
 
@@ -295,11 +297,20 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
     @State private var bubbleVisible = false
     @State private var bubbleTask: Task<Void, Never>?
 
-    /// Posters per row. 6 across the full screen width ≈ 255 pt wide each.
+    /// Posters per row, across the full screen width.
     /// (Computed: generic types can't have stored static properties.)
     private static var postersPerRow: Int { 6 }
-    private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: 44, alignment: .top), count: Self.postersPerRow)
+    private static var spacing: CGFloat { 40 }
+    private static var leadingMargin: CGFloat { 80 }
+    /// Room on the right for the A–Z rail.
+    private static var railSpace: CGFloat { 140 }
+
+    /// Poster width that fills the screen, worked out from the real width.
+    /// (Flexible columns came out tiny and centred, with wide empty sides.)
+    private static func posterWidth(for screenWidth: CGFloat) -> CGFloat {
+        let n = CGFloat(postersPerRow)
+        let available = screenWidth - leadingMargin - railSpace - spacing * (n - 1)
+        return max(150, (available / n).rounded(.down))
     }
 
     struct LetterGroup: Identifiable {
@@ -340,8 +351,10 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
 
     var body: some View {
         let groups = sections
-        ScrollViewReader { proxy in
-            HStack(alignment: .center, spacing: 16) {
+        GeometryReader { geo in
+            let width = Self.posterWidth(for: geo.size.width)
+            let columns = Array(repeating: GridItem(.fixed(width), spacing: Self.spacing, alignment: .top), count: Self.postersPerRow)
+            ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 50) {
                         ForEach(groups) { group in
@@ -353,6 +366,7 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
                                         subtitle: subtitle(item),
                                         imageURL: imageURL(item),
                                         progress: progress(item),
+                                        width: width,
                                         onFocus: { focusMoved(to: group.letter) }
                                     )
                                 }
@@ -366,38 +380,38 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
                             }
                         }
                     }
-                    // Room for the focused poster to grow without touching the edge.
-                    .padding(.leading, 56)
-                    .padding(.trailing, 12)
+                    .padding(.leading, Self.leadingMargin)
                     .padding(.vertical, 40)
+                    .frame(width: geo.size.width, alignment: .leading)
                 }
                 // Our own A–Z rail and letter bubble replace the scroll dots.
                 .scrollIndicators(.hidden)
                 .scrollClipDisabled()
-
-                if groups.count > 1 {
-                    AlphabetRail(letters: groups.map { $0.letter }, current: currentLetter) { letter in
-                        currentLetter = letter
-                        withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("letter-\(letter)", anchor: .top) }
-                        flashBubble()
+                .frame(width: geo.size.width, height: geo.size.height)
+                .overlay(alignment: .trailing) {
+                    if groups.count > 1 {
+                        AlphabetRail(letters: groups.map { $0.letter }, current: currentLetter) { letter in
+                            currentLetter = letter
+                            withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("letter-\(letter)", anchor: .top) }
+                            flashBubble()
+                        }
+                        .padding(.trailing, 40)
                     }
-                    .padding(.trailing, 36)
                 }
-            }
-            // Use the full screen width; tvOS otherwise keeps ~80 pt in from each side,
-            // which on top of our own margin left the grid well short of the edges.
-            .ignoresSafeArea(edges: .horizontal)
-            .overlay {
-                if bubbleVisible, let currentLetter {
-                    Text(currentLetter)
-                        .font(.system(size: 120, weight: .heavy))
-                        .frame(width: 220, height: 220)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 44))
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .overlay {
+                    if bubbleVisible, let currentLetter {
+                        Text(currentLetter)
+                            .font(.system(size: 120, weight: .heavy))
+                            .frame(width: 220, height: 220)
+                            .glassEffect(.regular, in: .rect(cornerRadius: 44))
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
                 }
+                .animation(.easeOut(duration: 0.2), value: bubbleVisible)
             }
-            .animation(.easeOut(duration: 0.2), value: bubbleVisible)
         }
+        // The whole screen width; tvOS otherwise keeps ~80 pt in from each side.
+        .ignoresSafeArea(edges: .horizontal)
     }
 
     private func focusMoved(to letter: String) {

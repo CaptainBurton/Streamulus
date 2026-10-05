@@ -250,13 +250,14 @@ struct TitleLogoView: View {
     }
 }
 
-/// Poster that fills its grid column (Movies / TV Shows tabs).
+/// Poster for the Movies / TV Shows grids, `width` wide (2:3).
 struct GridPoster<Value: Hashable>: View {
     let value: Value
     let title: String
     var subtitle: String? = nil
     let imageURL: URL?
     var progress: Double? = nil
+    let width: CGFloat
     var onFocus: (() -> Void)? = nil
     @FocusState private var isFocused: Bool
 
@@ -267,8 +268,7 @@ struct GridPoster<Value: Hashable>: View {
                     RemoteImage(url: imageURL, placeholder: title)
                     if let progress, progress > 0 { ProgressStrip(fraction: progress) }
                 }
-                .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                .frame(maxWidth: .infinity)
+                .frame(width: width, height: width * 1.5)
                 .clipped()
             }
             .buttonStyle(.card)
@@ -281,6 +281,7 @@ struct GridPoster<Value: Hashable>: View {
                 Text(title).font(.caption).lineLimit(1)
                 if let subtitle { Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
             }
+            .frame(width: width, alignment: .leading)
         }
     }
 }
