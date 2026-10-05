@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ProfileAvatar from './ProfileAvatar';
 
 const styles = {
   nav: {
@@ -140,7 +141,7 @@ const styles = {
 };
 
 export default function Navbar() {
-  const { user, logout } = useAuth();
+  const { user, profile, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
@@ -195,7 +196,14 @@ export default function Navbar() {
       >
         {/* Left side: logo + desktop nav links */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-          <Link to="/" style={styles.logo}>STREAMULUS</Link>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Link to="/" style={styles.logo}>STREAMULUS</Link>
+            {profile?.is_kids && (
+              <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#1a1200', background: 'linear-gradient(135deg, #ffb703, #fb5607)' }}>
+                Streamlings
+              </span>
+            )}
+          </div>
 
           {/* Desktop nav links — hidden on mobile */}
           {!isMobile && (
@@ -223,10 +231,11 @@ export default function Navbar() {
           {/* User avatar dropdown */}
           <div style={{ position: 'relative' }}>
             <div
-              style={styles.avatar}
+              style={{ cursor: 'pointer' }}
               onClick={() => setUserMenuOpen(v => !v)}
+              title={profile?.name}
             >
-              {user?.username?.[0]?.toUpperCase()}
+              <ProfileAvatar profile={profile} size={34} />
             </div>
             {userMenuOpen && (
               <div style={styles.dropdown}>
@@ -238,20 +247,36 @@ export default function Navbar() {
                   }}
                 >
                   <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff' }}>
-                    {user?.username}
+                    {profile?.name}
                   </div>
                   <div
                     style={{
                       fontSize: '11px',
-                      color: '#666',
+                      color: profile?.is_kids ? '#ffb703' : '#666',
                       textTransform: 'uppercase',
                       letterSpacing: '0.5px',
                     }}
                   >
-                    {user?.role}
+                    {profile?.is_kids ? 'Streamling' : `${user?.username} · ${user?.role}`}
                   </div>
                 </div>
-                {user?.role === 'admin' && (
+                {[
+                  { to: '/profiles', label: 'Switch Profile' },
+                  { to: '/profile', label: profile?.is_kids ? 'My Profile' : 'Profile & Account' },
+                  ...(profile?.is_kids ? [] : [{ to: '/quick-login', label: 'Quick Login' }]),
+                ].map(item => (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    style={{ ...styles.dropdownItem, display: 'block' }}
+                    onClick={closeBothMenus}
+                    onMouseEnter={e => { e.target.style.background = 'rgba(255,255,255,0.06)'; e.target.style.color = '#fff'; }}
+                    onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.color = '#b3b3b3'; }}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+                {user?.role === 'admin' && !profile?.is_kids && (
                   <Link
                     to="/admin"
                     style={{ ...styles.dropdownItem, display: 'block' }}

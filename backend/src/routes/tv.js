@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
+const { kidsScope, canAccess } = require('../services/kids');
+const { fillMissingDurations } = require('../services/durations');
 const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits, getTVContentRating, searchTV } = require('../services/tmdb');
 
 const router = express.Router();
@@ -41,17 +43,20 @@ router.get('/', authenticate, (req, res) => {
         COUNT(*) as total_episodes,
         SUM(CASE WHEN wh.completed = 1 THEN 1 ELSE 0 END) as watched_episodes
       FROM episodes e
-      LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
+      LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.profile_id = ? AND wh.media_type = 'episode'
       GROUP BY e.show_id
     ) ws ON ws.show_id = s.id
     WHERE 1=1
   `;
-  const params = [req.user.id];
+  const params = [req.profile.id];
 
   if (search) {
     query += ' AND s.title LIKE ?';
     params.push(`%${search}%`);
   }
+  // Streamlings only see allowed shows
+  const scope = kidsScope(req);
+  if (scope) { query += ' AND s.id IN (SELECT value FROM json_each(?))'; params.push(scope.showsJson); }
 
   const validSorts = { title: 's.title', rating: 's.rating', added: 's.added_at' };
   const sortCol = validSorts[sort] || 's.added_at';
@@ -60,7 +65,10 @@ router.get('/', authenticate, (req, res) => {
   params.push(parseInt(limit), parseInt(offset));
 
   const shows = db.prepare(query).all(...params).map(formatShow);
-  const total = db.prepare('SELECT COUNT(*) as count FROM tv_shows' + (search ? ' WHERE title LIKE ?' : '')).get(...(search ? [`%${search}%`] : [])).count;
+  const where = [], whereParams = [];
+  if (search) { where.push('title LIKE ?'); whereParams.push(`%${search}%`); }
+  if (scope) { where.push('id IN (SELECT value FROM json_each(?))'); whereParams.push(scope.showsJson); }
+  const total = db.prepare('SELECT COUNT(*) as count FROM tv_shows' + (where.length ? ` WHERE ${where.join(' AND ')}` : '')).get(...whereParams).count;
   res.json({ shows, total });
 });
 
@@ -92,24 +100,27 @@ const RECENT_WITH_WATCH_SQL = `
       COUNT(*) as total_episodes,
       SUM(CASE WHEN wh.completed = 1 THEN 1 ELSE 0 END) as watched_episodes
     FROM episodes e
-    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
+    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.profile_id = ? AND wh.media_type = 'episode'
     GROUP BY e.show_id
   ) ws ON ws.show_id = s.id
+  -- second param: JSON array of allowed show ids for a Streamling, or NULL for everyone else
+  WHERE ? IS NULL OR s.id IN (SELECT value FROM json_each(?))
   ORDER BY s.added_at DESC LIMIT 20
 `;
 
 router.get('/recent', authenticate, async (req, res) => {
-  let shows = db.prepare(RECENT_WITH_WATCH_SQL).all(req.user.id);
+  const allowed = kidsScope(req)?.showsJson ?? null;
+  let shows = db.prepare(RECENT_WITH_WATCH_SQL).all(req.profile.id, allowed, allowed);
   await enrichMissingTMDB(shows);
   if (shows.some(s => !s.tmdb_id)) {
-    shows = db.prepare(RECENT_WITH_WATCH_SQL).all(req.user.id);
+    shows = db.prepare(RECENT_WITH_WATCH_SQL).all(req.profile.id, allowed, allowed);
   }
   res.json({ shows: shows.map(formatShow) });
 });
 
 router.get('/episode/:id/next', authenticate, (req, res) => {
   const ep = db.prepare('SELECT * FROM episodes WHERE id = ?').get(req.params.id);
-  if (!ep) return res.status(404).json({ error: 'Episode not found' });
+  if (!ep || !canAccess(req, 'show', ep.show_id)) return res.status(404).json({ error: 'Episode not found' });
   const next = db.prepare(`
     SELECT * FROM episodes
     WHERE show_id = ? AND (
@@ -117,7 +128,12 @@ router.get('/episode/:id/next', authenticate, (req, res) => {
     )
     ORDER BY season ASC, episode_number ASC LIMIT 1
   `).get(ep.show_id, ep.season, ep.episode_number, ep.season);
-  res.json({ next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title } : null });
+  // How many seconds before the end the player shows the Up Next card (Admin > Settings).
+  const upNextSeconds = parseInt(db.prepare("SELECT value FROM config WHERE key = 'up_next_seconds'").get()?.value || '30') || 30;
+  res.json({
+    next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title } : null,
+    upNextSeconds,
+  });
 });
 
 router.get('/episode/:id', authenticate, (req, res) => {
@@ -128,13 +144,13 @@ router.get('/episode/:id', authenticate, (req, res) => {
     JOIN tv_shows s ON s.id = e.show_id
     WHERE e.id = ?
   `).get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Episode not found' });
+  if (!row || !canAccess(req, 'show', row.show_id)) return res.status(404).json({ error: 'Episode not found' });
   res.json(row);
 });
 
 router.get('/:id', authenticate, (req, res) => {
   const show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
-  if (!show) return res.status(404).json({ error: 'Show not found' });
+  if (!show || !canAccess(req, 'show', show.id)) return res.status(404).json({ error: 'Show not found' });
 
   const seasons = db.prepare(`
     SELECT e.season, COUNT(*) as episode_count,
@@ -142,17 +158,17 @@ router.get('/:id', authenticate, (req, res) => {
            SUM(CASE WHEN wh.completed = 1 THEN 1 ELSE 0 END) as watched_count
     FROM episodes e
     LEFT JOIN seasons s ON s.show_id = e.show_id AND s.season_number = e.season
-    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
+    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.profile_id = ? AND wh.media_type = 'episode'
     WHERE e.show_id = ?
     GROUP BY e.season ORDER BY e.season
-  `).all(req.user.id, req.params.id);
+  `).all(req.profile.id, req.params.id);
 
   res.json({ show: formatShow(show), seasons });
 });
 
 router.get('/:id/details', authenticate, async (req, res) => {
   let show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
-  if (!show) return res.status(404).json({ error: 'Show not found' });
+  if (!show || !canAccess(req, 'show', show.id)) return res.status(404).json({ error: 'Show not found' });
 
   const seasons = db.prepare(`
     SELECT e.season, COUNT(*) as episode_count,
@@ -160,10 +176,10 @@ router.get('/:id/details', authenticate, async (req, res) => {
            SUM(CASE WHEN wh.completed = 1 THEN 1 ELSE 0 END) as watched_count
     FROM episodes e
     LEFT JOIN seasons s ON s.show_id = e.show_id AND s.season_number = e.season
-    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
+    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.profile_id = ? AND wh.media_type = 'episode'
     WHERE e.show_id = ?
     GROUP BY e.season ORDER BY e.season
-  `).all(req.user.id, req.params.id);
+  `).all(req.profile.id, req.params.id);
 
   // If TVDB was the scanner source, tmdb_id/rating/genres may be null.
   // Do a live TMDB search by title and backfill so cast + ratings work.
@@ -208,22 +224,37 @@ router.get('/:id/details', authenticate, async (req, res) => {
   const firstGenre = (() => {
     try { return (JSON.parse(show.genres || '[]')[0] || ''); } catch { return ''; }
   })();
+  const scope = kidsScope(req);
   const similarLocal = db.prepare(`
     SELECT * FROM tv_shows WHERE id != ? AND genres LIKE ?
+    ${scope ? 'AND id IN (SELECT value FROM json_each(?))' : ''}
     ORDER BY rating DESC LIMIT 8
-  `).all(show.id, `%${firstGenre}%`).map(formatShow);
+  `).all(show.id, `%${firstGenre}%`, ...(scope ? [scope.showsJson] : [])).map(formatShow);
 
-  res.json({ show: formatShow(show), seasons, cast, similarLocal });
+  // For "Play from Beginning": the first episode, and whether this user has
+  // started the show at all (any episode in progress or finished).
+  const firstEpisodeId = db.prepare(
+    'SELECT id FROM episodes WHERE show_id = ? ORDER BY season, episode_number LIMIT 1'
+  ).get(show.id)?.id ?? null;
+  const started = db.prepare(`
+    SELECT COUNT(*) AS n FROM watch_history wh
+    JOIN episodes e ON e.id = wh.media_id
+    WHERE wh.profile_id = ? AND wh.media_type = 'episode' AND e.show_id = ?
+      AND (wh.completed = 1 OR wh.position > 0)
+  `).get(req.profile.id, show.id).n > 0;
+
+  res.json({ show: formatShow(show), seasons, cast, similarLocal, firstEpisodeId, started });
 });
 
 router.get('/:id/season/:season', authenticate, (req, res) => {
+  if (!canAccess(req, 'show', req.params.id)) return res.status(404).json({ error: 'Show not found' });
   const episodes = db.prepare(`
     SELECT e.*, wh.completed as watch_completed, wh.position as watch_position
     FROM episodes e
-    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.user_id = ? AND wh.media_type = 'episode'
+    LEFT JOIN watch_history wh ON wh.media_id = e.id AND wh.profile_id = ? AND wh.media_type = 'episode'
     WHERE e.show_id = ? AND e.season = ?
     ORDER BY e.episode_number
-  `).all(req.user.id, req.params.id, req.params.season);
+  `).all(req.profile.id, req.params.id, req.params.season);
 
   const formatted = episodes.map(ep => ({
     ...ep,
@@ -231,6 +262,8 @@ router.get('/:id/season/:season', authenticate, (req, res) => {
       ? (isFullUrl(ep.still_path) ? ep.still_path : `${IMAGE_BASE}/w300${ep.still_path}`)
       : null,
   }));
+  // Runtimes not read yet — fetch them in the background for next time.
+  if (episodes.some(ep => !(ep.duration > 0))) fillMissingDurations().catch(() => {});
   res.json({ episodes: formatted });
 });
 

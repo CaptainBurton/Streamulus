@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -53,6 +53,7 @@ const fmt = (sec) => {
 export default function Watch() {
   const { type, id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // DOM / HLS refs
   const videoRef     = useRef(null);
@@ -71,16 +72,21 @@ export default function Watch() {
   // Stable callback refs (used inside keyboard / drag handlers to avoid stale closures)
   const startHlsAtRef = useRef(null);
   const skipRef       = useRef(null);
+  const seekToRef     = useRef(null);
   const fsRef          = useRef(null);
   const isDragging     = useRef(false);
   const totalDurRef    = useRef(0);
   const prewarmFired   = useRef(false);
   // Set to true when user explicitly dismisses the Up Next card with ✕;
-  // prevents the card from reappearing while still in the final 30 s.
+  // prevents the card from reappearing while still in the Up Next window.
   // Reset on every episode change and when playback moves back past the threshold.
   const dismissedRef   = useRef(false);
   // Prevents double-navigation if both the absTime effect and onEnded fire.
   const navigatingRef  = useRef(false);
+  // False from the moment the episode changes until the new stream fires `playing`.
+  // Guards the Up Next effect against running with the previous episode's
+  // playhead (absTime/totalDur) in the same commit as the reset effect.
+  const playbackReadyRef = useRef(false);
   // Tracks the current show ID so the end-of-show navigation handler (set up once)
   // always sees the latest value without needing media in its deps.
   const showIdRef      = useRef(null);
@@ -108,6 +114,8 @@ export default function Watch() {
   // Total file duration, derived as max(startPos + segmentDur) across all seeks.
   // Kept separate so seeking doesn't inflate totalDur with stale segment durations.
   const [totalFileDur, setTotalFileDur] = useState(0);
+  // Absolute time (s) up to which video is buffered ahead of the playhead.
+  const [bufferedEnd, setBufferedEnd] = useState(0);
 
   // Seek thumbnail
   const [thumbSrc,    setThumbSrc]    = useState(null);
@@ -116,6 +124,8 @@ export default function Watch() {
   const [nextEp,         setNextEp]         = useState(null);
   const [showNextEpCard, setShowNextEpCard] = useState(false);
   const nextEpRef = useRef(null);
+  // Seconds before the end the Up Next card appears (Admin > Settings > Up Next Countdown).
+  const [upNextSecs, setUpNextSecs] = useState(30);
 
   // AirPlay
   const [airplayAvailable, setAirplayAvailable] = useState(false);
@@ -144,6 +154,7 @@ export default function Watch() {
   totalDurRef.current = totalDur;
   const displayTime = dragTime ?? absTime;
   const progress = totalDur > 0 ? Math.min(displayTime / totalDur, 1) : 0;
+  const bufferedProgress = totalDur > 0 ? Math.min(Math.max(bufferedEnd, absTime) / totalDur, 1) : 0;
 
   // ── Load media metadata ───────────────────────────────────────────────────
   useEffect(() => {
@@ -161,7 +172,15 @@ export default function Watch() {
           const p = await axios.get(`/api/stream/progress/movie/${id}`).then(x => x.data).catch(() => ({ position: 0 }));
           return { ...m, progress: p, introEndTime: 0 };
         });
+    // Start from 0 instead of the saved position when asked to (next episode,
+    // "Play from Beginning") or when it was already watched to the end.
+    const fromStart = location.state?.fromStart === true;
+    // Consume the flag so a page refresh mid-episode resumes instead of restarting.
+    if (fromStart && window.history.state?.usr?.fromStart) {
+      window.history.replaceState({ ...window.history.state, usr: undefined }, '');
+    }
     fetch_.then((m) => {
+    if (fromStart || m.progress?.completed) m = { ...m, progress: { position: 0, completed: false } };
     setMedia(m);
     // Set Now Playing info so AirPlay / Apple TV shows the correct title
     if ('mediaSession' in navigator) {
@@ -172,7 +191,7 @@ export default function Watch() {
       });
     }
   }).catch(() => setError('Media not found.')).finally(() => setLoading(false));
-  }, [type, id]);
+  }, [type, id]); // eslint-disable-line react-hooks/exhaustive-deps -- location.state read once per episode
 
   // ── Start playback ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -189,9 +208,6 @@ export default function Watch() {
         const r = await axios.get(`/api/stream/check/${type}/${id}`);
         if (!r.data.ok) { setError(r.data.error); setBuffering(false); return; }
         addLog(`File OK: ${r.data.filePath}`);
-        // Start thumbnail sprite generation early so frames are ready by the time
-        // the user hovers over the progress bar (takes several seconds for a full file).
-        if (!prewarmFired.current) { prewarmFired.current = true; axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, {}).catch(() => {}); }
       } catch { addLog('File check failed — continuing'); }
       if (cancelled) return;
 
@@ -209,7 +225,18 @@ export default function Watch() {
       const hideBuf = () => { if (cancelled) return; clearTimeout(bufferTimerRef.current); setBuffering(false); };
 
       video.onwaiting = showBuf;
-      video.onplaying = () => { if (!cancelled) { setHasPlayed(true); hideBuf(); addLog('Playing!'); } };
+      video.onplaying = () => {
+        if (cancelled) return;
+        playbackReadyRef.current = true; setHasPlayed(true); hideBuf(); addLog('Playing!');
+        // Generate seek-preview thumbnails only once playback is under way, so
+        // that FFmpeg job doesn't compete with the transcode for the first frames.
+        if (!prewarmFired.current) {
+          prewarmFired.current = true;
+          setTimeout(() => {
+            if (!cancelled) axios.post(`/api/stream/thumbnail/prewarm/${type}/${id}`, {}).catch(() => {});
+          }, 15000);
+        }
+      };
       video.oncanplay = hideBuf;
 
       // On Apple devices (macOS Safari, iOS) prefer native HLS so the video
@@ -439,14 +466,37 @@ export default function Watch() {
     const onPlay  = () => setPaused(false);
     const onPause = () => setPaused(true);
     const onVol   = () => { setVolume(v.volume); setMuted(v.muted); };
+    // Like YouTube/Netflix: show the buffered range the playhead is in, i.e.
+    // how far playback can continue without waiting for more data.
+    const onBuffer = () => {
+      const t = v.currentTime || 0;
+      let end = t;
+      for (let i = 0; i < v.buffered.length; i++) {
+        if (v.buffered.start(i) <= t + 0.5 && v.buffered.end(i) > end) end = v.buffered.end(i);
+      }
+      setBufferedEnd(startPosRef.current + end);
+    };
+    const onEmptied = () => setBufferedEnd(startPosRef.current);
+    v.addEventListener('progress',   onBuffer);
+    v.addEventListener('timeupdate', onBuffer);
+    v.addEventListener('seeked',     onBuffer);
+    v.addEventListener('emptied',    onEmptied);
     v.addEventListener('timeupdate',    onTime);
+    // Browsers only fire timeupdate once a seek has finished loading, so without
+    // this the progress dot sat at the old position until the new one loaded.
+    v.addEventListener('seeking',       onTime);
     v.addEventListener('durationchange', onDur);
     v.addEventListener('loadedmetadata', onDur);
     v.addEventListener('play',  onPlay);
     v.addEventListener('pause', onPause);
     v.addEventListener('volumechange', onVol);
     return () => {
+      v.removeEventListener('progress',   onBuffer);
+      v.removeEventListener('timeupdate', onBuffer);
+      v.removeEventListener('seeked',     onBuffer);
+      v.removeEventListener('emptied',    onEmptied);
       v.removeEventListener('timeupdate',    onTime);
+      v.removeEventListener('seeking',       onTime);
       v.removeEventListener('durationchange', onDur);
       v.removeEventListener('loadedmetadata', onDur);
       v.removeEventListener('play',  onPlay);
@@ -475,7 +525,7 @@ export default function Watch() {
       if (!isDragging.current) return;
       isDragging.current = false;
       const pos = posAt(e.clientX);
-      if (pos !== null && startHlsAtRef.current) startHlsAtRef.current(Math.max(0, Math.floor(pos)));
+      if (pos !== null) seekToRef.current?.(pos);
       setDragTime(null);
     };
     const onTMove = (e) => { if (isDragging.current) setDragTime(posAt(e.touches[0].clientX)); };
@@ -483,7 +533,7 @@ export default function Watch() {
       if (!isDragging.current) return;
       isDragging.current = false;
       const pos = posAt(e.changedTouches[0].clientX);
-      if (pos !== null && startHlsAtRef.current) startHlsAtRef.current(Math.max(0, Math.floor(pos)));
+      if (pos !== null) seekToRef.current?.(pos);
       setDragTime(null);
     };
     window.addEventListener('mousemove', onMove);
@@ -522,12 +572,18 @@ export default function Watch() {
     setHasPlayed(false);
     dismissedRef.current = false;
     navigatingRef.current = false;
+    playbackReadyRef.current = false;
+    prewarmFired.current = false;
+    setBufferedEnd(0);
     clearTimeout(autoAdvanceTimerRef.current);
     setNextEp(null);
     setShowNextEpCard(false);
     if (type !== 'episode') return;
     axios.get(`/api/tv/episode/${id}/next`)
-      .then(r => setNextEp(r.data.next))
+      .then(r => {
+        setNextEp(r.data.next);
+        if (r.data.upNextSeconds > 0) setUpNextSecs(r.data.upNextSeconds);
+      })
       .catch(() => {});
   }, [type, id]);
 
@@ -539,15 +595,15 @@ export default function Watch() {
   // it is tied to the actual playhead rather than a wall-clock timer.
   //
   // Timeline:
-  //   remaining > 30 s  → hide card, reset dismissed flag
-  //   2 s < remaining ≤ 30 s → show card (unless user dismissed with ✕)
+  //   remaining > upNextSecs  → hide card, reset dismissed flag
+  //   2 s < remaining ≤ upNextSecs → show card (unless user dismissed with ✕)
   //   remaining ≤ 2 s   → hide card and navigate (always, even if dismissed)
   //
   // curTime < 5 guard prevents a false trigger on episode start: durationchange
   // can fire with only (startPos + segmentDur) before the X-Total-Duration header
   // arrives, making totalDur temporarily look like the episode is almost over.
   useEffect(() => {
-    if (type !== 'episode' || totalDur < 60 || curTime < 5) return;
+    if (type !== 'episode' || !playbackReadyRef.current || totalDur < 60 || curTime < 5) return;
     const remaining = totalDur - absTime;
 
     if (!nextEp) {
@@ -562,7 +618,7 @@ export default function Watch() {
       return;
     }
 
-    if (remaining > 30) {
+    if (remaining > upNextSecs) {
       dismissedRef.current = false;
       setShowNextEpCard(false);
       return;
@@ -571,12 +627,12 @@ export default function Watch() {
     if (remaining <= 2 && !navigatingRef.current) {
       navigatingRef.current = true;
       flushSync(() => setShowNextEpCard(false));
-      navigate(`/watch/episode/${nextEp.id}`, { replace: true });
+      navigate(`/watch/episode/${nextEp.id}`, { replace: true, state: { fromStart: true } });
       return;
     }
 
     if (!dismissedRef.current) setShowNextEpCard(true);
-  }, [absTime, totalDur, type, nextEp, curTime, navigate]);
+  }, [absTime, totalDur, type, nextEp, curTime, navigate, upNextSecs]);
 
   // Fallback: if the HLS stream stalls on the last segment and never fires
   // `ended`, the absTime effect above won't reach ≤2 s because currentTime
@@ -590,7 +646,7 @@ export default function Watch() {
       const next = nextEpRef.current;
       flushSync(() => setShowNextEpCard(false));
       if (next) {
-        navigate(`/watch/episode/${next.id}`, { replace: true });
+        navigate(`/watch/episode/${next.id}`, { replace: true, state: { fromStart: true } });
       } else {
         navigate(-1);
       }
@@ -642,18 +698,30 @@ export default function Watch() {
     showControls();
   }, [showControls]);
 
+  // Seek to an absolute position. The current stream's playlist runs from where
+  // it started to the end of the file, so anything after that start is a plain
+  // playhead move (the server restarts its transcode at that point). Only going
+  // back before the stream's start needs a new stream — which tears down the
+  // player and probes the file again, so it's much slower.
+  const seekTo = useCallback((absPos) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const rel = absPos - startPosRef.current;
+    if (rel >= 0 && isFinite(v.duration) && v.duration > 0 && rel <= v.duration) {
+      v.currentTime = rel;
+      setCurTime(rel); // move the dot to where the user clicked right away
+    } else {
+      startHlsAtRef.current?.(Math.max(0, Math.floor(absPos)));
+    }
+  }, []);
+  seekToRef.current = seekTo;
+
   const handleSkip = useCallback((delta) => {
     const v = videoRef.current;
     if (!v) return;
     showControls();
-    const newAbs = startPosRef.current + v.currentTime + delta;
-    const newRel = newAbs - startPosRef.current;
-    if (newRel >= 0 && v.duration > 0 && newRel <= v.duration) {
-      v.currentTime = newRel;
-    } else if (startHlsAtRef.current) {
-      startHlsAtRef.current(Math.max(0, Math.floor(newAbs)));
-    }
-  }, [showControls]);
+    seekTo(startPosRef.current + v.currentTime + delta);
+  }, [showControls, seekTo]);
 
   skipRef.current = handleSkip;
 
@@ -885,8 +953,8 @@ export default function Watch() {
                 onMouseMove={handleProgMove}
                 onTouchStart={(e) => { e.preventDefault(); isDragging.current = true; showControls(); }}
               >
-                {/* Buffered indicator (subtle) */}
-                <div style={{ position: 'absolute', inset: 0, borderRadius: '4px', background: 'rgba(255,255,255,0.12)' }} />
+                {/* Buffered ahead of the playhead */}
+                <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: `${bufferedProgress * 100}%`, borderRadius: '4px', background: 'rgba(255,255,255,0.38)', transition: 'width 0.4s linear' }} />
                 {/* Played */}
                 <div style={{ width: `${progress * 100}%`, height: '100%', background: '#00c2ff', borderRadius: '4px', position: 'relative', transition: isDragging.current ? 'none' : 'width 0.25s linear' }}>
                   {/* Thumb */}
@@ -930,7 +998,7 @@ export default function Watch() {
 
               {/* Start from beginning */}
               <button
-                onClick={() => startHlsAtRef.current?.(0)}
+                onClick={() => seekTo(0)}
                 style={{ ...S.iBtn, marginRight: showVol ? '0px' : '4px', transition: 'margin 0.2s' }}
                 className="pbtn player-restart-btn"
                 title="Start from beginning"
@@ -978,7 +1046,7 @@ export default function Watch() {
             </div>
           </div>
 
-          {/* ── Up Next card (TV episodes only, shown 30 s before end) ──────── */}
+          {/* ── Up Next card (TV episodes only, shown upNextSecs before end) ── */}
           {showNextEpCard && nextEp && (
             <div style={{
               position: 'fixed', bottom: '110px', right: '28px', zIndex: 120,
@@ -1007,12 +1075,17 @@ export default function Watch() {
               <div style={{ height: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', marginBottom: '12px', overflow: 'hidden' }}>
                 <div style={{
                   height: '100%', background: '#00c2ff', borderRadius: '2px',
-                  width: `${Math.max(0, Math.min(100, ((totalDur - absTime) / 30) * 100))}%`,
+                  width: `${Math.max(0, Math.min(100, ((totalDur - absTime) / upNextSecs) * 100))}%`,
                   transition: 'width 1s linear',
                 }} />
               </div>
               <button
-                onClick={() => { clearTimeout(autoAdvanceTimerRef.current); setShowNextEpCard(false); navigate(`/watch/episode/${nextEp.id}`, { replace: true }); }}
+                onClick={() => {
+                  if (navigatingRef.current) return;
+                  navigatingRef.current = true;
+                  flushSync(() => setShowNextEpCard(false));
+                  navigate(`/watch/episode/${nextEp.id}`, { replace: true, state: { fromStart: true } });
+                }}
                 style={{ width: '100%', padding: '9px 0', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', letterSpacing: '0.3px' }}
               >
                 ▶ Play Now
@@ -1034,9 +1107,6 @@ export default function Watch() {
                 <div className="spinner" />
                 <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
                 <DebugLog />
-                <div style={{ color: '#444', fontSize: '11px', textAlign: 'center', maxWidth: '380px' }}>
-                  First load takes 5–15 s. Seeking far ahead restarts the transcoder.
-                </div>
               </div>
             )
           )}

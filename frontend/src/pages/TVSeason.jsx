@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
+import { useNow, formatRuntime, endsAt } from '../components/endsAt';
 
 export default function TVSeason() {
   const { id, season } = useParams();
@@ -10,6 +11,7 @@ export default function TVSeason() {
   const [episodes, setEpisodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const now = useNow();
 
   useEffect(() => {
     Promise.all([
@@ -127,9 +129,9 @@ export default function TVSeason() {
                         </div>
                       </div>
                     )}
-                    {inProgress && ep.runtime && (
+                    {inProgress && ep.duration > 0 && (
                       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.2)' }}>
-                        <div style={{ height: '100%', background: '#00c2ff', width: `${Math.min(100, (ep.watch_position / (ep.runtime * 60)) * 100)}%` }} />
+                        <div style={{ height: '100%', background: '#00c2ff', width: `${Math.min(100, (ep.watch_position / ep.duration) * 100)}%` }} />
                       </div>
                     )}
                   </div>
@@ -139,6 +141,15 @@ export default function TVSeason() {
                     <div style={{ fontSize: '15px', fontWeight: '600', color: completed ? '#888' : '#fff', marginBottom: '4px' }}>
                       {ep.title || `Episode ${ep.episode_number}`}
                     </div>
+                    {ep.duration > 0 && (() => {
+                      // Finished episodes replay from the start; in-progress ones resume.
+                      const left = inProgress ? Math.max(0, ep.duration - ep.watch_position) : ep.duration;
+                      return (
+                        <div style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>
+                          {inProgress ? `${formatRuntime(left)} left` : formatRuntime(ep.duration)} · Ends at {endsAt(left, now)}
+                        </div>
+                      );
+                    })()}
                     {ep.overview && (
                       <div style={{ fontSize: '13px', color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: '1.5' }}>
                         {ep.overview}

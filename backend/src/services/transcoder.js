@@ -18,6 +18,31 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// Stop FFmpeg for sessions nobody is reading from (player closed, paused for a
+// while, or replaced by a new session after a seek). Without this, every
+// abandoned session kept transcoding to the end of the file at full CPU — on a
+// long movie that is an hour of work per skip, which starves the transcode the
+// viewer is actually watching. A paused session resumes on its next request.
+const IDLE_PAUSE_MS = 60 * 1000;
+setInterval(() => pauseIdleSessions(IDLE_PAUSE_MS), 10 * 1000);
+
+function pauseIdleSessions(maxIdleMs) {
+  const cutoff = Date.now() - maxIdleMs;
+  for (const s of sessions.values()) {
+    if (s.process && s.lastAccess < cutoff) pauseSession(s, 'idle');
+  }
+}
+
+// Kill the session's FFmpeg without marking it finished; getSegmentPath
+// restarts it at the requested segment if the player asks for more.
+function pauseSession(session, reason) {
+  const proc = session.process;
+  if (!proc) return;
+  session.process = null; // exit handlers ignore processes that are no longer current
+  try { proc.kill('SIGTERM'); } catch {}
+  console.log(`[transcode] Paused (${reason}): ${path.basename(session.filePath)} start=${session.startTime}s`);
+}
+
 function makeKey(filePath, startTime) {
   return crypto.createHash('sha256')
     .update(`${filePath}:${Math.floor(startTime / 30)}`)
@@ -112,26 +137,39 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
     '-hls_time', String(settings.segmentDuration),
     '-hls_list_size', '0',
     '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
-    '-hls_flags', 'independent_segments',
+    // temp_file: write each segment as segNNNNN.ts.tmp and rename it when complete.
+    // Without it the .ts file exists from its first byte, so a segment still being
+    // encoded was served half-written (often 0 bytes) right after start-up and
+    // every seek, which made the player stall and re-request.
+    '-hls_flags', 'independent_segments+temp_file',
     '-f', 'hls', '-y',
     path.join(dir, 'index.m3u8'),
   ];
 }
 
 
-// Minimum number of HLS segments that must be written to disk before the
-// ready-promise resolves and the player is allowed to begin playback.
-// Waiting for more segments gives the transcoder a head start so the player
-// never immediately catches up to real-time encoding speed.
-// 3 segments × default 4 s/seg = 12 s of guaranteed initial buffer.
-const INITIAL_SEGMENT_BUFFER = 3;
+// Number of HLS segments that must be written to disk before the manifest is
+// returned. One is enough: the manifest already lists every segment (the
+// precomputed VOD manifest), and requests for segments that aren't written yet
+// wait in getSegmentPath until FFmpeg produces them. Waiting for more only
+// delayed the first frame (3 × 4 s segments = 12 s of video encoded up front).
+const INITIAL_SEGMENT_BUFFER = 1;
 
 async function getHLSSession(filePath, startTime = 0) {
   const key = makeKey(filePath, startTime);
 
+  // A new stream of this file (the player seeked somewhere outside its current
+  // stream, or reopened it) — stop transcoding for its other streams.
+  const pauseOthers = (keep) => {
+    for (const other of sessions.values()) {
+      if (other !== keep && other.filePath === filePath) pauseSession(other, 'replaced');
+    }
+  };
+
   if (sessions.has(key)) {
     const s = sessions.get(key);
     s.lastAccess = Date.now();
+    pauseOthers(s);
     if (!s.ready) await s.readyPromise;
     return key;
   }
@@ -144,6 +182,7 @@ async function getHLSSession(filePath, startTime = 0) {
 
   const settings = getSettings();
   const { duration: totalDuration, vCodec, aCodec } = await probeFile(filePath);
+  require('./durations').recordDuration(filePath, totalDuration); // for "Ends at" times
   // Copy mode: if source is already H.264, skip video re-encoding (10-50x faster segment gen)
   const copyMode = vCodec === 'h264';
   // Only copy audio when both video AND audio can be passthrough — AAC in TS is universally supported.
@@ -191,6 +230,7 @@ async function getHLSSession(filePath, startTime = 0) {
   }
 
   sessions.set(key, session);
+  pauseOthers(session);
 
   const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir, 0, copyMode, audioCopy);
 
@@ -250,6 +290,18 @@ async function getHLSSession(filePath, startTime = 0) {
   proc.on('exit', (code) => {
     clearInterval(checkInterval);
     clearTimeout(startTimeout);
+    // Stopped on purpose (paused, or replaced by a seek restart) — that is not
+    // "finished". Marking it done here made the request waiting for the new
+    // FFmpeg's first segment give up at once, so every skip ahead 404'd and the
+    // player sat in retry back-off.
+    if (session.process !== proc) {
+      if (!session.ready) {
+        rejectReady(new Error('Transcode was stopped before it was ready'));
+        sessions.delete(key);
+      }
+      return;
+    }
+    session.process = null;
     session.ffmpegDone = true;
 
     // For copy mode, replace the approximate precomputed manifest (uniform 4 s
@@ -339,10 +391,23 @@ const SEEK_THRESHOLD_TRANSCODE = 5;
 function resolveSegPath(session, requestedIdx) {
   let best = null;
   for (const sp of session.seekPoints) {
-    if (sp.fromIdx <= requestedIdx && (!best || sp.fromIdx > best.fromIdx)) best = sp;
+    // >= so a later restart at the same index wins over an earlier one
+    if (sp.fromIdx <= requestedIdx && (!best || sp.fromIdx >= best.fromIdx)) best = sp;
   }
   if (!best) return null;
   return path.join(best.dir, `seg${String(requestedIdx - best.fromIdx).padStart(5, '0')}.ts`);
+}
+
+// A segment is complete once FFmpeg lists it in its playlist. FFmpeg creates the
+// .ts file at the start and fills it as it encodes, so "file exists" is not
+// enough — that served half-written segments (often 0 bytes). temp_file avoids
+// it on newer FFmpeg builds; this check works on every build.
+function isSegmentComplete(segPath) {
+  if (!fs.existsSync(segPath)) return false;
+  try {
+    const list = fs.readFileSync(path.join(path.dirname(segPath), 'index.m3u8'), 'utf8');
+    return list.split('\n').some(line => line.trim() === path.basename(segPath));
+  } catch { return false; }
 }
 
 async function getSegmentPath(key, segmentName) {
@@ -355,7 +420,7 @@ async function getSegmentPath(key, segmentName) {
 
   // Fast path: file already on disk
   const fastPath = resolveSegPath(session, requestedIdx);
-  if (fastPath && fs.existsSync(fastPath)) return fastPath;
+  if (fastPath && isSegmentComplete(fastPath)) return fastPath;
 
   // Find where the current (latest) FFmpeg process has gotten to
   const latestSP = session.seekPoints[session.seekPoints.length - 1];
@@ -372,41 +437,58 @@ async function getSegmentPath(key, segmentName) {
   //  a) Forward seek: requested segment is far ahead of what FFmpeg has written
   //  b) Backward seek to a segment the current FFmpeg can never produce (it
   //     started after that segment), e.g. user seeks back past the seek point
+  //  c) Nothing is transcoding (paused when idle or replaced) and the segment
+  //     isn't on disk — resume from the segment being asked for.
   const seekThreshold = session.copyMode ? SEEK_THRESHOLD_COPY : SEEK_THRESHOLD_TRANSCODE;
   const needsRestart = session.filePath && (
     requestedIdx > lastGlobalIdx + seekThreshold ||
-    latestSP.fromIdx > requestedIdx
+    latestSP.fromIdx > requestedIdx ||
+    (!session.process && !session.ffmpegDone)
   );
 
   if (needsRestart) {
     const seekSec = session.startTime + requestedIdx * session.settings.segmentDuration;
-    // Each seek gets its own subdirectory so segments are always named from
-    // seg00000.ts — no need for FFmpeg's -start_number option.
-    const seekDir = path.join(session.dir, `seek_${requestedIdx}`);
+    if (session.totalDuration > 0 && seekSec >= session.totalDuration) return null;
+    // Each restart gets its own subdirectory so segments are always named from
+    // seg00000.ts — no need for FFmpeg's -start_number option. Unique per
+    // restart so returning to an earlier position never rewrites files that an
+    // older playlist already lists as complete.
+    const seekDir = path.join(session.dir, `seek_${requestedIdx}_${Date.now()}`);
     fs.mkdirSync(seekDir, { recursive: true });
     console.log(`[transcode] Seek: t=${seekSec}s → seg${String(requestedIdx).padStart(5,'0')} (prev lastGlobal=${lastGlobalIdx})`);
-    if (session.process) { try { session.process.kill('SIGTERM'); } catch {} session.process = null; }
+    pauseSession(session, 'seek');
     session.seekPoints.push({ fromIdx: requestedIdx, dir: seekDir });
     session.ffmpegDone = false;
+    // Timestamps must match the player's timeline, which starts at 0 where this
+    // session started (the initial FFmpeg's output starts at 0) — not the file's
+    // own time. Using seekSec put every skip in a resumed stream off by the
+    // resume position, so the player stalled waiting for the right timestamps.
+    const tsOffset = requestedIdx * session.settings.segmentDuration;
     const proc = spawn('ffmpeg',
-      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, seekSec, session.copyMode, session.audioCopy),
+      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, tsOffset, session.copyMode, session.audioCopy),
       { stdio: ['ignore', 'ignore', 'pipe'] });
     session.process = proc;
     proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
     proc.on('error', err => console.error(`[transcode] seek spawn error: ${err.message}`));
-    proc.on('exit', code => { session.ffmpegDone = true; if (code) console.error(`[transcode] seek FFmpeg exit ${code}`); });
+    proc.on('exit', code => {
+      if (session.process !== proc) return; // stopped on purpose — not finished
+      session.process = null;
+      session.ffmpegDone = true;
+      if (code) console.error(`[transcode] seek FFmpeg exit ${code}`);
+    });
   }
 
   // Wait up to 30s for FFmpeg to write the segment
   const segPath = resolveSegPath(session, requestedIdx);
   if (!segPath) return null;
   let waited = 0;
-  while (!fs.existsSync(segPath) && waited < 30000) {
+  while (!isSegmentComplete(segPath) && waited < 30000) {
     if (session.ffmpegDone) break;
+    session.lastAccess = Date.now(); // a waiting request means the session is in use
     await new Promise(r => setTimeout(r, 100));
     waited += 100;
   }
-  return fs.existsSync(segPath) ? segPath : null;
+  return isSegmentComplete(segPath) ? segPath : null;
 }
 
 function destroySession(key) {
@@ -426,4 +508,4 @@ function getSessionTotalDuration(key) {
   return sessions.get(key)?.totalDuration ?? 0;
 }
 
-module.exports = { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay, getSessionTotalDuration };
+module.exports = { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay, getSessionTotalDuration, pauseIdleSessions };

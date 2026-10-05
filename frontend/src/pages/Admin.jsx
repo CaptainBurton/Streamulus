@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
+import RefreshIcon from '../components/RefreshIcon';
+import ProfileAvatar from '../components/ProfileAvatar';
+import StreamlingsAdmin from '../components/StreamlingsAdmin';
 
 function StatCard({ label, value, icon }) {
   return (
@@ -52,7 +55,7 @@ function ScanProgress({ events, scanning, onClose }) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h3 style={{ fontSize: '16px', fontWeight: '700' }}>
-          {scanning ? '⟳ Scanning Libraries…' : completeEvent ? '✓ Scan Complete' : 'Scan'}
+          {scanning ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon spin /> Scanning Libraries…</span> : completeEvent ? '✓ Scan Complete' : 'Scan'}
         </h3>
         {!scanning && (
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#666', fontSize: '18px', cursor: 'pointer', lineHeight: 1 }}>✕</button>
@@ -71,7 +74,7 @@ function ScanProgress({ events, scanning, onClose }) {
           <ProgressBar percent={percent} />
           {processingFile && (
             <div style={{ marginTop: '8px', fontSize: '12px', color: '#555', display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-              <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', flexShrink: 0 }}>⟳</span>
+              <RefreshIcon spin />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{processingFile.file}</span>
             </div>
           )}
@@ -144,7 +147,7 @@ function ScanProgress({ events, scanning, onClose }) {
         {/* Currently processing indicator */}
         {processingFile && (
           <div style={{ color: '#555', display: 'flex', gap: '8px' }}>
-            <span style={{ flexShrink: 0 }}>⟳</span>
+            <RefreshIcon />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{processingFile.file}</span>
           </div>
         )}
@@ -244,7 +247,7 @@ function RefreshMetadata() {
         disabled={running}
         style={{ padding: '10px 24px', background: running ? '#333' : 'rgba(0,194,255,0.15)', color: running ? '#555' : '#00c2ff', border: '1px solid', borderColor: running ? '#333' : 'rgba(0,194,255,0.3)', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: running ? 'not-allowed' : 'pointer' }}
       >
-        {running ? '⟳ Refreshing…' : '⟳ Refresh All Metadata'}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon spin={running} /> {running ? 'Refreshing…' : 'Refresh All Metadata'}</span>
       </button>
     </div>
   );
@@ -288,6 +291,8 @@ function FixDuplicates() {
   );
 }
 
+const TAG = (color) => ({ padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color, border: `1px solid ${color}55` });
+
 export default function Admin() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
@@ -309,8 +314,12 @@ export default function Admin() {
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
     audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4', progressMinSeconds: '10',
+    upNextSeconds: '30',
   });
   const [newLib, setNewLib] = useState({ name: '', path: '', type: 'movies' });
+  const [editLib, setEditLib] = useState(null); // { id, path } while editing a library's path
+  const [confirmRemoveId, setConfirmRemoveId] = useState(null);
+  const confirmRemoveTimer = useRef(null);
   const [newUser, setNewUser] = useState({ username: '', password: '', email: '', role: 'user' });
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
@@ -350,6 +359,7 @@ export default function Admin() {
         audioChannels: configRes.data.audioChannels || '2',
         hlsSegmentDuration: configRes.data.hlsSegmentDuration || '4',
         progressMinSeconds: configRes.data.progressMinSeconds || '10',
+        upNextSeconds: configRes.data.upNextSeconds || '30',
       });
       setPreferredLanguage(configRes.data.preferredLanguage || 'en');
       setPreferredCountry(configRes.data.preferredCountry || 'US');
@@ -431,7 +441,7 @@ export default function Admin() {
     try {
       await axios.put('/api/admin/config', encSettings);
       flash('Encoding settings saved — applies to next video played.');
-    } catch { flash('Failed to save encoding settings', true); }
+    } catch (err) { flash(err.response?.data?.error || 'Failed to save encoding settings', true); }
   };
 
   const handleSaveRegional = async () => {
@@ -456,13 +466,40 @@ export default function Admin() {
     } catch (err) { flash(err.response?.data?.error || 'Failed to add library', true); }
   };
 
+  const handleSaveLibraryPath = async (e) => {
+    e.preventDefault();
+    if (!editLib?.path.trim()) return;
+    try {
+      const res = await axios.put(`/api/admin/libraries/${editLib.id}`, { path: editLib.path });
+      const { pathExists, fileCount, remapped } = res.data;
+      if (!pathExists) {
+        flash(`Path saved, but "${editLib.path}" was not found inside the container. Check the volume mapping in your stack.`, true);
+      } else {
+        flash(`Path updated — ${remapped} item${remapped !== 1 ? 's' : ''} moved to the new location, ${fileCount} video file${fileCount !== 1 ? 's' : ''} found.`);
+      }
+      setEditLib(null);
+      loadData();
+    } catch (err) { flash(err.response?.data?.error || 'Failed to update library path', true); }
+  };
+
+  // Two-step remove handled in the page itself: browsers can silently block
+  // window.confirm() (e.g. after "prevent this page from creating dialogs").
   const handleDeleteLibrary = async (id) => {
-    if (!confirm('Remove this library? Your files will not be deleted.')) return;
+    clearTimeout(confirmRemoveTimer.current);
+    if (confirmRemoveId !== id) {
+      setConfirmRemoveId(id);
+      confirmRemoveTimer.current = setTimeout(() => setConfirmRemoveId(null), 5000);
+      return;
+    }
+    setConfirmRemoveId(null);
     try {
       await axios.delete(`/api/admin/libraries/${id}`);
-      flash('Library removed');
+      flash('Library removed — your files were not deleted.');
       loadData();
-    } catch { flash('Failed to remove library', true); }
+    } catch (err) {
+      flash(err.response?.data?.error || 'Failed to remove library', true);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAddUser = async (e) => {
@@ -486,7 +523,7 @@ export default function Admin() {
 
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
-  const tabs = ['overview', 'libraries', 'users', 'settings'];
+  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'settings'];
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
@@ -497,9 +534,13 @@ export default function Admin() {
         {msg && <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'rgba(0,200,100,0.1)', border: '1px solid rgba(0,200,100,0.2)', borderRadius: '8px', color: '#00c864', fontSize: '14px' }}>✓ {msg}</div>}
         {error && <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'rgba(255,68,68,0.1)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: '8px', color: '#ff4444', fontSize: '14px' }}>⚠ {error}</div>}
 
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        {/* Tab bar: the divider is drawn inside (inset shadow) rather than with the
+            tabs overlapping a border, so nothing sticks out and the bar can't scroll
+            up/down. On narrow screens the tabs can still be swiped sideways. */}
+        <div className="admin-tabs" style={{ display: 'flex', gap: '4px', marginBottom: '32px', boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.06)', overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none', overscrollBehaviorX: 'contain' }}>
+          <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
           {tabs.map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', marginBottom: '-1px', transition: 'color 0.15s' }}>
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', whiteSpace: 'nowrap', flexShrink: 0, transition: 'color 0.15s' }}>
               {tab}
             </button>
           ))}
@@ -536,7 +577,7 @@ export default function Admin() {
                   disabled={scanning || !stats?.libraries?.length}
                   style={{ padding: '12px 28px', background: (scanning || !stats?.libraries?.length) ? '#333' : '#00c2ff', color: (scanning || !stats?.libraries?.length) ? '#555' : '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: (scanning || !stats?.libraries?.length) ? 'not-allowed' : 'pointer' }}
                 >
-                  ⟳ Start Scan
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon /> Start Scan</span>
                 </button>
               </div>
             )}
@@ -573,10 +614,18 @@ export default function Admin() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {(stats?.libraries || []).map(lib => (
-                <div key={lib.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
+                <div key={lib.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: '600', fontSize: '15px', marginBottom: '4px' }}>{lib.name}</div>
-                    <div style={{ fontSize: '13px', color: '#555', fontFamily: 'monospace' }}>{lib.path}</div>
+                    {editLib?.id === lib.id ? (
+                      <form onSubmit={handleSaveLibraryPath} style={{ display: 'flex', gap: '8px', alignItems: 'center', margin: '6px 0', maxWidth: '520px' }}>
+                        <PathValidator value={editLib.path} onChange={v => setEditLib(s => ({ ...s, path: v }))} placeholder="/tv" />
+                        <button type="submit" style={{ padding: '10px 16px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>Save</button>
+                        <button type="button" onClick={() => setEditLib(null)} style={{ padding: '10px 14px', background: 'transparent', color: '#888', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', flexShrink: 0 }}>Cancel</button>
+                      </form>
+                    ) : (
+                      <div style={{ fontSize: '13px', color: '#555', fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{lib.path}</div>
+                    )}
                     <div style={{ display: 'flex', gap: '10px', marginTop: '4px', alignItems: 'center' }}>
                       <span style={{ fontSize: '11px', color: '#00c2ff', textTransform: 'uppercase', fontWeight: '600', letterSpacing: '0.5px' }}>{lib.type}</span>
                       {lib.last_scanned && <span style={{ fontSize: '11px', color: '#444' }}>Last scanned: {new Date(lib.last_scanned).toLocaleString()}</span>}
@@ -590,16 +639,31 @@ export default function Admin() {
                       onMouseEnter={e => { if (!scanning) e.currentTarget.style.background = 'rgba(0,194,255,0.2)'; }}
                       onMouseLeave={e => { if (!scanning) e.currentTarget.style.background = 'rgba(0,194,255,0.1)'; }}
                     >
-                      ⟳ Scan
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon /> Scan</span>
                     </button>
                     <button
-                      onClick={() => handleDeleteLibrary(lib.id)}
-                      style={{ padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', color: '#ff4444', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,68,68,0.1)'; }}
+                      onClick={() => setEditLib({ id: lib.id, path: lib.path })}
+                      style={{ padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: '#ccc', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: '600' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                     >
-                      Remove
+                      Edit Path
                     </button>
+                    {(() => {
+                      const confirming = confirmRemoveId === lib.id;
+                      const base = confirming ? '#ff4444' : 'transparent';
+                      return (
+                        <button
+                          onClick={() => handleDeleteLibrary(lib.id)}
+                          title={confirming ? 'Click again to remove this library. Your files will not be deleted.' : 'Remove library'}
+                          style={{ padding: '8px 16px', background: base, border: '1px solid rgba(255,68,68,0.3)', color: confirming ? '#fff' : '#ff4444', borderRadius: '6px', fontSize: '13px', fontWeight: confirming ? '700' : '400', cursor: 'pointer', transition: 'background 0.15s' }}
+                          onMouseEnter={e => { if (!confirming) e.currentTarget.style.background = 'rgba(255,68,68,0.1)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = base; }}
+                        >
+                          {confirming ? 'Confirm Remove' : 'Remove'}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
@@ -634,7 +698,8 @@ export default function Admin() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {users.map(user => (
-                <div key={user.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div key={user.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '14px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                     <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #00c2ff, #7b2fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
                       {user.username[0].toUpperCase()}
@@ -653,10 +718,29 @@ export default function Admin() {
                     </button>
                   </div>
                 </div>
+                {/* Profiles under this account — main profile first */}
+                {user.profiles?.length > 0 && (
+                  <div style={{ marginTop: '12px', marginLeft: '17px', paddingLeft: '22px', borderLeft: '2px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {user.profiles.map(p => (
+                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '-22px', top: '50%', width: '16px', borderTop: '2px solid rgba(255,255,255,0.08)' }} />
+                        <ProfileAvatar profile={p} size={28} radius="7px" />
+                        <span style={{ fontSize: '14px', color: '#ddd', fontWeight: 500 }}>{p.name}</span>
+                        {p.is_main && <span style={TAG('#00c2ff')}>Main</span>}
+                        {p.is_kids && <span style={TAG('#ffb703')}>Streamling</span>}
+                        {p.has_pin && <span style={TAG('#888')}>🔒 PIN</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                </div>
               ))}
             </div>
           </div>
         )}
+
+        {/* Streamlings (kids profiles) */}
+        {activeTab === 'streamlings' && <StreamlingsAdmin flash={flash} />}
 
         {/* Settings */}
         {activeTab === 'settings' && (
@@ -987,6 +1071,29 @@ export default function Admin() {
                   <option value="2">2 seconds (precise seeking)</option>
                   <option value="4">4 seconds (default)</option>
                   <option value="6">6 seconds (fewer requests)</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Up Next Countdown</span>
+                  <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>How many seconds before the end of an episode the Up Next card appears</div>
+                </div>
+                <select
+                  value={encSettings.upNextSeconds}
+                  onChange={e => setEncSettings(s => ({ ...s, upNextSeconds: e.target.value }))}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none', flexShrink: 0 }}
+                >
+                  {!['10', '15', '20', '30', '45', '60', '90', '120'].includes(String(encSettings.upNextSeconds)) && (
+                    <option value={encSettings.upNextSeconds}>{encSettings.upNextSeconds} seconds</option>
+                  )}
+                  <option value="10">10 seconds</option>
+                  <option value="15">15 seconds</option>
+                  <option value="20">20 seconds</option>
+                  <option value="30">30 seconds (default)</option>
+                  <option value="45">45 seconds</option>
+                  <option value="60">1 minute</option>
+                  <option value="90">1 minute 30 seconds</option>
+                  <option value="120">2 minutes</option>
                 </select>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>

@@ -3,6 +3,9 @@ services:
     build:
       context: https://github.com/CaptainBurton/Streamulus.git#claude/laughing-hopper-fX8qI
       dockerfile: Dockerfile
+    # Rebuild from the latest code on every deploy / redeploy. Without this,
+    # Portainer reuses the image it built the first time and updates never arrive.
+    pull_policy: build
     container_name: streamulus
     restart: unless-stopped
     ports:
@@ -10,9 +13,11 @@ services:
     volumes:
       # Persistent app data (database, config)
       - streamulus_data:/data
-      # Map your media folders here:
-      - /path/to/your/movies:/movies
-      - /path/to/your/tv:/tv
+      # Your media folders. The right-hand side is fixed: in the app, libraries
+      # are always /tv and /movies. Set the host folders with the TV_PATH and
+      # MOVIES_PATH environment variables (Portainer: stack > Environment variables).
+      - ${TV_PATH:-/mnt/movies-series/Series}:/tv
+      - ${MOVIES_PATH:-/mnt/movies-series/Movies}:/movies
     environment:
       - NODE_ENV=production
       - PORT=8096

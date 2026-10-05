@@ -7,6 +7,8 @@ const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
 const { getHLSSession, getManifestContent, getSegmentPath, getSessionTotalDuration } = require('../services/transcoder');
 const { posterUrl, backdropUrl } = require('../services/tmdb');
+const { resolveFilePath } = require('../services/path-repair');
+const { kidsScope, canAccess } = require('../services/kids');
 
 const router = express.Router();
 
@@ -18,18 +20,22 @@ router.use((req, res, next) => {
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
+// Repairs the stored path first if the file has moved (see path-repair.js).
+// Streamlings may only stream allowed titles — checked on every route that
+// takes /:type/:id, so a direct link to a blocked title doesn't play.
+function guardKids(req, res, next) {
+  const kind = req.params.type === 'movie' ? 'movie' : 'episode';
+  if (!canAccess(req, kind, req.params.id)) return res.status(404).json({ error: 'Not found' });
+  next();
+}
+
 function getFilePath(type, id) {
-  if (type === 'movie') {
-    const row = db.prepare('SELECT file_path FROM movies WHERE id = ?').get(id);
-    return row?.file_path || null;
-  }
-  const row = db.prepare('SELECT file_path FROM episodes WHERE id = ?').get(id);
-  return row?.file_path || null;
+  return resolveFilePath(type === 'movie' ? 'movies' : 'episodes', id);
 }
 
 // ─── pre-flight check ─────────────────────────────────────────────────────────
 
-router.get('/check/:type/:id', authenticate, (req, res) => {
+router.get('/check/:type/:id', authenticate, guardKids, (req, res) => {
   const filePath = getFilePath(req.params.type, req.params.id);
   if (!filePath) return res.json({ ok: false, error: 'Media not found in database' });
 
@@ -54,7 +60,7 @@ router.get('/check/:type/:id', authenticate, (req, res) => {
 //
 // Optional: ?start=SECONDS  restarts the transcode from that position (seeking)
 
-router.get('/video/:type/:id', authenticate, (req, res) => {
+router.get('/video/:type/:id', authenticate, guardKids, (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
 
@@ -146,7 +152,7 @@ router.get('/video/:type/:id', authenticate, (req, res) => {
 // play H.264 and H.265 MP4 without any transcoding — Express sendFile handles
 // Range headers automatically so the browser can seek and resume freely.
 
-router.get('/direct/:type/:id', authenticate, (req, res) => {
+router.get('/direct/:type/:id', authenticate, guardKids, (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
 
@@ -171,24 +177,60 @@ router.get('/direct/:type/:id', authenticate, (req, res) => {
 
 router.post('/progress', authenticate, (req, res) => {
   const { mediaType, mediaId, position, completed } = req.body;
+  if (!canAccess(req, mediaType === 'movie' ? 'movie' : 'episode', mediaId)) return res.status(404).json({ error: 'Not found' });
   const existing = db.prepare(
-    'SELECT id FROM watch_history WHERE user_id=? AND media_type=? AND media_id=?'
-  ).get(req.user.id, mediaType, mediaId);
+    'SELECT id FROM watch_history WHERE profile_id = ? AND media_type=? AND media_id=?'
+  ).get(req.profile.id, mediaType, mediaId);
 
   if (existing) {
     db.prepare('UPDATE watch_history SET position=?, completed=?, watched_at=CURRENT_TIMESTAMP WHERE id=?')
       .run(position, completed ? 1 : 0, existing.id);
   } else {
-    db.prepare('INSERT INTO watch_history (user_id, media_type, media_id, position, completed) VALUES (?,?,?,?,?)')
-      .run(req.user.id, mediaType, mediaId, position, completed ? 1 : 0);
+    db.prepare('INSERT INTO watch_history (user_id, profile_id, media_type, media_id, position, completed) VALUES (?,?,?,?,?,?)')
+      .run(req.user.id, req.profile.id, mediaType, mediaId, position, completed ? 1 : 0);
   }
   res.json({ success: true });
 });
 
+// Mark a movie, episode, season or whole show as watched / unwatched for the
+// current user. Watched = completed with no resume point; unwatched = no
+// history at all (so it also leaves Continue Watching).
+// Body: { mediaType: 'movie'|'episode'|'season'|'show', mediaId, season?, watched }
+router.post('/watched', authenticate, (req, res) => {
+  const { mediaType, mediaId, season, watched } = req.body;
+  let historyType = 'episode';
+  let ids;
+  if (mediaType === 'movie') {
+    historyType = 'movie';
+    ids = db.prepare('SELECT id FROM movies WHERE id = ?').all(mediaId).map(r => r.id);
+  } else if (mediaType === 'episode') {
+    ids = db.prepare('SELECT id FROM episodes WHERE id = ?').all(mediaId).map(r => r.id);
+  } else if (mediaType === 'season') {
+    ids = db.prepare('SELECT id FROM episodes WHERE show_id = ? AND season = ?').all(mediaId, season).map(r => r.id);
+  } else if (mediaType === 'show') {
+    ids = db.prepare('SELECT id FROM episodes WHERE show_id = ?').all(mediaId).map(r => r.id);
+  } else {
+    return res.status(400).json({ error: 'mediaType must be movie, episode, season or show' });
+  }
+  if (ids.length === 0) return res.status(404).json({ error: 'Nothing found to update' });
+  const accessKind = mediaType === 'movie' ? 'movie' : mediaType === 'episode' ? 'episode' : 'show';
+  if (!canAccess(req, accessKind, mediaId)) return res.status(404).json({ error: 'Nothing found to update' });
+
+  const del = db.prepare('DELETE FROM watch_history WHERE profile_id = ? AND media_type = ? AND media_id = ?');
+  const ins = db.prepare('INSERT INTO watch_history (user_id, profile_id, media_type, media_id, position, completed) VALUES (?, ?, ?, ?, 0, 1)');
+  db.transaction(() => {
+    for (const id of ids) {
+      del.run(req.profile.id, historyType, id);
+      if (watched) ins.run(req.user.id, req.profile.id, historyType, id);
+    }
+  })();
+  res.json({ success: true, updated: ids.length });
+});
+
 router.get('/progress/:mediaType/:mediaId', authenticate, (req, res) => {
   const row = db.prepare(
-    'SELECT position, completed FROM watch_history WHERE user_id=? AND media_type=? AND media_id=?'
-  ).get(req.user.id, req.params.mediaType, req.params.mediaId);
+    'SELECT position, completed FROM watch_history WHERE profile_id = ? AND media_type=? AND media_id=?'
+  ).get(req.profile.id, req.params.mediaType, req.params.mediaId);
   res.json(row || { position: 0, completed: false });
 });
 
@@ -204,9 +246,9 @@ router.get('/continue-watching', authenticate, (req, res) => {
            m.title, m.poster_path, m.backdrop_path, m.year, m.duration
     FROM watch_history wh
     JOIN movies m ON m.id = wh.media_id
-    WHERE wh.user_id=? AND wh.media_type='movie' AND wh.completed=0 AND wh.position>?
+    WHERE wh.profile_id = ? AND wh.media_type='movie' AND wh.completed=0 AND wh.position>?
     ORDER BY wh.watched_at DESC LIMIT 20
-  `).all(req.user.id, minSecs).map(m => ({
+  `).all(req.profile.id, minSecs).map(m => ({
     ...m,
     poster_url: resolveImg(m.poster_path, posterUrl),
     backdrop_url: resolveImg(m.backdrop_path, backdropUrl),
@@ -219,16 +261,18 @@ router.get('/continue-watching', authenticate, (req, res) => {
     FROM watch_history wh
     JOIN episodes e ON e.id = wh.media_id
     JOIN tv_shows s ON s.id = e.show_id
-    WHERE wh.user_id=? AND wh.media_type='episode' AND wh.completed=0 AND wh.position>?
+    WHERE wh.profile_id = ? AND wh.media_type='episode' AND wh.completed=0 AND wh.position>?
     ORDER BY wh.watched_at DESC LIMIT 20
-  `).all(req.user.id, minSecs).map(e => ({
+  `).all(req.profile.id, minSecs).map(e => ({
     ...e,
     subtitle: `S${String(e.season).padStart(2,'0')}E${String(e.episode_number).padStart(2,'0')}${e.episode_title ? ` · ${e.episode_title}` : ''}`,
     poster_url: resolveImg(e.poster_path, posterUrl),
     backdrop_url: resolveImg(e.backdrop_path, backdropUrl),
   }));
 
+  const scope = kidsScope(req);
   const items = [...movies, ...episodes]
+    .filter(i => !scope || (i.type === 'movie' ? scope.movies.has(i.id) : scope.shows.has(i.show_id)))
     .sort((a, b) => new Date(b.watched_at) - new Date(a.watched_at))
     .slice(0, 20);
 
@@ -273,7 +317,7 @@ function spawnSingleFrame(filePath, outPath, t) {
 
 // ─── frame thumbnail (on-demand) ─────────────────────────────────────────────
 
-router.get('/thumbnail/:type/:id', authenticate, (req, res) => {
+router.get('/thumbnail/:type/:id', authenticate, guardKids, (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
   if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
@@ -308,7 +352,7 @@ router.get('/thumbnail/:type/:id', authenticate, (req, res) => {
 // frames as soon as they appear on disk, so thumbnails near the start of the
 // video become instant within seconds of the player opening.
 
-router.post('/thumbnail/prewarm/:type/:id', authenticate, (req, res) => {
+router.post('/thumbnail/prewarm/:type/:id', authenticate, guardKids, (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
   if (!filePath || !fs.existsSync(filePath)) return res.json({ ok: false });
@@ -322,12 +366,18 @@ router.post('/thumbnail/prewarm/:type/:id', authenticate, (req, res) => {
   spriteJobs.add(jobKey);
   try { fs.mkdirSync(sDir, { recursive: true }); } catch {}
 
+  // Decode keyframes only (-skip_frame nokey): far less CPU than decoding every
+  // frame, and 1-in-10 s preview frames don't need frame accuracy. Lowest CPU
+  // priority so it never slows down the transcode the viewer is watching.
   const proc = spawn('ffmpeg', [
+    '-skip_frame', 'nokey',
     '-i', filePath,
     '-vf', 'fps=1/10,scale=160:90',
+    '-threads', '1',
     '-q:v', '5', '-y',
     path.join(sDir, 'thumb%05d.jpg'),
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  try { os.setPriority(proc.pid, 19); } catch {}
 
   proc.stderr.on('data', d => process.stderr.write(`[thumb-sprite] ${d}`));
   proc.on('error', () => { spriteJobs.delete(jobKey); });
@@ -349,7 +399,7 @@ router.post('/thumbnail/prewarm/:type/:id', authenticate, (req, res) => {
 // Runs ffprobe on the source file and returns stream/format info as JSON.
 // Accessible from the Watch page error UI so users can debug without Portainer.
 
-router.get('/diagnose/:type/:id', authenticate, (req, res) => {
+router.get('/diagnose/:type/:id', authenticate, guardKids, (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
   if (!filePath) return res.status(404).json({ error: 'Media not found in database' });
@@ -407,7 +457,7 @@ router.get('/diagnose/:type/:id', authenticate, (req, res) => {
 // Safari requires HLS for adaptive/live streams. Chrome/Firefox use /video
 // (fragmented MP4). These routes use the existing transcoder.js HLS service.
 
-router.get('/hls/:type/:id/manifest.m3u8', authenticate, async (req, res) => {
+router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
 
@@ -435,7 +485,7 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, async (req, res) => {
   }
 });
 
-router.get('/hls/:type/:id/segment', authenticate, async (req, res) => {
+router.get('/hls/:type/:id/segment', authenticate, guardKids, async (req, res) => {
   const { key, seg } = req.query;
   if (!key || !seg) return res.status(400).json({ error: 'Missing key or seg parameter' });
 

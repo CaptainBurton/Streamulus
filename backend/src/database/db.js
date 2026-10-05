@@ -138,6 +138,58 @@ try {
   db.prepare(`UPDATE episodes SET still_path = NULL WHERE still_path LIKE 'https://image.tmdb.org/t/p/%/banners/%'`).run();
 } catch {}
 
+// ── Profiles ─────────────────────────────────────────────────────────────────
+// An account (users row) logs in; profiles are "who's watching" inside it, each
+// with its own watch progress. Every account has exactly one main profile.
+// Kids profiles ("Streamlings") only see titles allowed in Admin > Streamlings.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    avatar_path TEXT,
+    is_main INTEGER NOT NULL DEFAULT 0,
+    is_kids INTEGER NOT NULL DEFAULT 0,
+    pin_hash TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_profiles_user ON profiles(user_id);
+
+  -- Admin's per-title choices for Streamlings; overrides the age-rating rule.
+  CREATE TABLE IF NOT EXISTS kids_overrides (
+    media_type TEXT NOT NULL,   -- 'movie' | 'show'
+    media_id INTEGER NOT NULL,
+    allowed INTEGER NOT NULL,
+    PRIMARY KEY (media_type, media_id)
+  );
+`);
+try { db.exec('ALTER TABLE watch_history ADD COLUMN profile_id INTEGER'); } catch {}
+db.exec('CREATE INDEX IF NOT EXISTS idx_wh_profile ON watch_history(profile_id, media_type, media_id)');
+
+// Give every existing account a main profile and move its history onto it.
+db.transaction(() => {
+  for (const u of db.prepare(`
+    SELECT id, username FROM users
+    WHERE id NOT IN (SELECT user_id FROM profiles WHERE is_main = 1)
+  `).all()) {
+    db.prepare('INSERT INTO profiles (user_id, name, is_main) VALUES (?, ?, 1)').run(u.id, u.username);
+  }
+  db.prepare(`
+    UPDATE watch_history SET profile_id =
+      (SELECT p.id FROM profiles p WHERE p.user_id = watch_history.user_id AND p.is_main = 1)
+    WHERE profile_id IS NULL
+  `).run();
+})();
+
+const KIDS_DEFAULTS = {
+  kids_use_ratings: 'true',   // allow titles whose age rating is within kids_max_age
+  kids_max_age: '7',
+  kids_allow_unrated: 'false',
+};
+for (const [key, value] of Object.entries(KIDS_DEFAULTS)) {
+  db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)').run(key, value);
+}
 
 const ENCODING_DEFAULTS = {
   video_crf: '23',

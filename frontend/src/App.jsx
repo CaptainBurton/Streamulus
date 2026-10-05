@@ -12,9 +12,12 @@ import MovieDetail from './pages/MovieDetail';
 import TVShow from './pages/TVShow';
 import TVSeason from './pages/TVSeason';
 import Admin from './pages/Admin';
+import ProfilePicker from './pages/ProfilePicker';
+import ProfileSettings from './pages/ProfileSettings';
+import QuickLogin from './pages/QuickLogin';
 
 function AppRoutes() {
-  const { user, loading } = useAuth();
+  const { user, profile, loading, needsProfilePick } = useAuth();
   const [setupComplete, setSetupComplete] = useState(null);
 
   useEffect(() => {
@@ -33,9 +36,12 @@ function AppRoutes() {
 
   if (!setupComplete) return <Setup onComplete={() => setSetupComplete(true)} />;
   if (!user) return <Login />;
+  if (needsProfilePick) return <ProfilePicker />;
 
+  // key: switching profile remounts every page so nothing from the previous
+  // profile (progress, watched ticks, Streamling-hidden titles) lingers.
   return (
-    <Routes>
+    <Routes key={profile?.id}>
       <Route path="/" element={<Home />} />
       <Route path="/movies" element={<Movies />} />
       <Route path="/tv" element={<TVShows />} />
@@ -43,7 +49,10 @@ function AppRoutes() {
       <Route path="/tv/:id/season/:season" element={<TVSeason />} />
       <Route path="/movie/:id" element={<MovieDetail />} />
       <Route path="/watch/:type/:id" element={<Watch />} />
-      <Route path="/admin" element={user.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
+      <Route path="/profiles" element={<ProfilePicker />} />
+      <Route path="/profile" element={<ProfileSettings />} />
+      <Route path="/quick-login" element={<QuickLogin />} />
+      <Route path="/admin" element={user.role === 'admin' && !profile?.is_kids ? <Admin /> : <Navigate to="/" />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );

@@ -10,9 +10,20 @@ const PORT = process.env.PORT || 8096;
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
+// When this image was built (written by the Dockerfile) — shows which build is running.
+const BUILD_DATE = (() => {
+  try { return fs.readFileSync(path.join(__dirname, '../BUILD_DATE'), 'utf8').trim(); } catch { return 'unknown'; }
+})();
+
+// Docker health check: answers without touching the database or disk, so it
+// only fails if the server itself is down or stuck.
+app.get('/api/health', (req, res) => res.json({ ok: true, build: BUILD_DATE }));
+
 // API routes
 app.use('/api/setup', require('./routes/setup'));
+app.use('/api/auth/quick', require('./routes/quicklogin'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/profiles', require('./routes/profiles'));
 app.use('/api/movies', require('./routes/movies'));
 app.use('/api/tv', require('./routes/tv'));
 app.use('/api/stream', require('./routes/stream'));
@@ -46,7 +57,8 @@ if (fs.existsSync(publicDir)) {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`========================================`);
   console.log(`  Streamulus running on port ${PORT}`);
-  console.log(`  Build date: ${new Date().toISOString()}`);
+  console.log(`  Image built: ${BUILD_DATE}`);
+  console.log(`  Started:     ${new Date().toISOString()}`);
 
   // Check FFmpeg at startup — result appears immediately in Portainer container logs
   try {
@@ -57,4 +69,11 @@ app.listen(PORT, '0.0.0.0', () => {
     console.error(`  Video transcoding will not work until ffmpeg is installed.`);
   }
   console.log(`========================================`);
+
+  // Fix stored file paths left over from a different media mount.
+  // then read any missing runtimes (used for "Ends at" times and progress bars).
+  require('./services/path-repair').repairAllPaths()
+    .catch(err => console.error('[paths] Repair failed:', err.message))
+    .then(() => require('./services/durations').fillMissingDurations())
+    .catch(err => console.error('[durations] Failed:', err.message));
 });

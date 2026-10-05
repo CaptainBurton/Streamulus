@@ -6,6 +6,7 @@ const multer = require('multer');
 const db = require('../database/db');
 const { requireAdmin } = require('../middleware/auth');
 const { scanAllWithProgress, validatePath } = require('../services/scanner');
+const { ensureMainProfile, publicProfile, deleteProfileData } = require('../services/profiles');
 
 const uploadsDir = path.join(process.env.DATA_DIR || '/data', 'uploads');
 const upload = multer({
@@ -73,10 +74,10 @@ router.post('/scan', requireAdmin, async (req, res) => {
 });
 
 // Validate a path before adding as library
-router.get('/validate-path', requireAdmin, (req, res) => {
+router.get('/validate-path', requireAdmin, async (req, res) => {
   const { path: dirPath } = req.query;
   if (!dirPath) return res.status(400).json({ error: 'path query param required' });
-  res.json(validatePath(dirPath));
+  res.json(await validatePath(dirPath));
 });
 
 router.get('/libraries', requireAdmin, (req, res) => {
@@ -84,45 +85,85 @@ router.get('/libraries', requireAdmin, (req, res) => {
   res.json({ libraries });
 });
 
-router.post('/libraries', requireAdmin, (req, res) => {
+router.post('/libraries', requireAdmin, async (req, res) => {
   const { name, path: libPath, type } = req.body;
   if (!name || !libPath || !type) return res.status(400).json({ error: 'name, path, and type required' });
   if (!['movies', 'tv'].includes(type)) return res.status(400).json({ error: 'type must be movies or tv' });
 
-  const { exists, fileCount } = validatePath(libPath);
+  const { exists, fileCount } = await validatePath(libPath);
   const result = db.prepare('INSERT INTO libraries (name, path, type) VALUES (?, ?, ?)').run(name, libPath, type);
   res.json({ id: result.lastInsertRowid, name, path: libPath, type, pathExists: exists, fileCount });
 });
 
-router.put('/libraries/:id', requireAdmin, (req, res) => {
-  const { name, path: libPath } = req.body;
-  db.prepare('UPDATE libraries SET name = ?, path = ? WHERE id = ?').run(name, libPath, req.params.id);
-  res.json({ success: true });
+router.put('/libraries/:id', requireAdmin, async (req, res) => {
+  const lib = db.prepare('SELECT * FROM libraries WHERE id = ?').get(req.params.id);
+  if (!lib) return res.status(404).json({ error: 'Library not found' });
+
+  const trimSlash = (p) => (p.length > 1 ? p.replace(/\/+$/, '') : p);
+  const name    = req.body.name?.trim() || lib.name;
+  const newPath = trimSlash((req.body.path ?? lib.path).trim());
+  const oldPath = trimSlash(lib.path);
+  if (!newPath) return res.status(400).json({ error: 'path required' });
+
+  // When the folder moves (e.g. a different container mount after redeploying),
+  // rewrite every stored file path under the old folder so existing items —
+  // and their watch history — keep working without a rescan.
+  let remapped = 0;
+  db.transaction(() => {
+    db.prepare('UPDATE libraries SET name = ?, path = ? WHERE id = ?').run(name, newPath, lib.id);
+    if (newPath !== oldPath) {
+      const oldPrefix = oldPath === '/' ? '/' : `${oldPath}/`;
+      const newPrefix = newPath === '/' ? '/' : `${newPath}/`;
+      const like = oldPrefix.replace(/[\\%_]/g, '\\$&') + '%';
+      // SQLite substr() counts characters, so measure the prefix in code points.
+      const rest = [...oldPrefix].length + 1;
+      const table = lib.type === 'movies' ? 'movies' : 'episodes';
+      // OR IGNORE: skip rows whose new path already exists (e.g. re-added by a scan).
+      remapped = db.prepare(`UPDATE OR IGNORE ${table} SET file_path = ? || substr(file_path, ?) WHERE file_path LIKE ? ESCAPE '\\'`)
+        .run(newPrefix, rest, like).changes;
+    }
+  })();
+
+  const { exists, fileCount } = await validatePath(newPath);
+  res.json({ success: true, remapped, pathExists: exists, fileCount });
 });
 
 router.delete('/libraries/:id', requireAdmin, (req, res) => {
   const lib = db.prepare('SELECT * FROM libraries WHERE id = ?').get(req.params.id);
   if (!lib) return res.status(404).json({ error: 'Library not found' });
 
-  db.transaction(() => {
-    if (lib.type === 'movies') {
+  // Remove every row that references this library, whatever its type — with
+  // foreign_keys ON a single leftover row (e.g. a show attached to a movies
+  // library) would otherwise make the whole delete fail.
+  try {
+    db.transaction(() => {
       db.prepare('DELETE FROM movies WHERE library_id = ?').run(lib.id);
-    } else {
-      const shows = db.prepare('SELECT id FROM tv_shows WHERE library_id = ?').all(lib.id);
-      for (const show of shows) {
-        db.prepare('DELETE FROM episodes WHERE show_id = ?').run(show.id);
+      const showIds = db.prepare('SELECT id FROM tv_shows WHERE library_id = ?').all(lib.id).map(s => s.id);
+      for (const showId of showIds) {
+        db.prepare('DELETE FROM episodes WHERE show_id = ?').run(showId);
+        db.prepare('DELETE FROM seasons WHERE show_id = ?').run(showId);
       }
       db.prepare('DELETE FROM tv_shows WHERE library_id = ?').run(lib.id);
-    }
-    db.prepare('DELETE FROM libraries WHERE id = ?').run(lib.id);
-  })();
+      db.prepare('DELETE FROM libraries WHERE id = ?').run(lib.id);
+    })();
+  } catch (err) {
+    console.error(`[admin] Failed to remove library ${lib.id}:`, err.message);
+    return res.status(500).json({ error: `Could not remove library: ${err.message}` });
+  }
 
   res.json({ success: true });
 });
 
+// Accounts with their profiles nested underneath (main profile first).
 router.get('/users', requireAdmin, (req, res) => {
-  const users = db.prepare('SELECT id, username, email, role, created_at FROM users').all();
-  res.json({ users });
+  const users = db.prepare('SELECT id, username, email, role, created_at FROM users ORDER BY id').all();
+  const profiles = db.prepare('SELECT * FROM profiles ORDER BY is_main DESC, id').all();
+  res.json({
+    users: users.map(u => ({
+      ...u,
+      profiles: profiles.filter(p => p.user_id === u.id).map(p => ({ ...publicProfile(p), created_at: p.created_at })),
+    })),
+  });
 });
 
 router.post('/users', requireAdmin, async (req, res) => {
@@ -131,6 +172,7 @@ router.post('/users', requireAdmin, async (req, res) => {
   const hash = await bcrypt.hash(password, 12);
   try {
     const result = db.prepare('INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)').run(username, email || null, hash, role);
+    ensureMainProfile(result.lastInsertRowid, username);
     res.json({ id: result.lastInsertRowid, username, role });
   } catch {
     res.status(409).json({ error: 'Username already exists' });
@@ -139,7 +181,17 @@ router.post('/users', requireAdmin, async (req, res) => {
 
 router.delete('/users/:id', requireAdmin, (req, res) => {
   if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: 'Cannot delete your own account' });
-  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  // Remove the account's profiles, their avatars and watch history first —
+  // with foreign keys on, leftover rows made the delete fail.
+  const profiles = db.prepare('SELECT * FROM profiles WHERE user_id = ?').all(req.params.id);
+  db.transaction(() => {
+    for (const p of profiles) deleteProfileData(p.id);
+    db.prepare('DELETE FROM watch_history WHERE user_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  })();
+  for (const p of profiles) {
+    if (p.avatar_path) fs.rm(path.join(uploadsDir, 'avatars', p.avatar_path), { force: true }, () => {});
+  }
   res.json({ success: true });
 });
 
@@ -160,6 +212,7 @@ router.get('/config', requireAdmin, (req, res) => {
     audioChannels:      get('audio_channels')       ?? '2',
     hlsSegmentDuration: get('hls_segment_duration') ?? '4',
     progressMinSeconds: get('progress_min_seconds') ?? '10',
+    upNextSeconds:      get('up_next_seconds')      ?? '30',
     preferredLanguage:  get('preferred_language')   ?? 'en',
     preferredCountry:   get('preferred_country')    ?? 'US',
   });
@@ -170,8 +223,12 @@ router.put('/config', requireAdmin, (req, res) => {
     tmdbApiKey, tvdbApiKey, omdbApiKey, imdbApiKey,
     movieSourceOrder, tvSourceOrder,
     videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration,
-    progressMinSeconds, preferredLanguage, preferredCountry,
+    progressMinSeconds, upNextSeconds, preferredLanguage, preferredCountry,
   } = req.body;
+  if (upNextSeconds !== undefined) {
+    const secs = parseInt(upNextSeconds);
+    if (!(secs >= 5 && secs <= 300)) return res.status(400).json({ error: 'Up Next countdown must be between 5 and 300 seconds' });
+  }
   const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
   if (tmdbApiKey       !== undefined) upsert.run('tmdb_api_key',       tmdbApiKey);
   if (tvdbApiKey       !== undefined) { upsert.run('tvdb_api_key', tvdbApiKey); require('../services/tvdb').invalidateCache(); }
@@ -186,6 +243,7 @@ router.put('/config', requireAdmin, (req, res) => {
   if (audioChannels    !== undefined) upsert.run('audio_channels',     audioChannels);
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
+  if (upNextSeconds !== undefined) upsert.run('up_next_seconds', String(parseInt(upNextSeconds)));
   if (preferredLanguage !== undefined) upsert.run('preferred_language', preferredLanguage);
   if (preferredCountry  !== undefined) {
     const current = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value ?? 'US';
@@ -453,6 +511,70 @@ router.post('/artwork/tv/:id/upload', requireAdmin, upload.single('file'), (req,
   const col = type === 'poster' ? 'poster_path' : 'backdrop_path';
   db.prepare(`UPDATE tv_shows SET ${col} = ? WHERE id = ?`).run(url, req.params.id);
   res.json({ success: true, url });
+});
+
+// ── Streamlings (kids profiles) ──────────────────────────────────────────────
+// Rules: titles whose age rating is within maxAge (when useRatings is on), plus
+// per-title choices that always win. See services/kids.js.
+const kids = require('../services/kids');
+
+router.get('/kids', requireAdmin, (req, res) => {
+  const { posterUrl } = require('../services/tmdb');
+  const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('/uploads/'));
+  const img = (p) => (isFullUrl(p) ? p : posterUrl(p));
+  const cfg = kids.getKidsConfig();
+  const list = (mediaType, table, yearExpr) => {
+    const overrides = kids.getOverrides(mediaType);
+    return db.prepare(`SELECT id, title, ${yearExpr} AS year, content_rating, poster_path FROM ${table} ORDER BY title COLLATE NOCASE`).all()
+      .map(r => {
+        const d = kids.decide(r, cfg, overrides);
+        return { id: r.id, title: r.title, year: r.year, content_rating: r.content_rating, age: d.age,
+                 poster_url: img(r.poster_path), allowed: d.allowed, byRating: d.byRating, override: d.override };
+      });
+  };
+  res.json({
+    config: cfg,
+    movies: list('movie', 'movies', 'year'),
+    shows: list('show', 'tv_shows', "substr(first_air_date, 1, 4)"),
+  });
+});
+
+router.put('/kids/config', requireAdmin, (req, res) => {
+  const { useRatings, maxAge, allowUnrated } = req.body;
+  const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+  if (maxAge !== undefined) {
+    const age = parseInt(maxAge, 10);
+    if (!(age >= 0 && age <= 18)) return res.status(400).json({ error: 'Maximum age must be between 0 and 18' });
+    upsert.run('kids_max_age', String(age));
+  }
+  if (useRatings !== undefined) upsert.run('kids_use_ratings', useRatings ? 'true' : 'false');
+  if (allowUnrated !== undefined) upsert.run('kids_allow_unrated', allowUnrated ? 'true' : 'false');
+  kids.clearKidsCache();
+  res.json({ config: kids.getKidsConfig() });
+});
+
+// allowed: true / false = manual choice; null = go back to the rating rule.
+router.put('/kids/override', requireAdmin, (req, res) => {
+  const { mediaType, mediaId, allowed } = req.body;
+  if (!['movie', 'show'].includes(mediaType)) return res.status(400).json({ error: 'mediaType must be movie or show' });
+  const table = mediaType === 'movie' ? 'movies' : 'tv_shows';
+  if (!db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(mediaId)) return res.status(404).json({ error: 'Title not found' });
+  if (allowed === null || allowed === undefined) {
+    db.prepare('DELETE FROM kids_overrides WHERE media_type = ? AND media_id = ?').run(mediaType, mediaId);
+  } else {
+    db.prepare('INSERT OR REPLACE INTO kids_overrides (media_type, media_id, allowed) VALUES (?, ?, ?)').run(mediaType, mediaId, allowed ? 1 : 0);
+  }
+  kids.clearKidsCache();
+  res.json({ success: true });
+});
+
+router.post('/kids/override/reset', requireAdmin, (req, res) => {
+  const { mediaType } = req.body || {};
+  const r = ['movie', 'show'].includes(mediaType)
+    ? db.prepare('DELETE FROM kids_overrides WHERE media_type = ?').run(mediaType)
+    : db.prepare('DELETE FROM kids_overrides').run();
+  kids.clearKidsCache();
+  res.json({ success: true, cleared: r.changes });
 });
 
 module.exports = router;

@@ -11,22 +11,24 @@ function getSource(key, fallback) {
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.m2ts']);
 
-function getVideoFiles(dirPath) {
+// Async on purpose: on a large or network-mounted library a synchronous walk
+// blocks the whole server — every request, and the Docker health check, waits
+// until it finishes, which marks the container unhealthy.
+async function getVideoFiles(dirPath) {
   const files = [];
-  if (!fs.existsSync(dirPath)) return files;
-  function walk(dir) {
+  async function walk(dir) {
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        walk(full);
+        await walk(full);
       } else if (entry.isFile() && VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
         files.push(full);
       }
     }
   }
-  walk(dirPath);
+  await walk(dirPath);
   return files;
 }
 
@@ -52,10 +54,30 @@ function parseTVFilename(filename) {
   return null;
 }
 
+// A file that isn't in the DB by its exact path may be one we already know
+// about that has moved (e.g. the media folder is mounted somewhere else after a
+// redeploy). If exactly one row has the same filename and its old path no
+// longer exists on disk, point that row at the new path instead of adding a
+// duplicate, so its watch history is kept. Returns the updated row or null.
+function relocateMissing(table, filePath) {
+  const like = '%/' + path.basename(filePath).replace(/[\\%_]/g, '\\$&');
+  const stale = db.prepare(`SELECT * FROM ${table} WHERE file_path LIKE ? ESCAPE '\\'`).all(like)
+    .filter(r => !fs.existsSync(r.file_path));
+  if (stale.length !== 1) return null;
+  db.prepare(`UPDATE ${table} SET file_path = ? WHERE id = ?`).run(filePath, stale[0].id);
+  return stale[0];
+}
+
 // Returns { status: 'added'|'skipped', title }
 async function processMovieFile(filePath, libraryId) {
   const existing = db.prepare('SELECT id, title FROM movies WHERE file_path = ?').get(filePath);
   if (existing) return { status: 'skipped', title: existing.title };
+
+  const moved = relocateMissing('movies', filePath);
+  if (moved) {
+    db.prepare('UPDATE movies SET library_id = ? WHERE id = ?').run(libraryId, moved.id);
+    return { status: 'skipped', title: `${moved.title} (path updated)` };
+  }
 
   const { title, year } = parseMovieFilename(filePath);
   const sourceOrder = JSON.parse(getSource('movie_source_order', '["tmdb","imdb"]'));
@@ -104,6 +126,14 @@ async function processMovieFile(filePath, libraryId) {
 async function processTVFile(filePath, libraryId) {
   const existing = db.prepare('SELECT id FROM episodes WHERE file_path = ?').get(filePath);
   if (existing) return { status: 'skipped', title: path.basename(filePath) };
+
+  const moved = relocateMissing('episodes', filePath);
+  if (moved) {
+    // Keep the show attached to the library it was found in, so removing an
+    // old library later doesn't take the relocated episodes with it.
+    db.prepare('UPDATE tv_shows SET library_id = ? WHERE id = ?').run(libraryId, moved.show_id);
+    return { status: 'skipped', title: `${moved.title || path.basename(filePath)} (path updated)` };
+  }
 
   const parsed = parseTVFilename(filePath);
   if (!parsed) return { status: 'skipped', title: path.basename(filePath) };
@@ -225,7 +255,7 @@ async function scanAllWithProgress(onProgress, filterLibraryId = null) {
 
     onProgress({ type: 'library_start', library: lib.name, path: lib.path, kind: lib.type });
 
-    const files = getVideoFiles(lib.path);
+    const files = await getVideoFiles(lib.path);
     onProgress({ type: 'found', library: lib.name, count: files.length });
 
     if (files.length === 0) {
@@ -269,6 +299,8 @@ async function scanAllWithProgress(onProgress, filterLibraryId = null) {
   }
 
   onProgress({ type: 'complete', ...grandTotal });
+  // Read runtimes of newly added files in the background ("Ends at" times).
+  require('./durations').fillMissingDurations().catch(() => {});
 }
 
 async function scanAll() {
@@ -281,9 +313,10 @@ async function scanAll() {
   }).filter(Boolean);
 }
 
-function validatePath(dirPath) {
-  const exists = fs.existsSync(dirPath);
-  const files = exists ? getVideoFiles(dirPath) : [];
+async function validatePath(dirPath) {
+  let exists = false;
+  try { exists = (await fs.promises.stat(dirPath)).isDirectory(); } catch {}
+  const files = exists ? await getVideoFiles(dirPath) : [];
   return { exists, fileCount: files.length };
 }
 
