@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../database/db');
+const { ensureMainProfile } = require('../services/profiles');
 const { scanAll } = require('../services/scanner');
 
 const router = express.Router();
@@ -35,7 +36,8 @@ router.post('/complete', async (req, res) => {
   const insertLibrary = db.prepare('INSERT INTO libraries (name, path, type) VALUES (?, ?, ?)');
 
   db.transaction(() => {
-    insertUser.run(adminUsername, adminEmail || null, hash, 'admin');
+    const admin = insertUser.run(adminUsername, adminEmail || null, hash, 'admin');
+    ensureMainProfile(admin.lastInsertRowid, adminUsername);
 
     if (moviePath && moviePath.trim()) {
       insertLibrary.run('Movies', moviePath.trim(), 'movies');

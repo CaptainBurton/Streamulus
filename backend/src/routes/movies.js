@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
+const { kidsScope, canAccess } = require('../services/kids');
 const { posterUrl, backdropUrl, resolveGenreNames, getMovieCredits, getSimilarMovies, getMovieContentRating } = require('../services/tmdb');
 
 const router = express.Router();
@@ -34,12 +35,15 @@ router.get('/', authenticate, (req, res) => {
   let query = `
     SELECT m.*, wh.completed AS watch_completed, wh.position AS watch_position
     FROM movies m
-    LEFT JOIN watch_history wh ON wh.media_id = m.id AND wh.user_id = ? AND wh.media_type = 'movie'
+    LEFT JOIN watch_history wh ON wh.media_id = m.id AND wh.profile_id = ? AND wh.media_type = 'movie'
     WHERE 1=1
   `;
-  const params = [req.user.id];
+  const params = [req.profile.id];
 
   if (search) { query += ' AND m.title LIKE ?'; params.push(`%${search}%`); }
+  // Streamlings only see allowed titles
+  const scope = kidsScope(req);
+  if (scope) { query += ' AND m.id IN (SELECT value FROM json_each(?))'; params.push(scope.moviesJson); }
 
   const validSorts = { title: 'm.title', year: 'm.year', rating: 'm.rating', added: 'm.added_at' };
   const sortCol = validSorts[sort] || 'm.added_at';
@@ -48,30 +52,40 @@ router.get('/', authenticate, (req, res) => {
   params.push(parseInt(limit), parseInt(offset));
 
   const movies = db.prepare(query).all(...params).map(formatMovie);
-  const total = db.prepare('SELECT COUNT(*) as count FROM movies' + (search ? ' WHERE title LIKE ?' : '')).get(...(search ? [`%${search}%`] : [])).count;
+  const where = [], whereParams = [];
+  if (search) { where.push('title LIKE ?'); whereParams.push(`%${search}%`); }
+  if (scope) { where.push('id IN (SELECT value FROM json_each(?))'); whereParams.push(scope.moviesJson); }
+  const total = db.prepare('SELECT COUNT(*) as count FROM movies' + (where.length ? ` WHERE ${where.join(' AND ')}` : '')).get(...whereParams).count;
   res.json({ movies, total });
 });
 
 router.get('/recent', authenticate, (req, res) => {
-  const movies = db.prepare('SELECT * FROM movies ORDER BY added_at DESC LIMIT 20').all().map(formatMovie);
+  const scope = kidsScope(req);
+  const movies = (scope
+    ? db.prepare('SELECT * FROM movies WHERE id IN (SELECT value FROM json_each(?)) ORDER BY added_at DESC LIMIT 20').all(scope.moviesJson)
+    : db.prepare('SELECT * FROM movies ORDER BY added_at DESC LIMIT 20').all()
+  ).map(formatMovie);
   res.json({ movies });
 });
 
 router.get('/featured', authenticate, (req, res) => {
-  const movie = db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL ORDER BY RANDOM() LIMIT 1').get();
+  const scope = kidsScope(req);
+  const movie = scope
+    ? db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL AND id IN (SELECT value FROM json_each(?)) ORDER BY RANDOM() LIMIT 1').get(scope.moviesJson)
+    : db.prepare('SELECT * FROM movies WHERE backdrop_path IS NOT NULL ORDER BY RANDOM() LIMIT 1').get();
   res.json({ movie: movie ? formatMovie(movie) : null });
 });
 
 router.get('/:id', authenticate, (req, res) => {
   const movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(req.params.id);
-  if (!movie) return res.status(404).json({ error: 'Movie not found' });
+  if (!movie || !canAccess(req, 'movie', movie.id)) return res.status(404).json({ error: 'Movie not found' });
   res.json({ movie: formatMovie(movie) });
 });
 
 // Full detail page: movie + cast + similar (fetched live from TMDB)
 router.get('/:id/details', authenticate, async (req, res) => {
   let movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(req.params.id);
-  if (!movie) return res.status(404).json({ error: 'Movie not found' });
+  if (!movie || !canAccess(req, 'movie', movie.id)) return res.status(404).json({ error: 'Movie not found' });
 
   let formatted = formatMovie(movie);
   let cast = [];
@@ -114,10 +128,12 @@ router.get('/:id/details', authenticate, async (req, res) => {
   }
 
   // Also find similar movies already in our library
+  const scope = kidsScope(req);
   const similarLocal = db.prepare(`
     SELECT * FROM movies WHERE id != ? AND genres LIKE ?
+    ${scope ? 'AND id IN (SELECT value FROM json_each(?))' : ''}
     ORDER BY rating DESC LIMIT 8
-  `).all(movie.id, `%${(JSON.parse(movie.genres || '[]')[0] || '')}%`).map(formatMovie);
+  `).all(movie.id, `%${(JSON.parse(movie.genres || '[]')[0] || '')}%`, ...(scope ? [scope.moviesJson] : [])).map(formatMovie);
 
   res.json({ movie: formatted, cast, director, similarTmdb, similarLocal });
 });

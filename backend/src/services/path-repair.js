@@ -44,7 +44,7 @@ const applyRepair = db.transaction((table, id, newPath) => {
     db.prepare(`
       UPDATE watch_history SET media_id = ?
       WHERE media_type = ? AND media_id = ?
-        AND user_id NOT IN (SELECT user_id FROM watch_history WHERE media_type = ? AND media_id = ?)
+        AND profile_id NOT IN (SELECT profile_id FROM watch_history WHERE media_type = ? AND media_id = ? AND profile_id IS NOT NULL)
     `).run(id, mediaType, dup.id, mediaType, id);
     db.prepare('DELETE FROM watch_history WHERE media_type = ? AND media_id = ?').run(mediaType, dup.id);
     db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(dup.id);

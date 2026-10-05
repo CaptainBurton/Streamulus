@@ -6,6 +6,7 @@ const multer = require('multer');
 const db = require('../database/db');
 const { requireAdmin } = require('../middleware/auth');
 const { scanAllWithProgress, validatePath } = require('../services/scanner');
+const { ensureMainProfile, publicProfile, deleteProfileData } = require('../services/profiles');
 
 const uploadsDir = path.join(process.env.DATA_DIR || '/data', 'uploads');
 const upload = multer({
@@ -153,9 +154,16 @@ router.delete('/libraries/:id', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
+// Accounts with their profiles nested underneath (main profile first).
 router.get('/users', requireAdmin, (req, res) => {
-  const users = db.prepare('SELECT id, username, email, role, created_at FROM users').all();
-  res.json({ users });
+  const users = db.prepare('SELECT id, username, email, role, created_at FROM users ORDER BY id').all();
+  const profiles = db.prepare('SELECT * FROM profiles ORDER BY is_main DESC, id').all();
+  res.json({
+    users: users.map(u => ({
+      ...u,
+      profiles: profiles.filter(p => p.user_id === u.id).map(p => ({ ...publicProfile(p), created_at: p.created_at })),
+    })),
+  });
 });
 
 router.post('/users', requireAdmin, async (req, res) => {
@@ -164,6 +172,7 @@ router.post('/users', requireAdmin, async (req, res) => {
   const hash = await bcrypt.hash(password, 12);
   try {
     const result = db.prepare('INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)').run(username, email || null, hash, role);
+    ensureMainProfile(result.lastInsertRowid, username);
     res.json({ id: result.lastInsertRowid, username, role });
   } catch {
     res.status(409).json({ error: 'Username already exists' });
@@ -172,7 +181,17 @@ router.post('/users', requireAdmin, async (req, res) => {
 
 router.delete('/users/:id', requireAdmin, (req, res) => {
   if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: 'Cannot delete your own account' });
-  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  // Remove the account's profiles, their avatars and watch history first —
+  // with foreign keys on, leftover rows made the delete fail.
+  const profiles = db.prepare('SELECT * FROM profiles WHERE user_id = ?').all(req.params.id);
+  db.transaction(() => {
+    for (const p of profiles) deleteProfileData(p.id);
+    db.prepare('DELETE FROM watch_history WHERE user_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  })();
+  for (const p of profiles) {
+    if (p.avatar_path) fs.rm(path.join(uploadsDir, 'avatars', p.avatar_path), { force: true }, () => {});
+  }
   res.json({ success: true });
 });
 
@@ -492,6 +511,70 @@ router.post('/artwork/tv/:id/upload', requireAdmin, upload.single('file'), (req,
   const col = type === 'poster' ? 'poster_path' : 'backdrop_path';
   db.prepare(`UPDATE tv_shows SET ${col} = ? WHERE id = ?`).run(url, req.params.id);
   res.json({ success: true, url });
+});
+
+// ── Streamlings (kids profiles) ──────────────────────────────────────────────
+// Rules: titles whose age rating is within maxAge (when useRatings is on), plus
+// per-title choices that always win. See services/kids.js.
+const kids = require('../services/kids');
+
+router.get('/kids', requireAdmin, (req, res) => {
+  const { posterUrl } = require('../services/tmdb');
+  const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('/uploads/'));
+  const img = (p) => (isFullUrl(p) ? p : posterUrl(p));
+  const cfg = kids.getKidsConfig();
+  const list = (mediaType, table, yearExpr) => {
+    const overrides = kids.getOverrides(mediaType);
+    return db.prepare(`SELECT id, title, ${yearExpr} AS year, content_rating, poster_path FROM ${table} ORDER BY title COLLATE NOCASE`).all()
+      .map(r => {
+        const d = kids.decide(r, cfg, overrides);
+        return { id: r.id, title: r.title, year: r.year, content_rating: r.content_rating, age: d.age,
+                 poster_url: img(r.poster_path), allowed: d.allowed, byRating: d.byRating, override: d.override };
+      });
+  };
+  res.json({
+    config: cfg,
+    movies: list('movie', 'movies', 'year'),
+    shows: list('show', 'tv_shows', "substr(first_air_date, 1, 4)"),
+  });
+});
+
+router.put('/kids/config', requireAdmin, (req, res) => {
+  const { useRatings, maxAge, allowUnrated } = req.body;
+  const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+  if (maxAge !== undefined) {
+    const age = parseInt(maxAge, 10);
+    if (!(age >= 0 && age <= 18)) return res.status(400).json({ error: 'Maximum age must be between 0 and 18' });
+    upsert.run('kids_max_age', String(age));
+  }
+  if (useRatings !== undefined) upsert.run('kids_use_ratings', useRatings ? 'true' : 'false');
+  if (allowUnrated !== undefined) upsert.run('kids_allow_unrated', allowUnrated ? 'true' : 'false');
+  kids.clearKidsCache();
+  res.json({ config: kids.getKidsConfig() });
+});
+
+// allowed: true / false = manual choice; null = go back to the rating rule.
+router.put('/kids/override', requireAdmin, (req, res) => {
+  const { mediaType, mediaId, allowed } = req.body;
+  if (!['movie', 'show'].includes(mediaType)) return res.status(400).json({ error: 'mediaType must be movie or show' });
+  const table = mediaType === 'movie' ? 'movies' : 'tv_shows';
+  if (!db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(mediaId)) return res.status(404).json({ error: 'Title not found' });
+  if (allowed === null || allowed === undefined) {
+    db.prepare('DELETE FROM kids_overrides WHERE media_type = ? AND media_id = ?').run(mediaType, mediaId);
+  } else {
+    db.prepare('INSERT OR REPLACE INTO kids_overrides (media_type, media_id, allowed) VALUES (?, ?, ?)').run(mediaType, mediaId, allowed ? 1 : 0);
+  }
+  kids.clearKidsCache();
+  res.json({ success: true });
+});
+
+router.post('/kids/override/reset', requireAdmin, (req, res) => {
+  const { mediaType } = req.body || {};
+  const r = ['movie', 'show'].includes(mediaType)
+    ? db.prepare('DELETE FROM kids_overrides WHERE media_type = ?').run(mediaType)
+    : db.prepare('DELETE FROM kids_overrides').run();
+  kids.clearKidsCache();
+  res.json({ success: true, cleared: r.changes });
 });
 
 module.exports = router;

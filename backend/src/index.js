@@ -22,6 +22,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true, build: BUILD_DATE }));
 // API routes
 app.use('/api/setup', require('./routes/setup'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/profiles', require('./routes/profiles'));
 app.use('/api/movies', require('./routes/movies'));
 app.use('/api/tv', require('./routes/tv'));
 app.use('/api/stream', require('./routes/stream'));
