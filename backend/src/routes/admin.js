@@ -95,9 +95,36 @@ router.post('/libraries', requireAdmin, (req, res) => {
 });
 
 router.put('/libraries/:id', requireAdmin, (req, res) => {
-  const { name, path: libPath } = req.body;
-  db.prepare('UPDATE libraries SET name = ?, path = ? WHERE id = ?').run(name, libPath, req.params.id);
-  res.json({ success: true });
+  const lib = db.prepare('SELECT * FROM libraries WHERE id = ?').get(req.params.id);
+  if (!lib) return res.status(404).json({ error: 'Library not found' });
+
+  const trimSlash = (p) => (p.length > 1 ? p.replace(/\/+$/, '') : p);
+  const name    = req.body.name?.trim() || lib.name;
+  const newPath = trimSlash((req.body.path ?? lib.path).trim());
+  const oldPath = trimSlash(lib.path);
+  if (!newPath) return res.status(400).json({ error: 'path required' });
+
+  // When the folder moves (e.g. a different container mount after redeploying),
+  // rewrite every stored file path under the old folder so existing items —
+  // and their watch history — keep working without a rescan.
+  let remapped = 0;
+  db.transaction(() => {
+    db.prepare('UPDATE libraries SET name = ?, path = ? WHERE id = ?').run(name, newPath, lib.id);
+    if (newPath !== oldPath) {
+      const oldPrefix = oldPath === '/' ? '/' : `${oldPath}/`;
+      const newPrefix = newPath === '/' ? '/' : `${newPath}/`;
+      const like = oldPrefix.replace(/[\\%_]/g, '\\$&') + '%';
+      // SQLite substr() counts characters, so measure the prefix in code points.
+      const rest = [...oldPrefix].length + 1;
+      const table = lib.type === 'movies' ? 'movies' : 'episodes';
+      // OR IGNORE: skip rows whose new path already exists (e.g. re-added by a scan).
+      remapped = db.prepare(`UPDATE OR IGNORE ${table} SET file_path = ? || substr(file_path, ?) WHERE file_path LIKE ? ESCAPE '\\'`)
+        .run(newPrefix, rest, like).changes;
+    }
+  })();
+
+  const { exists, fileCount } = validatePath(newPath);
+  res.json({ success: true, remapped, pathExists: exists, fileCount });
 });
 
 router.delete('/libraries/:id', requireAdmin, (req, res) => {

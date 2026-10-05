@@ -52,10 +52,30 @@ function parseTVFilename(filename) {
   return null;
 }
 
+// A file that isn't in the DB by its exact path may be one we already know
+// about that has moved (e.g. the media folder is mounted somewhere else after a
+// redeploy). If exactly one row has the same filename and its old path no
+// longer exists on disk, point that row at the new path instead of adding a
+// duplicate, so its watch history is kept. Returns the updated row or null.
+function relocateMissing(table, filePath) {
+  const like = '%/' + path.basename(filePath).replace(/[\\%_]/g, '\\$&');
+  const stale = db.prepare(`SELECT * FROM ${table} WHERE file_path LIKE ? ESCAPE '\\'`).all(like)
+    .filter(r => !fs.existsSync(r.file_path));
+  if (stale.length !== 1) return null;
+  db.prepare(`UPDATE ${table} SET file_path = ? WHERE id = ?`).run(filePath, stale[0].id);
+  return stale[0];
+}
+
 // Returns { status: 'added'|'skipped', title }
 async function processMovieFile(filePath, libraryId) {
   const existing = db.prepare('SELECT id, title FROM movies WHERE file_path = ?').get(filePath);
   if (existing) return { status: 'skipped', title: existing.title };
+
+  const moved = relocateMissing('movies', filePath);
+  if (moved) {
+    db.prepare('UPDATE movies SET library_id = ? WHERE id = ?').run(libraryId, moved.id);
+    return { status: 'skipped', title: `${moved.title} (path updated)` };
+  }
 
   const { title, year } = parseMovieFilename(filePath);
   const sourceOrder = JSON.parse(getSource('movie_source_order', '["tmdb","imdb"]'));
@@ -104,6 +124,14 @@ async function processMovieFile(filePath, libraryId) {
 async function processTVFile(filePath, libraryId) {
   const existing = db.prepare('SELECT id FROM episodes WHERE file_path = ?').get(filePath);
   if (existing) return { status: 'skipped', title: path.basename(filePath) };
+
+  const moved = relocateMissing('episodes', filePath);
+  if (moved) {
+    // Keep the show attached to the library it was found in, so removing an
+    // old library later doesn't take the relocated episodes with it.
+    db.prepare('UPDATE tv_shows SET library_id = ? WHERE id = ?').run(libraryId, moved.show_id);
+    return { status: 'skipped', title: `${moved.title || path.basename(filePath)} (path updated)` };
+  }
 
   const parsed = parseTVFilename(filePath);
   if (!parsed) return { status: 'skipped', title: path.basename(filePath) };

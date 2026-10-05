@@ -311,6 +311,7 @@ export default function Admin() {
     audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4', progressMinSeconds: '10',
   });
   const [newLib, setNewLib] = useState({ name: '', path: '', type: 'movies' });
+  const [editLib, setEditLib] = useState(null); // { id, path } while editing a library's path
   const [newUser, setNewUser] = useState({ username: '', password: '', email: '', role: 'user' });
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
@@ -456,6 +457,22 @@ export default function Admin() {
     } catch (err) { flash(err.response?.data?.error || 'Failed to add library', true); }
   };
 
+  const handleSaveLibraryPath = async (e) => {
+    e.preventDefault();
+    if (!editLib?.path.trim()) return;
+    try {
+      const res = await axios.put(`/api/admin/libraries/${editLib.id}`, { path: editLib.path });
+      const { pathExists, fileCount, remapped } = res.data;
+      if (!pathExists) {
+        flash(`Path saved, but "${editLib.path}" was not found inside the container. Check the volume mapping in your stack.`, true);
+      } else {
+        flash(`Path updated — ${remapped} item${remapped !== 1 ? 's' : ''} moved to the new location, ${fileCount} video file${fileCount !== 1 ? 's' : ''} found.`);
+      }
+      setEditLib(null);
+      loadData();
+    } catch (err) { flash(err.response?.data?.error || 'Failed to update library path', true); }
+  };
+
   const handleDeleteLibrary = async (id) => {
     if (!confirm('Remove this library? Your files will not be deleted.')) return;
     try {
@@ -573,10 +590,18 @@ export default function Admin() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {(stats?.libraries || []).map(lib => (
-                <div key={lib.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
+                <div key={lib.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: '600', fontSize: '15px', marginBottom: '4px' }}>{lib.name}</div>
-                    <div style={{ fontSize: '13px', color: '#555', fontFamily: 'monospace' }}>{lib.path}</div>
+                    {editLib?.id === lib.id ? (
+                      <form onSubmit={handleSaveLibraryPath} style={{ display: 'flex', gap: '8px', alignItems: 'center', margin: '6px 0', maxWidth: '520px' }}>
+                        <PathValidator value={editLib.path} onChange={v => setEditLib(s => ({ ...s, path: v }))} placeholder="/tv" />
+                        <button type="submit" style={{ padding: '10px 16px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>Save</button>
+                        <button type="button" onClick={() => setEditLib(null)} style={{ padding: '10px 14px', background: 'transparent', color: '#888', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', flexShrink: 0 }}>Cancel</button>
+                      </form>
+                    ) : (
+                      <div style={{ fontSize: '13px', color: '#555', fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{lib.path}</div>
+                    )}
                     <div style={{ display: 'flex', gap: '10px', marginTop: '4px', alignItems: 'center' }}>
                       <span style={{ fontSize: '11px', color: '#00c2ff', textTransform: 'uppercase', fontWeight: '600', letterSpacing: '0.5px' }}>{lib.type}</span>
                       {lib.last_scanned && <span style={{ fontSize: '11px', color: '#444' }}>Last scanned: {new Date(lib.last_scanned).toLocaleString()}</span>}
@@ -591,6 +616,14 @@ export default function Admin() {
                       onMouseLeave={e => { if (!scanning) e.currentTarget.style.background = 'rgba(0,194,255,0.1)'; }}
                     >
                       ⟳ Scan
+                    </button>
+                    <button
+                      onClick={() => setEditLib({ id: lib.id, path: lib.path })}
+                      style={{ padding: '8px 16px', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: '#ccc', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: '600' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      Edit Path
                     </button>
                     <button
                       onClick={() => handleDeleteLibrary(lib.id)}
