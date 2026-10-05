@@ -81,6 +81,10 @@ export default function Watch() {
   const dismissedRef   = useRef(false);
   // Prevents double-navigation if both the absTime effect and onEnded fire.
   const navigatingRef  = useRef(false);
+  // False from the moment the episode changes until the new stream fires `playing`.
+  // Guards the Up Next effect against running with the previous episode's
+  // playhead (absTime/totalDur) in the same commit as the reset effect.
+  const playbackReadyRef = useRef(false);
   // Tracks the current show ID so the end-of-show navigation handler (set up once)
   // always sees the latest value without needing media in its deps.
   const showIdRef      = useRef(null);
@@ -209,7 +213,7 @@ export default function Watch() {
       const hideBuf = () => { if (cancelled) return; clearTimeout(bufferTimerRef.current); setBuffering(false); };
 
       video.onwaiting = showBuf;
-      video.onplaying = () => { if (!cancelled) { setHasPlayed(true); hideBuf(); addLog('Playing!'); } };
+      video.onplaying = () => { if (!cancelled) { playbackReadyRef.current = true; setHasPlayed(true); hideBuf(); addLog('Playing!'); } };
       video.oncanplay = hideBuf;
 
       // On Apple devices (macOS Safari, iOS) prefer native HLS so the video
@@ -522,6 +526,7 @@ export default function Watch() {
     setHasPlayed(false);
     dismissedRef.current = false;
     navigatingRef.current = false;
+    playbackReadyRef.current = false;
     clearTimeout(autoAdvanceTimerRef.current);
     setNextEp(null);
     setShowNextEpCard(false);
@@ -547,7 +552,7 @@ export default function Watch() {
   // can fire with only (startPos + segmentDur) before the X-Total-Duration header
   // arrives, making totalDur temporarily look like the episode is almost over.
   useEffect(() => {
-    if (type !== 'episode' || totalDur < 60 || curTime < 5) return;
+    if (type !== 'episode' || !playbackReadyRef.current || totalDur < 60 || curTime < 5) return;
     const remaining = totalDur - absTime;
 
     if (!nextEp) {
@@ -1012,7 +1017,12 @@ export default function Watch() {
                 }} />
               </div>
               <button
-                onClick={() => { clearTimeout(autoAdvanceTimerRef.current); setShowNextEpCard(false); navigate(`/watch/episode/${nextEp.id}`, { replace: true }); }}
+                onClick={() => {
+                  if (navigatingRef.current) return;
+                  navigatingRef.current = true;
+                  flushSync(() => setShowNextEpCard(false));
+                  navigate(`/watch/episode/${nextEp.id}`, { replace: true });
+                }}
                 style={{ width: '100%', padding: '9px 0', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', letterSpacing: '0.3px' }}
               >
                 ▶ Play Now
