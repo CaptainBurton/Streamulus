@@ -41,7 +41,7 @@ struct GenresView: View {
         }
         .navigationDestination(for: GenreRef.self) { GenreDetailView(name: $0.name) }
         .mediaDestinations()
-        .task {
+        .task(id: session.profile) { // reload after switching profile or English titles
             do {
                 genres = try await session.get("/api/genres", as: GenresResponse.self).genres
                 errorText = nil
@@ -169,7 +169,7 @@ struct GenreDetailView: View {
             case .show(let show): ShowDetailView(show: show)
             }
         }
-        .task {
+        .task(id: session.profile) { // reload after switching profile or English titles
             do {
                 // Plain name: the request builder percent-encodes the path itself.
                 let response = try await session.get("/api/genres/\(name)", as: GenreDetailResponse.self)

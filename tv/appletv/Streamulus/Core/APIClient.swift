@@ -51,11 +51,20 @@ final class APIClient {
         try await send(method: "POST", path: path, query: [], body: body)
     }
 
+    func put<T: Decodable>(_ path: String, body: [String: Any] = [:], as type: T.Type = T.self) async throws -> T {
+        try await send(method: "PUT", path: path, query: [], body: body)
+    }
+
     /// A text response (e.g. WebVTT subtitles). `timeout` is generous because the
     /// server may need to read a whole video file the first time.
     func getText(_ path: String, timeout: TimeInterval = 600) async throws -> String {
-        let data = try await sendData(method: "GET", path: path, query: [], body: nil, timeout: timeout)
-        return String(decoding: data, as: UTF8.self)
+        try await getTextResponse(path, timeout: timeout).text
+    }
+
+    /// The text plus the response headers (e.g. X-Subtitles-Complete).
+    func getTextResponse(_ path: String, timeout: TimeInterval = 600) async throws -> (text: String, headers: [AnyHashable: Any]) {
+        let (data, headers) = try await sendDataWithHeaders(method: "GET", path: path, query: [], body: nil, timeout: timeout)
+        return (String(decoding: data, as: UTF8.self), headers)
     }
 
     private func send<T: Decodable>(method: String, path: String, query: [URLQueryItem], body: [String: Any]?) async throws -> T {
@@ -64,6 +73,10 @@ final class APIClient {
     }
 
     private func sendData(method: String, path: String, query: [URLQueryItem], body: [String: Any]?, timeout: TimeInterval?) async throws -> Data {
+        try await sendDataWithHeaders(method: method, path: path, query: query, body: body, timeout: timeout).0
+    }
+
+    private func sendDataWithHeaders(method: String, path: String, query: [URLQueryItem], body: [String: Any]?, timeout: TimeInterval?) async throws -> (Data, [AnyHashable: Any]) {
         var request = URLRequest(url: url(path, query: query))
         if let timeout { request.timeoutInterval = timeout }
         // The shared session gives up after 20 s without data; long requests use their own.
@@ -88,6 +101,6 @@ final class APIClient {
                 code: json?["code"] as? String
             )
         }
-        return data
+        return (data, (response as? HTTPURLResponse)?.allHeaderFields ?? [:])
     }
 }

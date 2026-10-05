@@ -210,12 +210,24 @@ final class PlaybackController: ObservableObject {
         cues = []
         subtitleLines = []
         subtitleLoading = true
-        let text = try? await session.getText("/api/subtitles/\(parts[0])/\(parts[1])/\(track.id).vtt")
-        guard !Task.isCancelled, subtitleMedia == media, selectedSubtitle == track.id else { return }
-        subtitleLoading = false
-        // If they can't be loaded, show subtitles as off rather than stuck on "Loading".
-        if let text { cues = WebVTT.parse(text) } else { selectedSubtitle = nil }
-        updateSubtitleLines()
+        let path = "/api/subtitles/\(parts[0])/\(parts[1])/\(track.id).vtt"
+        // The server may still be reading subtitles out of the video file: use
+        // what's there now and fetch again every few seconds until complete.
+        while true {
+            let result = try? await session.getSubtitles(path)
+            guard !Task.isCancelled, subtitleMedia == media, selectedSubtitle == track.id else { return }
+            subtitleLoading = false
+            guard let result else {
+                // Couldn't load: show subtitles as off rather than stuck on "Loading".
+                if cues.isEmpty { selectedSubtitle = nil }
+                return
+            }
+            cues = WebVTT.parse(result.text)
+            updateSubtitleLines()
+            if result.complete { return }
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if Task.isCancelled { return }
+        }
     }
 
     private func updateSubtitleLines() {

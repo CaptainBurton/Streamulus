@@ -4,37 +4,36 @@ import UIKit
 struct MainTabView: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
-    /// Current frame of an animated (GIF) profile picture in the tab bar.
-    @State private var avatarFrame = 0
+    @State private var selection: AppTab = .home
 
-    private var tabAvatarImage: UIImage? {
-        let frames = session.tabAvatarFrames
-        return frames.isEmpty ? session.tabAvatar : frames[avatarFrame % frames.count]
-    }
+    enum AppTab: Hashable { case home, movies, shows, genres, profile }
 
     var body: some View {
-        // On tvOS 26+ the system draws this tab bar as Liquid Glass.
-        TabView {
-            Tab("Home", systemImage: "house.fill") {
+        // On tvOS 26+ the system draws this tab bar as Liquid Glass. Each tab has a
+        // fixed value so the selection can't be lost when a label changes.
+        TabView(selection: $selection) {
+            Tab("Home", systemImage: "house.fill", value: AppTab.home) {
                 NavigationStack { HomeView() }
             }
-            Tab("Movies", systemImage: "film.fill") {
+            Tab("Movies", systemImage: "film.fill", value: AppTab.movies) {
                 NavigationStack { MovieGridView() }
             }
-            Tab("TV Shows", systemImage: "tv.fill") {
+            Tab("TV Shows", systemImage: "tv.fill", value: AppTab.shows) {
                 NavigationStack { ShowGridView() }
             }
-            Tab("Genres", systemImage: "square.grid.2x2.fill") {
+            Tab("Genres", systemImage: "square.grid.2x2.fill", value: AppTab.genres) {
                 NavigationStack { GenresView() }
             }
-            // The profile tab shows the current profile's own picture.
-            Tab {
+            // The profile tab shows the current profile's own picture — a still
+            // one: swapping the icon to animate a GIF made the tab bar lose its
+            // place (moving onto this tab jumped back to Genres).
+            Tab(value: AppTab.profile) {
                 NavigationStack { AccountView() }
             } label: {
                 Label {
                     Text(session.profile?.name ?? "Profile")
                 } icon: {
-                    if let avatar = tabAvatarImage {
+                    if let avatar = session.tabAvatar {
                         Image(uiImage: avatar).renderingMode(.original)
                     } else {
                         Image(systemName: "person.crop.circle.fill")
@@ -45,34 +44,24 @@ struct MainTabView: View {
         .fullScreenCover(item: $player.request) { request in
             PlayerView(request: request, session: session, onClose: { player.request = nil })
         }
-        // Play a GIF profile picture in the tab bar by stepping through its frames
-        // (paused while a video is playing).
-        .task(id: AvatarAnimationKey(frames: session.tabAvatarFrames.count, paused: player.request != nil)) {
-            avatarFrame = 0
-            let count = session.tabAvatarFrames.count
-            guard count > 1, player.request == nil else { return }
-            let nanos = UInt64(session.tabAvatarFrameDuration * 1_000_000_000)
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: nanos)
-                if Task.isCancelled { break }
-                avatarFrame = (avatarFrame + 1) % count
-            }
-        }
-    }
-
-    private struct AvatarAnimationKey: Equatable {
-        let frames: Int
-        let paused: Bool
     }
 }
 
 // MARK: - Home
+
+/// Reload when the player closes (Continue Watching changed) or the profile —
+/// or its English-titles setting — changes.
+struct ReloadKey: Equatable {
+    let playerClosed: Bool
+    let profile: Profile?
+}
 
 struct HomeView: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var player: PlayerPresenter
     @State private var featured: Movie?
     @State private var featuredArt: FeaturedArt?
+    @State private var loadedFor: Profile?
     @State private var rotateSeconds = 120
     @State private var heroFocused = false
     @State private var continueItems: [ContinueItem] = []
@@ -142,12 +131,19 @@ struct HomeView: View {
         }
         .scrollIndicators(.hidden)
         // Edge to edge, so the banner artwork fills the screen; rows keep their own 80 pt margin.
+        .contentMargins(.horizontal, 0, for: .scrollContent)
         .ignoresSafeArea(edges: [.top, .horizontal])
         }
         .mediaDestinations()
         // Reload when the player closes so Continue Watching is up to date.
-        .task(id: player.request == nil) {
-            if player.request == nil { await load() }
+        .task(id: ReloadKey(playerClosed: player.request == nil, profile: session.profile)) {
+            guard player.request == nil else { return }
+            // Another profile, or English titles switched: pick a new featured movie too.
+            if loadedFor != session.profile {
+                if loadedFor != nil { featured = nil; featuredArt = nil }
+                loadedFor = session.profile
+            }
+            await load()
         }
         // Switch the banner every `rotateSeconds`, but not while its buttons are
         // focused (it shouldn't change under a click) or a video is playing.
@@ -264,7 +260,7 @@ struct FeaturedHero: View {
             // stay put so focus isn't knocked off them.
             ZStack {
                 backdrop
-                    .frame(maxWidth: .infinity)
+                    .containerRelativeFrame(.horizontal)
                     .frame(height: Self.height)
                     .clipped()
                     .id(movie.id)
@@ -273,7 +269,10 @@ struct FeaturedHero: View {
                         removal: .opacity.animation(.easeInOut(duration: 0.4).delay(1.0))
                     ))
             }
-            .frame(maxWidth: .infinity)
+            // The full visible width of Home's scroll view (the whole screen): the
+            // scroll content can still be inset by the TV's side margin, which left
+            // a black strip down the right of the artwork.
+            .containerRelativeFrame(.horizontal)
             .frame(height: Self.height)
             .clipped()
             .overlay(LinearGradient(colors: [Theme.background.opacity(0.95), Theme.background.opacity(0.3), .clear],
@@ -332,7 +331,7 @@ struct FeaturedHero: View {
             .padding(.horizontal, 80)
             .padding(.bottom, 16)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .containerRelativeFrame(.horizontal, alignment: .leading)
         .frame(height: Self.height)
     }
 
@@ -402,7 +401,7 @@ struct MovieGridView: View {
             }
         }
         .mediaDestinations()
-        .task {
+        .task(id: session.profile) { // reload after switching profile or English titles
             do {
                 let response: MoviesResponse = try await session.get("/api/movies", query: [
                     URLQueryItem(name: "sort", value: "title"),
@@ -444,7 +443,7 @@ struct ShowGridView: View {
             }
         }
         .mediaDestinations()
-        .task {
+        .task(id: session.profile) { // reload after switching profile or English titles
             do {
                 let response: ShowsResponse = try await session.get("/api/tv", query: [
                     URLQueryItem(name: "sort", value: "title"),
@@ -684,6 +683,7 @@ private struct RailLetterLabel: View {
 
 struct AccountView: View {
     @EnvironmentObject private var session: Session
+    @State private var savingEnglish = false
 
     /// e.g. "1.1 (2)" — shows which build is installed on the TV.
     static var appVersion: String {
@@ -726,6 +726,20 @@ struct AccountView: View {
                     .buttonStyle(ActionButtonStyle())
                 }
             }
+
+            // Per profile; also on the web under Profile & Account → Language.
+            Button {
+                Task {
+                    savingEnglish = true
+                    try? await session.setEnglishTitles(!(session.profile?.englishTitles ?? false))
+                    savingEnglish = false
+                }
+            } label: {
+                Label(session.profile?.englishTitles == true ? "Titles in English: On" : "Titles in English: Off",
+                      systemImage: "character.bubble")
+            }
+            .buttonStyle(ActionButtonStyle(prominent: session.profile?.englishTitles == true))
+            .disabled(savingEnglish)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Server: \(session.serverURL?.absoluteString ?? "")")

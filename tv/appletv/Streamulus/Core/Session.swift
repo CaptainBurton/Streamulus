@@ -21,10 +21,6 @@ final class Session: ObservableObject {
     }
     /// Small round picture of the current profile for the tab bar.
     @Published private(set) var tabAvatar: UIImage?
-    /// For a GIF profile picture: its frames (already round) and how long each
-    /// shows. The tab bar can't play an animated image, so MainTabView swaps them.
-    @Published private(set) var tabAvatarFrames: [UIImage] = []
-    @Published private(set) var tabAvatarFrameDuration: Double = 0.1
     @Published private(set) var serverURL: URL?
 
     private var api: APIClient?
@@ -147,6 +143,14 @@ final class Session: ObservableObject {
         phase = .pickingProfile
     }
 
+    /// Show titles and descriptions in English (this profile, web and TV).
+    /// Screens reload their lists when `profile` changes.
+    func setEnglishTitles(_ on: Bool) async throws {
+        guard let current = profile else { return }
+        let response: UpdateProfileResponse = try await signedIn { try await $0.put("/api/profiles/\(current.id)", body: ["english_titles": on]) }
+        profile = response.profile
+    }
+
     // MARK: Requests (signed in)
 
     func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type = T.self) async throws -> T {
@@ -159,6 +163,14 @@ final class Session: ObservableObject {
 
     func getText(_ path: String) async throws -> String {
         try await signedIn { try await $0.getText(path) }
+    }
+
+    /// Subtitles: the WebVTT text and whether it's complete (the server serves
+    /// what it has read so far while it extracts subtitles from a big file).
+    func getSubtitles(_ path: String) async throws -> (text: String, complete: Bool) {
+        let response = try await signedIn { try await $0.getTextResponse(path) }
+        let flag = response.headers.first { String(describing: $0.key).lowercased() == "x-subtitles-complete" }?.value as? String
+        return (response.text, flag != "0")
     }
 
     /// Runs a request; a 401 (expired token, removed profile) signs out.
@@ -179,11 +191,7 @@ final class Session: ObservableObject {
     // MARK: Tab bar avatar
 
     private func refreshTabAvatar() async {
-        guard let profile else {
-            tabAvatar = nil
-            tabAvatarFrames = []
-            return
-        }
+        guard let profile else { tabAvatar = nil; return }
         var photo: UIImage?
         if let url = imageURL(profile.avatarPath) {
             // Small frames are plenty for a 32 pt icon (3x for sharpness).
@@ -191,19 +199,8 @@ final class Session: ObservableObject {
         }
         guard self.profile?.id == profile.id else { return }
         // Tab bar icons are shown at their own size, so keep this within the bar's height.
-        let size: CGFloat = 32
-        if let photo, let images = photo.images, images.count > 1 {
-            // At most ~12 changes a second; skip frames evenly for faster GIFs.
-            let frameDuration = photo.duration / Double(images.count)
-            let step = max(1, Int((0.08 / max(frameDuration, 0.001)).rounded(.up)))
-            let frames = stride(from: 0, to: images.count, by: step).map { Self.roundAvatar(photo: images[$0], profile: profile, size: size) }
-            tabAvatarFrameDuration = max(0.08, frameDuration * Double(step))
-            tabAvatarFrames = frames
-            tabAvatar = frames.first
-        } else {
-            tabAvatarFrames = []
-            tabAvatar = Self.roundAvatar(photo: photo, profile: profile, size: size)
-        }
+        // GIFs: the first frame (the tab bar can't animate; see MainTabView).
+        tabAvatar = Self.roundAvatar(photo: photo?.images?.first ?? photo, profile: profile, size: 32)
     }
 
     /// Circle-cropped photo, or the profile's initial on its gradient.

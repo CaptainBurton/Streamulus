@@ -48,7 +48,7 @@ struct MovieDetailView: View {
         }
         }
         .background(Backdrop(url: session.imageURL(shown.backdropPath ?? shown.posterPath)))
-        .task(id: player.request == nil) {
+        .task(id: ReloadKey(playerClosed: player.request == nil, profile: session.profile)) {
             if player.request == nil { await load() }
         }
     }
@@ -188,7 +188,7 @@ struct ShowDetailView: View {
         }
         }
         .background(Backdrop(url: session.imageURL(shown.backdropPath ?? shown.posterPath)))
-        .task(id: player.request == nil) {
+        .task(id: ReloadKey(playerClosed: player.request == nil, profile: session.profile)) {
             if player.request == nil { await load() }
         }
         .task(id: season) { await loadEpisodes() }

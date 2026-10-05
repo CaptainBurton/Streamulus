@@ -70,9 +70,12 @@ struct Profile: Decodable, Identifiable, Hashable {
     let hasPin: Bool
     /// What switching to this profile needs from the current one: "pin", "password" or nil.
     let requires: String?
+    /// Show titles and descriptions in English where available.
+    let englishTitles: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, requires
+        case englishTitles = "english_titles"
         case avatarPath = "avatar_url"
         case isMain = "is_main"
         case isKids = "is_kids"
@@ -90,6 +93,7 @@ extension Profile {
         isKids = c.lossyBool(.isKids)
         hasPin = c.lossyBool(.hasPin)
         requires = c.lossyString(.requires)
+        englishTitles = c.lossyBool(.englishTitles)
     }
 }
 
@@ -107,6 +111,10 @@ struct MeResponse: Decodable {
 
 struct ProfilesResponse: Decodable {
     let profiles: [Profile]
+}
+
+struct UpdateProfileResponse: Decodable {
+    let profile: Profile
 }
 
 struct SelectProfileResponse: Decodable {
