@@ -178,7 +178,8 @@ final class Session: ObservableObject {
             if let result { photo = UIImage(data: result.0) }
         }
         guard self.profile?.id == profile.id else { return }
-        tabAvatar = Self.roundAvatar(photo: photo, profile: profile, size: 60)
+        // Tab bar icons are shown at their own size, so keep this within the bar's height.
+        tabAvatar = Self.roundAvatar(photo: photo, profile: profile, size: 32)
     }
 
     /// Circle-cropped photo, or the profile's initial on its gradient.

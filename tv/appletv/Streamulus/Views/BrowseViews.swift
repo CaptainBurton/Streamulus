@@ -282,7 +282,7 @@ struct ShowGridView: View {
     }
 }
 
-/// A–Z library grid: 7 posters per row, grouped under letters, with an
+/// A–Z library grid: 6 posters per row, grouped under letters, with an
 /// alphabet rail on the right to jump around and a big letter while scrolling.
 struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
     let items: [Item]
@@ -295,7 +295,12 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
     @State private var bubbleVisible = false
     @State private var bubbleTask: Task<Void, Never>?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 40, alignment: .top), count: 7)
+    /// Posters per row. 6 across the full screen width ≈ 255 pt wide each.
+    /// (Computed: generic types can't have stored static properties.)
+    private static var postersPerRow: Int { 6 }
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 44, alignment: .top), count: Self.postersPerRow)
+    }
 
     struct LetterGroup: Identifiable {
         let letter: String
@@ -336,7 +341,7 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
     var body: some View {
         let groups = sections
         ScrollViewReader { proxy in
-            HStack(alignment: .center, spacing: 10) {
+            HStack(alignment: .center, spacing: 16) {
                 ScrollView(.vertical) {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 50) {
                         ForEach(groups) { group in
@@ -361,12 +366,14 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
                             }
                         }
                     }
-                    .padding(.leading, 80)
-                    .padding(.trailing, 20)
+                    // Room for the focused poster to grow without touching the edge.
+                    .padding(.leading, 56)
+                    .padding(.trailing, 12)
                     .padding(.vertical, 40)
                 }
                 // Our own A–Z rail and letter bubble replace the scroll dots.
                 .scrollIndicators(.hidden)
+                .scrollClipDisabled()
 
                 if groups.count > 1 {
                     AlphabetRail(letters: groups.map { $0.letter }, current: currentLetter) { letter in
@@ -374,9 +381,12 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
                         withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("letter-\(letter)", anchor: .top) }
                         flashBubble()
                     }
-                    .padding(.trailing, 30)
+                    .padding(.trailing, 36)
                 }
             }
+            // Use the full screen width; tvOS otherwise keeps ~80 pt in from each side,
+            // which on top of our own margin left the grid well short of the edges.
+            .ignoresSafeArea(edges: .horizontal)
             .overlay {
                 if bubbleVisible, let currentLetter {
                     Text(currentLetter)

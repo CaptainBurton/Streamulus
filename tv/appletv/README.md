@@ -13,7 +13,7 @@ panel isn't included — use Streamulus in a browser for that.
   PIN pad, and the account password when the parental lock asks for it.
 - **Home**: a featured banner (artwork, title logo, Play Now / More Info), Continue Watching with a
   frame from where you stopped, recently added movies and shows.
-- **Movies** and **TV Shows**: 7-across grids grouped A–Z, with an alphabet rail on the right and a
+- **Movies** and **TV Shows**: 6-across grids grouped A–Z, with an alphabet rail on the right and a
   big letter while you scroll.
 - **Movie / show pages**: title logo, Resume, Play from Beginning, Mark as Watched, runtime and
   "Ends at", cast, and More Like This. Shows have a season picker and episode list.
