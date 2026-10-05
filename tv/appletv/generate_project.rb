@@ -46,8 +46,8 @@ target.build_configurations.each do |config|
   s = config.build_settings
   s['PRODUCT_NAME'] = '$(TARGET_NAME)'
   s['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.streamulus.appletv'
-  s['MARKETING_VERSION'] = '1.18'
-  s['CURRENT_PROJECT_VERSION'] = '19'
+  s['MARKETING_VERSION'] = '1.19'
+  s['CURRENT_PROJECT_VERSION'] = '20'
   s['SDKROOT'] = 'appletvos'
   s['TARGETED_DEVICE_FAMILY'] = '3'
   s['TVOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET

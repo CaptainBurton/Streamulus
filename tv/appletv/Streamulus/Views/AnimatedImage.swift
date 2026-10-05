@@ -2,45 +2,26 @@ import SwiftUI
 import UIKit
 import ImageIO
 
-/// Remote image that plays animated GIFs (and animated PNG/WebP) — SwiftUI's
-/// AsyncImage only ever shows the first frame. Used for profile pictures.
-///
-/// Pure SwiftUI on purpose (a TimelineView stepping through the frames): an
-/// embedded UIKit image view broke the tab bar's page snapshots when switching
-/// tabs ("Adding '_UIReplicantView' as a subview of UIHostingController.view")
-/// and moving onto the profile tab bounced back to the previous tab.
-struct AnimatedRemoteImage: View {
+/// Profile picture from the server as a still image — for a GIF, its first
+/// frame. (Decoded with AnimatedImageLoader, which also reads GIF/APNG/WebP.)
+struct RemotePicture: View {
     let url: URL?
-    /// Frames are decoded at no more than this many pixels across, to keep
-    /// memory down for long GIFs.
+    /// Decoded at no more than this many pixels across.
     var maxPixelSize: CGFloat = 512
 
     @State private var image: UIImage?
-    @State private var started = Date()
 
     var body: some View {
         ZStack {
             if let image {
-                if let frames = image.images, frames.count > 1 {
-                    let frameDuration = max(0.02, image.duration / Double(frames.count))
-                    TimelineView(.periodic(from: started, by: frameDuration)) { context in
-                        let index = Int(context.date.timeIntervalSince(started) / frameDuration) % frames.count
-                        Image(uiImage: frames[max(0, index)])
-                            .resizable()
-                            .scaledToFill()
-                    }
-                } else {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                }
+                Image(uiImage: image).resizable().scaledToFill()
             }
         }
         .task(id: url) {
             image = nil
             guard let url else { return }
-            image = await AnimatedImageLoader.load(url, maxPixelSize: maxPixelSize)
-            started = Date()
+            let loaded = await AnimatedImageLoader.load(url, maxPixelSize: maxPixelSize)
+            image = loaded?.images?.first ?? loaded
         }
     }
 }

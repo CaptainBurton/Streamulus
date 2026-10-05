@@ -24,20 +24,10 @@ struct MainTabView: View {
             Tab("Genres", systemImage: "square.grid.2x2.fill", value: AppTab.genres) {
                 NavigationStack { GenresView() }
             }
-            // The profile tab shows the current profile's own picture (a still
-            // image — the first frame of a GIF).
-            Tab(value: AppTab.profile) {
+            // A standard symbol like the other tabs. (A custom picture here
+            // stopped the tab from taking focus: moving onto it jumped back to Genres.)
+            Tab(session.profile?.name ?? "Profile", systemImage: "person.crop.circle.fill", value: AppTab.profile) {
                 NavigationStack { AccountView() }
-            } label: {
-                Label {
-                    Text(session.profile?.name ?? "Profile")
-                } icon: {
-                    if let avatar = session.tabAvatar {
-                        Image(uiImage: avatar).renderingMode(.original)
-                    } else {
-                        Image(systemName: "person.crop.circle.fill")
-                    }
-                }
             }
         }
         .fullScreenCover(item: $player.request) { request in
