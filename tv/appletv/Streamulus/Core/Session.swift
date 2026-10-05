@@ -1,0 +1,182 @@
+import Foundation
+import SwiftUI
+
+/// Which screen the app shows, and the signed-in account/profile.
+@MainActor
+final class Session: ObservableObject {
+    enum Phase: Equatable {
+        case starting
+        case needsServer
+        case signedOut
+        case pickingProfile
+        case ready
+        case unreachable(String)
+    }
+
+    @Published private(set) var phase: Phase = .starting
+    @Published private(set) var user: User?
+    @Published private(set) var profile: Profile?
+    @Published private(set) var serverURL: URL?
+
+    private var api: APIClient?
+
+    private static let serverKey = "serverURL"
+    private static let tokenKey = "token"
+
+    init() {
+        if let saved = UserDefaults.standard.string(forKey: Self.serverKey), let url = URL(string: saved) {
+            serverURL = url
+            api = APIClient(baseURL: url, token: Keychain.get(Self.tokenKey))
+        }
+    }
+
+    // MARK: Start-up
+
+    func start() async {
+        guard let api else { phase = .needsServer; return }
+        guard api.token != nil else { phase = .signedOut; return }
+        phase = .starting
+        do {
+            let me: MeResponse = try await api.get("/api/auth/me")
+            user = me.user
+            profile = me.profile
+            phase = .ready
+        } catch let error as APIError where error.status == 401 {
+            signOut()
+        } catch {
+            phase = .unreachable(error.localizedDescription)
+        }
+    }
+
+    // MARK: Server
+
+    /// Accepts "192.168.1.20:8096", "http://nas.local:8096/", etc.
+    func setServer(_ text: String) async throws {
+        var address = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !address.contains("://") { address = "http://" + address }
+        while address.hasSuffix("/") { address.removeLast() }
+        guard let url = URL(string: address), url.host != nil else {
+            throw APIError(status: 0, message: "That doesn't look like a server address.", code: nil)
+        }
+        let client = APIClient(baseURL: url)
+        _ = try await client.get("/api/health", as: HealthResponse.self)
+        UserDefaults.standard.set(url.absoluteString, forKey: Self.serverKey)
+        Keychain.delete(Self.tokenKey)
+        serverURL = url
+        api = client
+        phase = .signedOut
+    }
+
+    func changeServer() {
+        signOut()
+        UserDefaults.standard.removeObject(forKey: Self.serverKey)
+        serverURL = nil
+        api = nil
+        phase = .needsServer
+    }
+
+    // MARK: Sign in / out
+
+    func login(username: String, password: String) async throws {
+        let response: LoginResponse = try await client().post("/api/auth/login", body: ["username": username, "password": password])
+        completeSignIn(token: response.token, user: response.user, profile: response.profile, profileCount: response.profileCount)
+    }
+
+    /// Finish signing in with a token from a password sign-in or an approved Quick Login.
+    func completeSignIn(token: String, user: User, profile: Profile, profileCount: Int) {
+        Keychain.set(token, for: Self.tokenKey)
+        api?.token = token
+        self.user = user
+        self.profile = profile
+        phase = profileCount > 1 ? .pickingProfile : .ready
+    }
+
+    func signOut() {
+        Keychain.delete(Self.tokenKey)
+        api?.token = nil
+        user = nil
+        profile = nil
+        phase = api == nil ? .needsServer : .signedOut
+    }
+
+    // MARK: Quick Login
+
+    func quickLoginStart() async throws -> QuickStartResponse {
+        try await client().post("/api/auth/quick/start", body: ["deviceName": "Apple TV"])
+    }
+
+    func quickLoginPoll(requestId: String) async throws -> QuickPollResponse {
+        try await client().post("/api/auth/quick/poll", body: ["requestId": requestId])
+    }
+
+    /// Web page the QR code opens, with the code filled in.
+    func quickLoginLink(code: String) -> String {
+        guard let api else { return "" }
+        return api.url("/quick-login", query: [URLQueryItem(name: "code", value: code)]).absoluteString
+    }
+
+    // MARK: Profiles
+
+    func profiles() async throws -> [Profile] {
+        let response: ProfilesResponse = try await get("/api/profiles")
+        return response.profiles
+    }
+
+    func selectProfile(_ target: Profile, pin: String?) async throws {
+        var body: [String: Any] = [:]
+        if let pin { body["pin"] = pin }
+        let response: SelectProfileResponse = try await post("/api/profiles/\(target.id)/select", body: body)
+        Keychain.set(response.token, for: Self.tokenKey)
+        api?.token = response.token
+        profile = response.profile
+        phase = .ready
+    }
+
+    func switchProfile() {
+        phase = .pickingProfile
+    }
+
+    // MARK: Requests (signed in)
+
+    func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type = T.self) async throws -> T {
+        try await signedIn { try await $0.get(path, query: query) }
+    }
+
+    func post<T: Decodable>(_ path: String, body: [String: Any] = [:], as type: T.Type = T.self) async throws -> T {
+        try await signedIn { try await $0.post(path, body: body) }
+    }
+
+    /// Runs a request; a 401 (expired token, removed profile) signs out.
+    private func signedIn<T>(_ request: (APIClient) async throws -> T) async throws -> T {
+        do {
+            return try await request(try client())
+        } catch let error as APIError where error.status == 401 {
+            signOut()
+            throw error
+        }
+    }
+
+    private func client() throws -> APIClient {
+        guard let api else { throw APIError(status: 0, message: "No server set up.", code: nil) }
+        return api
+    }
+
+    // MARK: URLs
+
+    /// Artwork URL: full URLs as-is, uploads from this server, other paths from TMDB.
+    func imageURL(_ path: String?) -> URL? {
+        guard let path, !path.isEmpty else { return nil }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") { return URL(string: path) }
+        if path.hasPrefix("/uploads/") { return api?.url(path) }
+        if path.hasPrefix("/") { return URL(string: "https://image.tmdb.org/t/p/w780" + path) }
+        return nil
+    }
+
+    /// HLS stream for a movie/episode, starting `start` seconds in.
+    func streamURL(type: MediaType, id: Int, start: Int) -> URL? {
+        guard let api, let token = api.token else { return nil }
+        var query = [URLQueryItem(name: "token", value: token)]
+        if start > 0 { query.append(URLQueryItem(name: "start", value: String(start))) }
+        return api.url("/api/stream/hls/\(type.rawValue)/\(id)/manifest.m3u8", query: query)
+    }
+}

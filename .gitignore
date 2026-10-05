@@ -8,3 +8,10 @@ dist/
 data/
 streamulus.db
 .claude/
+
+# Xcode
+tv/appletv/**/xcuserdata/
+tv/appletv/**/*.xcuserstate
+tv/appletv/build/
+tv/appletv/DerivedData/
+.DS_Store
