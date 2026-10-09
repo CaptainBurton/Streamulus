@@ -272,6 +272,10 @@ struct ProfilePickerView: View {
                 }
                 Button("Sign Out") { session.signOut() }
                     .buttonStyle(.glass)
+                // Shows which build is installed (also on the profile tab).
+                Text("App version \(AccountView.appVersion)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(80)
