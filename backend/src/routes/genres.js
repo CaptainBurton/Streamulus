@@ -70,13 +70,18 @@ const pickRandom = (list) => list[Math.floor(Math.random() * list.length)];
 
 // The admin's image, or the wide banner art (backdrop) of a random movie or show
 // in the genre — wide art suits the 16:9 / 5:3 cards. Posters only as a last resort.
+// TVDB "banner" artwork (shows without fanart fall back to it) is a thin strip,
+// about 758×140 — far too wide to fill a card, so it doesn't count as a backdrop.
+const isBannerStrip = (url) => /\/banners\/graphical\/|\/series\/\d+\/banners\//i.test(url || '');
+
 function genreImage(group, custom) {
   if (custom) return `/uploads/genres/${custom}`;
   const all = [...group.movies, ...group.shows];
-  const withBackdrop = all.filter(i => i.backdrop_url);
+  const backdropOf = (i) => (i.backdrop_url && !isBannerStrip(i.backdrop_url) ? i.backdrop_url : null);
+  const withBackdrop = all.filter(backdropOf);
   const candidates = withBackdrop.length ? withBackdrop : all.filter(i => i.poster_url);
   const pick = candidates.length ? pickRandom(candidates) : null;
-  return pick ? (pick.backdrop_url || pick.poster_url) : null;
+  return pick ? (backdropOf(pick) || pick.poster_url) : null;
 }
 
 router.get('/', authenticate, (req, res) => {
