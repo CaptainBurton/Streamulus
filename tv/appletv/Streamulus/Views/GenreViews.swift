@@ -66,22 +66,26 @@ struct GenreCard: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            LinearGradient(colors: [Color(red: 0.1, green: 0.16, blue: 0.23), Color(red: 0.16, green: 0.1, blue: 0.23)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            RemoteImage(url: session.imageURL(genre.imageURL))
-            LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(genre.name).font(.headline.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
-                if !counts.isEmpty {
-                    Text(counts).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        // The tile's size comes only from its column and the 5:3 shape; the
+        // artwork fills it and is cropped. (Sized by the artwork, a very wide
+        // TVDB banner made its tile several times wider than the others.)
+        Color.clear
+            .aspectRatio(5.0 / 3.0, contentMode: .fit)
+            .background(LinearGradient(colors: [Color(red: 0.1, green: 0.16, blue: 0.23), Color(red: 0.16, green: 0.1, blue: 0.23)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay { RemoteImage(url: session.imageURL(genre.imageURL)) }
+            .overlay { LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom) }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(genre.name).font(.headline.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
+                    if !counts.isEmpty {
+                        Text(counts).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
+                .shadow(color: .black.opacity(0.6), radius: 8)
+                .padding(18)
             }
-            .shadow(color: .black.opacity(0.6), radius: 8)
-            .padding(18)
-        }
-        .aspectRatio(5.0 / 3.0, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

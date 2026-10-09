@@ -78,32 +78,30 @@ struct MovieDetailView: View {
                     Text(overview).lineLimit(3).frame(maxWidth: 1150, alignment: .leading)
                 }
 
-                GlassEffectContainer(spacing: 30) {
-                    HStack(spacing: 30) {
-                        Button {
-                            play(from: inProgress ? progress.position : 0)
-                        } label: {
-                            Label(inProgress ? "Resume from \(Fmt.clock(progress.position))" : "Play", systemImage: "play.fill")
-                        }
-                        .buttonStyle(ActionButtonStyle(prominent: true))
-                        .focused($headerFocus, equals: 0)
-                        if inProgress {
-                            Button { play(from: 0) } label: {
-                                Label("Play from Beginning", systemImage: "arrow.counterclockwise")
-                            }
-                            .buttonStyle(ActionButtonStyle())
-                            .focused($headerFocus, equals: 1)
-                        }
-                        Button {
-                            Task { await toggleWatched() }
-                        } label: {
-                            Label(progress.completed ? "Mark as Unwatched" : "Mark as Watched",
-                                  systemImage: progress.completed ? "eye.slash" : "checkmark")
+                HStack(spacing: 30) {
+                    Button {
+                        play(from: inProgress ? progress.position : 0)
+                    } label: {
+                        Label(inProgress ? "Resume from \(Fmt.clock(progress.position))" : "Play", systemImage: "play.fill")
+                    }
+                    .buttonStyle(ActionButtonStyle(prominent: true))
+                    .focused($headerFocus, equals: 0)
+                    if inProgress {
+                        Button { play(from: 0) } label: {
+                            Label("Play from Beginning", systemImage: "arrow.counterclockwise")
                         }
                         .buttonStyle(ActionButtonStyle())
-                        .focused($headerFocus, equals: 2)
-                        .disabled(saving)
+                        .focused($headerFocus, equals: 1)
                     }
+                    Button {
+                        Task { await toggleWatched() }
+                    } label: {
+                        Label(progress.completed ? "Mark as Unwatched" : "Mark as Watched",
+                              systemImage: progress.completed ? "eye.slash" : "checkmark")
+                    }
+                    .buttonStyle(ActionButtonStyle())
+                    .focused($headerFocus, equals: 2)
+                    .disabled(saving)
                 }
                 .focusSection() // reachable with "up" from anywhere in the rows below
                 .padding(.top, 10)
@@ -207,33 +205,31 @@ struct ShowDetailView: View {
             if let overview = shown.overview, !overview.isEmpty {
                 Text(overview).lineLimit(3).frame(maxWidth: 1150, alignment: .leading)
             }
-            GlassEffectContainer(spacing: 30) {
-                HStack(spacing: 30) {
-                    if let next = upNext {
-                        Button { play(next) } label: {
-                            Label("\(next.inProgress ? "Resume" : "Play") \(next.label)", systemImage: "play.fill")
-                        }
-                        .buttonStyle(ActionButtonStyle(prominent: true))
-                        .focused($headerFocus, equals: 0)
+            HStack(spacing: 30) {
+                if let next = upNext {
+                    Button { play(next) } label: {
+                        Label("\(next.inProgress ? "Resume" : "Play") \(next.label)", systemImage: "play.fill")
                     }
-                    if details?.started == true, let first = details?.firstEpisodeId {
-                        Button {
-                            player.play(.episode, id: first, from: 0, title: shown.title)
-                        } label: {
-                            Label("Play from Beginning", systemImage: "arrow.counterclockwise")
-                        }
-                        .buttonStyle(ActionButtonStyle())
-                        .focused($headerFocus, equals: 1)
-                    }
+                    .buttonStyle(ActionButtonStyle(prominent: true))
+                    .focused($headerFocus, equals: 0)
+                }
+                if details?.started == true, let first = details?.firstEpisodeId {
                     Button {
-                        Task { await toggleWatched() }
+                        player.play(.episode, id: first, from: 0, title: shown.title)
                     } label: {
-                        Label(allWatched ? "Mark as Unwatched" : "Mark as Watched", systemImage: allWatched ? "eye.slash" : "checkmark")
+                        Label("Play from Beginning", systemImage: "arrow.counterclockwise")
                     }
                     .buttonStyle(ActionButtonStyle())
-                    .focused($headerFocus, equals: 2)
-                    .disabled(saving || seasons.isEmpty)
+                    .focused($headerFocus, equals: 1)
                 }
+                Button {
+                    Task { await toggleWatched() }
+                } label: {
+                    Label(allWatched ? "Mark as Unwatched" : "Mark as Watched", systemImage: allWatched ? "eye.slash" : "checkmark")
+                }
+                .buttonStyle(ActionButtonStyle())
+                .focused($headerFocus, equals: 2)
+                .disabled(saving || seasons.isEmpty)
             }
             .focusSection() // reachable with "up" from anywhere in the rows below
         }

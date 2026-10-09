@@ -330,22 +330,20 @@ struct FeaturedHero: View {
                         removal: .opacity.animation(.easeOut(duration: 0.35))
                     ))
                 }
-                GlassEffectContainer(spacing: 30) {
-                    HStack(spacing: 30) {
-                        Button {
-                            Task { await playNow() }
-                        } label: {
-                            Label("Play Now", systemImage: "play.fill")
-                        }
-                        .buttonStyle(ActionButtonStyle(prominent: true))
-                        .focused($buttonFocus, equals: 0)
-
-                        NavigationLink(value: movie) {
-                            Label("More Info", systemImage: "info.circle")
-                        }
-                        .buttonStyle(ActionButtonStyle())
-                        .focused($buttonFocus, equals: 1)
+                HStack(spacing: 30) {
+                    Button {
+                        Task { await playNow() }
+                    } label: {
+                        Label("Play Now", systemImage: "play.fill")
                     }
+                    .buttonStyle(ActionButtonStyle(prominent: true))
+                    .focused($buttonFocus, equals: 0)
+
+                    NavigationLink(value: movie) {
+                        Label("More Info", systemImage: "info.circle")
+                    }
+                    .buttonStyle(ActionButtonStyle())
+                    .focused($buttonFocus, equals: 1)
                 }
                 // Reachable with "up" from any Continue Watching card, not only the first.
                 .focusSection()
@@ -741,21 +739,19 @@ struct AccountView: View {
                 }
             }
 
-            GlassEffectContainer(spacing: 40) {
-                HStack(spacing: 40) {
-                    Button { session.switchProfile() } label: {
-                        Label("Switch Profile", systemImage: "person.2.fill")
-                    }
-                    .buttonStyle(ActionButtonStyle(prominent: true))
-                    Button { session.signOut() } label: {
-                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .buttonStyle(ActionButtonStyle())
-                    Button { session.changeServer() } label: {
-                        Label("Change Server", systemImage: "server.rack")
-                    }
-                    .buttonStyle(ActionButtonStyle())
+            HStack(spacing: 40) {
+                Button { session.switchProfile() } label: {
+                    Label("Switch Profile", systemImage: "person.2.fill")
                 }
+                .buttonStyle(ActionButtonStyle(prominent: true))
+                Button { session.signOut() } label: {
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                .buttonStyle(ActionButtonStyle())
+                Button { session.changeServer() } label: {
+                    Label("Change Server", systemImage: "server.rack")
+                }
+                .buttonStyle(ActionButtonStyle())
             }
 
             // Per profile; also on the web under Profile & Account → Language.
