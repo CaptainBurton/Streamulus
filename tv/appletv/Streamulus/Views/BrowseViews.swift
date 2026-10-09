@@ -636,6 +636,13 @@ struct LibraryGrid<Item: Identifiable & Hashable>: View where Item.ID == Int {
         // The whole screen width; tvOS otherwise keeps ~80 pt in from each side.
         .ignoresSafeArea(edges: .horizontal)
         .background(BlurredArtBackground(url: backgroundArt))
+        // Start dark every time the page is shown: pages stay loaded between
+        // visits, so it came back still showing the last title's artwork.
+        // Highlighting a title (or returning to one) brings the artwork back.
+        .onDisappear {
+            artTask?.cancel()
+            backgroundArt = nil
+        }
     }
 
     /// Change the background once focus settles, not for every poster flown past.

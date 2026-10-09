@@ -198,53 +198,87 @@ struct Backdrop: View {
 /// crossfading when it changes. The image is shrunk to a tiny thumbnail and
 /// scaled back up, which softens it cheaply, so only a light blur is needed.
 struct BlurredArtBackground: View {
+    /// nil fades to the plain dark background.
     let url: URL?
-    @State private var shown: UIImage?
-    @State private var shownURL: URL?
+    @State private var layers: [ArtLayer] = []
+
+    private struct ArtLayer: Identifiable {
+        let id = UUID()
+        let url: URL
+        let image: UIImage
+        var visible = false
+    }
 
     private static let cache = NSCache<NSURL, UIImage>()
+    private static let fade: Double = 1.2
 
     var body: some View {
         ZStack {
             Theme.background
-            if let shown {
-                // Filled into, and clipped to, the background's own frame — a
-                // poster scaled to fill a wide screen is much taller than it and
-                // would otherwise spill over whatever is above.
-                Color.clear
-                    .overlay {
-                        Image(uiImage: shown)
-                            .resizable()
-                            .interpolation(.high)
-                            .scaledToFill()
-                            .blur(radius: 40, opaque: true)
-                            .saturation(1.2)
-                    }
-                    .clipped()
-                    .opacity(0.6)
-                    .id(shownURL)
-                    .transition(.opacity)
+            // Each new image fades in on top of the previous one, which stays fully
+            // visible underneath until it's covered and then goes — a smooth
+            // crossfade with no dip to black halfway.
+            ZStack {
+                ForEach(layers) { layer in
+                    // Filled into, and clipped to, the background's own frame — a
+                    // poster scaled to fill a wide screen is much taller than it and
+                    // would otherwise spill over whatever is above.
+                    Color.clear
+                        .overlay {
+                            Image(uiImage: layer.image)
+                                .resizable()
+                                .interpolation(.high)
+                                .scaledToFill()
+                                .blur(radius: 40, opaque: true)
+                                .saturation(1.2)
+                        }
+                        .clipped()
+                        .opacity(layer.visible ? 1 : 0)
+                }
             }
+            .compositingGroup()
+            .opacity(0.6)
             // Keep posters and text readable on bright artwork.
             LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
         }
         .ignoresSafeArea()
-        .task(id: url) {
-            guard let url, url != shownURL else { return }
-            let image = await Self.thumbnail(url)
-            guard !Task.isCancelled, let image else { return }
-            withAnimation(.easeInOut(duration: 0.6)) {
-                shown = image
-                shownURL = url
-            }
-        }
+        .task(id: url) { await show(url) }
     }
 
+    private func show(_ url: URL?) async {
+        guard let url else {
+            withAnimation(.easeInOut(duration: Self.fade * 0.7)) {
+                for index in layers.indices { layers[index].visible = false }
+            }
+            try? await Task.sleep(nanoseconds: UInt64(Self.fade * 0.8 * 1_000_000_000))
+            if !Task.isCancelled { layers.removeAll() }
+            return
+        }
+        if let top = layers.last, top.url == url, top.visible { return }
+        guard let image = await Self.thumbnail(url), !Task.isCancelled else { return }
+
+        let layer = ArtLayer(url: url, image: image)
+        if layers.count > 3 { layers.removeFirst(layers.count - 3) }
+        layers.append(layer)
+        // Let it be drawn transparent first, then fade it in.
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        withAnimation(.easeInOut(duration: Self.fade)) {
+            if let index = layers.firstIndex(where: { $0.id == layer.id }) { layers[index].visible = true }
+        }
+        try? await Task.sleep(nanoseconds: UInt64((Self.fade + 0.1) * 1_000_000_000))
+        guard !Task.isCancelled else { return }
+        // The ones underneath are covered now.
+        if let index = layers.firstIndex(where: { $0.id == layer.id }), index > 0 { layers.removeFirst(index) }
+    }
+
+    /// A tiny copy (at most 72 px on its longer side, same shape): scaled back up
+    /// it's already soft, so only a light blur is needed.
     private static func thumbnail(_ url: URL) async -> UIImage? {
         if let cached = cache.object(forKey: url as NSURL) { return cached }
         let result = try? await URLSession.shared.data(from: url)
-        guard let result, let full = UIImage(data: result.0) else { return nil }
-        let size = CGSize(width: 48, height: 72)
+        guard let result, let full = UIImage(data: result.0), full.size.width > 0, full.size.height > 0 else { return nil }
+        let scale = 72 / max(full.size.width, full.size.height)
+        let size = CGSize(width: max(1, (full.size.width * scale).rounded()), height: max(1, (full.size.height * scale).rounded()))
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let small = UIGraphicsImageRenderer(size: size, format: format).image { _ in

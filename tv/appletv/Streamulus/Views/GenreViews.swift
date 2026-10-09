@@ -12,6 +12,10 @@ struct GenresView: View {
     @State private var genres: [GenreSummary] = []
     @State private var loading = true
     @State private var errorText: String?
+    /// The highlighted genre's artwork, blurred behind the tiles (like the library grids).
+    @FocusState private var focusedGenre: String?
+    @State private var backgroundArt: URL?
+    @State private var artTask: Task<Void, Never>?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 48, alignment: .top), count: 5)
 
@@ -23,6 +27,7 @@ struct GenresView: View {
                         GenreCard(genre: genre)
                     }
                     .buttonStyle(.card)
+                    .focused($focusedGenre, equals: genre.name)
                 }
             }
             .padding(.horizontal, 80)
@@ -30,6 +35,21 @@ struct GenresView: View {
         }
         .scrollIndicators(.hidden)
         .scrollClipDisabled()
+        .background(BlurredArtBackground(url: backgroundArt))
+        .onChange(of: focusedGenre) { _, name in
+            // Once focus settles, not for every tile flown past.
+            guard let name, let genre = genres.first(where: { $0.name == name }) else { return }
+            artTask?.cancel()
+            artTask = Task {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                if !Task.isCancelled { backgroundArt = session.imageURL(genre.imageURL) }
+            }
+        }
+        // Start dark each time the page is shown (see LibraryGrid).
+        .onDisappear {
+            artTask?.cancel()
+            backgroundArt = nil
+        }
         .overlay {
             if loading {
                 ProgressView()
