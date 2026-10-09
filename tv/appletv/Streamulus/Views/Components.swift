@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct Logo: View {
     var size: CGFloat = 72
@@ -61,6 +62,9 @@ struct PosterLink<Value: Hashable>: View {
     let imageURL: URL?
     var progress: Double? = nil
     var width: CGFloat = 250
+    /// Optional focus tracking (Home rows land on their first item).
+    var focusBinding: FocusState<AnyHashable?>.Binding? = nil
+    var focusValue: AnyHashable? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -73,6 +77,7 @@ struct PosterLink<Value: Hashable>: View {
                 .clipped()
             }
             .buttonStyle(.card)
+            .modifier(OptionalFocus(binding: focusBinding, value: focusValue))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.caption).lineLimit(1)
@@ -83,17 +88,32 @@ struct PosterLink<Value: Hashable>: View {
     }
 }
 
+/// `.focused(binding, equals: value)` when both are given.
+struct OptionalFocus: ViewModifier {
+    let binding: FocusState<AnyHashable?>.Binding?
+    let value: AnyHashable?
+
+    func body(content: Content) -> some View {
+        if let binding, let value {
+            content.focused(binding, equals: value)
+        } else {
+            content
+        }
+    }
+}
+
 /// 16:9 card with title over a gradient — Continue Watching.
 struct WideCard: View {
     let title: String
     let subtitle: String?
-    let imageURL: URL?
+    /// Tried in order: a still from where you stopped, then artwork.
+    let imageURLs: [URL]
     let progress: Double?
     var width: CGFloat = 480
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: imageURL)
+            FallbackImage(urls: imageURLs)
             LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.headline).lineLimit(1)
@@ -128,11 +148,14 @@ struct Shelf<Content: View>: View {
                     .padding(.vertical, 30)
             }
             .scrollClipDisabled()
+            // Up/down from any card reaches the next row (or the buttons above),
+            // even when nothing focusable is directly above or below it.
+            .focusSection()
         }
     }
 }
 
-/// Profile picture, or the first letter on a gradient (orange for Streamlings).
+/// Round profile picture, or the first letter on a gradient (orange for Streamlings).
 struct ProfileAvatar: View {
     let profile: Profile
     var size: CGFloat = 200
@@ -148,15 +171,12 @@ struct ProfileAvatar: View {
                 .font(.system(size: size * 0.42, weight: .bold))
                 .foregroundStyle(.white)
             if let url = session.imageURL(profile.avatarPath) {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.clear
-                }
+                // Still image (a GIF shows its first frame).
+                RemotePicture(url: url, maxPixelSize: size * 2)
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.14))
+        .clipShape(Circle())
     }
 }
 
@@ -174,6 +194,101 @@ struct Backdrop: View {
     }
 }
 
+/// Apple Music–style background: the artwork, heavily blurred and darkened,
+/// crossfading when it changes. The image is shrunk to a tiny thumbnail and
+/// scaled back up, which softens it cheaply, so only a light blur is needed.
+struct BlurredArtBackground: View {
+    /// nil fades to the plain dark background.
+    let url: URL?
+    @State private var layers: [ArtLayer] = []
+
+    private struct ArtLayer: Identifiable {
+        let id = UUID()
+        let url: URL
+        let image: UIImage
+        var visible = false
+    }
+
+    private static let cache = NSCache<NSURL, UIImage>()
+    private static let fade: Double = 1.2
+
+    var body: some View {
+        ZStack {
+            Theme.background
+            // Each new image fades in on top of the previous one, which stays fully
+            // visible underneath until it's covered and then goes — a smooth
+            // crossfade with no dip to black halfway.
+            ZStack {
+                ForEach(layers) { layer in
+                    // Filled into, and clipped to, the background's own frame — a
+                    // poster scaled to fill a wide screen is much taller than it and
+                    // would otherwise spill over whatever is above.
+                    Color.clear
+                        .overlay {
+                            Image(uiImage: layer.image)
+                                .resizable()
+                                .interpolation(.high)
+                                .scaledToFill()
+                                .blur(radius: 40, opaque: true)
+                                .saturation(1.2)
+                        }
+                        .clipped()
+                        .opacity(layer.visible ? 1 : 0)
+                }
+            }
+            .compositingGroup()
+            .opacity(0.6)
+            // Keep posters and text readable on bright artwork.
+            LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+        }
+        .ignoresSafeArea()
+        .task(id: url) { await show(url) }
+    }
+
+    private func show(_ url: URL?) async {
+        guard let url else {
+            withAnimation(.easeInOut(duration: Self.fade * 0.7)) {
+                for index in layers.indices { layers[index].visible = false }
+            }
+            try? await Task.sleep(nanoseconds: UInt64(Self.fade * 0.8 * 1_000_000_000))
+            if !Task.isCancelled { layers.removeAll() }
+            return
+        }
+        if let top = layers.last, top.url == url, top.visible { return }
+        guard let image = await Self.thumbnail(url), !Task.isCancelled else { return }
+
+        let layer = ArtLayer(url: url, image: image)
+        if layers.count > 3 { layers.removeFirst(layers.count - 3) }
+        layers.append(layer)
+        // Let it be drawn transparent first, then fade it in.
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        withAnimation(.easeInOut(duration: Self.fade)) {
+            if let index = layers.firstIndex(where: { $0.id == layer.id }) { layers[index].visible = true }
+        }
+        try? await Task.sleep(nanoseconds: UInt64((Self.fade + 0.1) * 1_000_000_000))
+        guard !Task.isCancelled else { return }
+        // The ones underneath are covered now.
+        if let index = layers.firstIndex(where: { $0.id == layer.id }), index > 0 { layers.removeFirst(index) }
+    }
+
+    /// A tiny copy (at most 72 px on its longer side, same shape): scaled back up
+    /// it's already soft, so only a light blur is needed.
+    private static func thumbnail(_ url: URL) async -> UIImage? {
+        if let cached = cache.object(forKey: url as NSURL) { return cached }
+        let result = try? await URLSession.shared.data(from: url)
+        guard let result, let full = UIImage(data: result.0), full.size.width > 0, full.size.height > 0 else { return nil }
+        let scale = 72 / max(full.size.width, full.size.height)
+        let size = CGSize(width: max(1, (full.size.width * scale).rounded()), height: max(1, (full.size.height * scale).rounded()))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let small = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            full.draw(in: CGRect(origin: .zero, size: size))
+        }
+        cache.setObject(small, forKey: url as NSURL)
+        return small
+    }
+}
+
 /// Small rounded label, e.g. content rating or "Ends at 8:00 PM".
 struct Pill: View {
     let text: String
@@ -186,6 +301,206 @@ struct Pill: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .glassEffect(.regular, in: .capsule)
+    }
+}
+
+/// Tries each URL in turn until one loads (e.g. a still frame, then artwork).
+struct FallbackImage: View {
+    let urls: [URL]
+    var placeholder: String? = nil
+    @State private var index = 0
+
+    var body: some View {
+        if index < urls.count {
+            AsyncImage(url: urls[index]) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                case .failure:
+                    Color(white: 0.14).onAppear { index += 1 }
+                case .empty:
+                    Color(white: 0.14)
+                @unknown default:
+                    Color(white: 0.14)
+                }
+            }
+            .id(index)
+        } else {
+            RemoteImage(url: nil, placeholder: placeholder)
+        }
+    }
+}
+
+/// The title's logo artwork, or the title as text if there isn't one.
+struct TitleLogoView: View {
+    let url: URL?
+    let title: String
+    var maxWidth: CGFloat = 820
+    var maxHeight: CGFloat = 230
+    var fontSize: CGFloat = 66
+
+    var body: some View {
+        if let url {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFit()
+                        .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: .leading)
+                        .shadow(color: .black.opacity(0.6), radius: 16)
+                        .accessibilityLabel(title)
+                case .failure:
+                    titleText
+                default:
+                    Color.clear.frame(width: maxWidth * 0.6, height: maxHeight * 0.6)
+                }
+            }
+        } else {
+            titleText
+        }
+    }
+
+    private var titleText: some View {
+        Text(title).font(.system(size: fontSize, weight: .bold)).lineLimit(2).shadow(radius: 10)
+    }
+}
+
+/// Poster for the Movies / TV Shows grids, `width` wide (2:3).
+struct GridPoster<Value: Hashable>: View {
+    let value: Value
+    let title: String
+    var subtitle: String? = nil
+    let imageURL: URL?
+    var progress: Double? = nil
+    let width: CGFloat
+    var onFocus: (() -> Void)? = nil
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NavigationLink(value: value) {
+                ZStack(alignment: .bottom) {
+                    RemoteImage(url: imageURL, placeholder: title)
+                    if let progress, progress > 0 { ProgressStrip(fraction: progress) }
+                }
+                .frame(width: width, height: width * 1.5)
+                .clipped()
+            }
+            .buttonStyle(.card)
+            .focused($isFocused)
+            .onChange(of: isFocused) { _, focused in
+                if focused { onFocus?() }
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption).lineLimit(1)
+                if let subtitle { Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            .frame(width: width, alignment: .leading)
+        }
+    }
+}
+
+/// Main action button (Play, Resume, More Info, Mark as Watched…), one look for all:
+/// prominent = accent fill with dark text; otherwise Liquid Glass with white text;
+/// focused = white fill with dark text, a little larger. (The system glass styles
+/// tinted labels cyan, which showed as cyan-on-white when focused.)
+struct ActionButtonStyle: ButtonStyle {
+    var prominent = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        ActionButton(configuration: configuration, prominent: prominent)
+    }
+}
+
+private struct ActionButton: View {
+    let configuration: ButtonStyleConfiguration
+    let prominent: Bool
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var fill: Color {
+        if isFocused { return .white }
+        return prominent ? Theme.accent : .clear
+    }
+
+    var body: some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(isFocused || prominent ? Color.black : Color.white)
+            .padding(.horizontal, 36)
+            .padding(.vertical, 18)
+            .background(Capsule().fill(fill))
+            .glassEffect(.regular, in: .capsule)
+            .scaleEffect(configuration.isPressed ? 1.02 : (isFocused ? 1.06 : 1))
+            .shadow(color: .black.opacity(isFocused ? 0.45 : 0), radius: 18, y: 8)
+            .opacity(isEnabled ? 1 : 0.5)
+            .animation(.easeOut(duration: 0.18), value: isFocused)
+    }
+}
+
+/// Small capsule button (player Up Next card). Prominent: accent fill; otherwise a
+/// dim fill. Focused: white fill, dark text, a little larger.
+struct CompactButtonStyle: ButtonStyle {
+    var prominent = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        CompactButton(configuration: configuration, prominent: prominent)
+    }
+}
+
+private struct CompactButton: View {
+    let configuration: ButtonStyleConfiguration
+    let prominent: Bool
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        configuration.label
+            .font(.caption.weight(.bold))
+            .foregroundStyle(isFocused || prominent ? Color.black : Color.white)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(isFocused ? Color.white : (prominent ? Theme.accent : Color.white.opacity(0.15))))
+            .scaleEffect(configuration.isPressed ? 1.0 : (isFocused ? 1.06 : 1))
+            .shadow(color: .black.opacity(isFocused ? 0.45 : 0), radius: 12, y: 6)
+            .animation(.easeOut(duration: 0.15), value: isFocused)
+    }
+}
+
+/// "Cast" row: round headshots with names.
+struct CastShelf: View {
+    let cast: [CastMember]
+    @EnvironmentObject private var session: Session
+
+    var body: some View {
+        Shelf("Cast") {
+            ForEach(cast) { person in
+                VStack(spacing: 12) {
+                    // Focusable so the row can be browsed and scrolled to with the remote.
+                    Button {} label: {
+                        ZStack {
+                            Circle().fill(Color(white: 0.16))
+                            if let url = session.imageURL(person.profilePath) {
+                                AsyncImage(url: url) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Color.clear
+                                }
+                            } else {
+                                Image(systemName: "person.fill").font(.system(size: 60)).foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(width: 170, height: 170)
+                        .clipShape(Circle())
+                    }
+                    .buttonStyle(AvatarButtonStyle())
+                    Text(person.name).font(.caption.weight(.semibold)).lineLimit(1)
+                    if let character = person.character, !character.isEmpty {
+                        Text(character).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .frame(width: 200)
+            }
+        }
     }
 }
 

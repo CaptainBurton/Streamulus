@@ -3,6 +3,7 @@ const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
 const { kidsScope, canAccess } = require('../services/kids');
 const { fillMissingDurations } = require('../services/durations');
+const { ensureLogo } = require('../services/logos');
 const { posterUrl, backdropUrl, resolveGenreNames, getTVCredits, getTVContentRating, searchTV } = require('../services/tmdb');
 
 const router = express.Router();
@@ -131,15 +132,15 @@ router.get('/episode/:id/next', authenticate, (req, res) => {
   // How many seconds before the end the player shows the Up Next card (Admin > Settings).
   const upNextSeconds = parseInt(db.prepare("SELECT value FROM config WHERE key = 'up_next_seconds'").get()?.value || '30') || 30;
   res.json({
-    next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title } : null,
+    next: next ? { id: next.id, season: next.season, episode_number: next.episode_number, title: next.title, title_en: next.title_en } : null,
     upNextSeconds,
   });
 });
 
 router.get('/episode/:id', authenticate, (req, res) => {
   const row = db.prepare(`
-    SELECT e.season, e.episode_number, e.title as episode_title,
-           s.title as show_title, s.id as show_id
+    SELECT e.season, e.episode_number, e.title as episode_title, e.title_en as episode_title_en,
+           s.title as show_title, s.title_en as show_title_en, s.id as show_id
     FROM episodes e
     JOIN tv_shows s ON s.id = e.show_id
     WHERE e.id = ?
@@ -200,11 +201,14 @@ router.get('/:id/details', authenticate, async (req, res) => {
   }
 
   let cast = [];
+  let logoUrl = null;
   if (tmdbId) {
-    const [credits, contentRating] = await Promise.all([
+    const [credits, contentRating, logo] = await Promise.all([
       getTVCredits(tmdbId),
       show.content_rating ? Promise.resolve(null) : getTVContentRating(tmdbId),
+      ensureLogo('show', { ...show, tmdb_id: tmdbId }).catch(() => null),
     ]);
+    logoUrl = logo;
 
     if (contentRating) {
       db.prepare('UPDATE tv_shows SET content_rating = ? WHERE id = ?').run(contentRating, show.id);
@@ -234,7 +238,8 @@ router.get('/:id/details', authenticate, async (req, res) => {
   // For "Play from Beginning": the first episode, and whether this user has
   // started the show at all (any episode in progress or finished).
   const firstEpisodeId = db.prepare(
-    'SELECT id FROM episodes WHERE show_id = ? ORDER BY season, episode_number LIMIT 1'
+    // Season 0 is specials/extras — start at Season 1 E1 unless that's all there is.
+    'SELECT id FROM episodes WHERE show_id = ? ORDER BY (season = 0), season, episode_number LIMIT 1'
   ).get(show.id)?.id ?? null;
   const started = db.prepare(`
     SELECT COUNT(*) AS n FROM watch_history wh
@@ -243,7 +248,7 @@ router.get('/:id/details', authenticate, async (req, res) => {
       AND (wh.completed = 1 OR wh.position > 0)
   `).get(req.profile.id, show.id).n > 0;
 
-  res.json({ show: formatShow(show), seasons, cast, similarLocal, firstEpisodeId, started });
+  res.json({ show: { ...formatShow(show), logo_url: logoUrl }, seasons, cast, similarLocal, firstEpisodeId, started });
 });
 
 router.get('/:id/season/:season', authenticate, (req, res) => {
@@ -268,3 +273,4 @@ router.get('/:id/season/:season', authenticate, (req, res) => {
 });
 
 module.exports = router;
+module.exports.formatShow = formatShow;

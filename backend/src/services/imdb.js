@@ -79,4 +79,21 @@ async function searchSeries(title) {
   }
 }
 
-module.exports = { searchMovie, searchSeries, isConfigured };
+// Fix Match: several candidates ({ id, title, description, image }) rather than the best guess.
+async function searchList(kind, title, year) {
+  const key = getKey();
+  if (!key) return [];
+  const q = encodeURIComponent(year ? `${title} ${year}` : title);
+  const r = await axios.get(`${BASE}/${kind === 'movie' ? 'SearchMovie' : 'SearchSeries'}/${key}/${q}`, { timeout: 12000 });
+  if (r.data?.errorMessage) throw new Error(r.data.errorMessage);
+  return (r.data?.results || []).slice(0, 12);
+}
+
+// Full details for one IMDb id, in the same shape as searchMovie/searchSeries.
+async function getTitle(imdbId) {
+  const key = getKey();
+  if (!key) return null;
+  return normalizeFromTitle(await fetchTitle(key, imdbId), null);
+}
+
+module.exports = { searchMovie, searchSeries, searchList, getTitle, isConfigured };

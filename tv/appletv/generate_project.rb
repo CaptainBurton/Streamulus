@@ -46,8 +46,8 @@ target.build_configurations.each do |config|
   s = config.build_settings
   s['PRODUCT_NAME'] = '$(TARGET_NAME)'
   s['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.streamulus.appletv'
-  s['MARKETING_VERSION'] = '1.0'
-  s['CURRENT_PROJECT_VERSION'] = '1'
+  s['MARKETING_VERSION'] = '1.23'
+  s['CURRENT_PROJECT_VERSION'] = '24'
   s['SDKROOT'] = 'appletvos'
   s['TARGETED_DEVICE_FAMILY'] = '3'
   s['TVOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET
@@ -62,8 +62,8 @@ target.build_configurations.each do |config|
   s['INFOPLIST_KEY_CFBundleDisplayName'] = 'Streamulus'
   s['INFOPLIST_KEY_UIUserInterfaceStyle'] = 'Dark'
   s['ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME'] = 'AccentColor'
-  # No app icon set yet — referencing a missing one is a build error on tvOS.
-  s.delete('ASSETCATALOG_COMPILER_APPICON_NAME')
+  # Layered tvOS icon + Top Shelf images in Assets.xcassets (made from the web logo).
+  s['ASSETCATALOG_COMPILER_APPICON_NAME'] = 'App Icon & Top Shelf Image'
   s['LD_RUNPATH_SEARCH_PATHS'] = ['$(inherited)', '@executable_path/Frameworks']
 end
 

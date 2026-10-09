@@ -34,7 +34,7 @@ export default function MediaCard({ item, type = 'movie' }) {
       }}
     >
       {/* Inner div clips image and overlays to rounded corners without conflicting with transform */}
-      <div style={{ borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
+      <div style={{ borderRadius: '8px', overflow: 'hidden', position: 'relative', WebkitMaskImage: '-webkit-radial-gradient(white, black)' }}>
         <img
           src={poster}
           alt={item.title || item.name}

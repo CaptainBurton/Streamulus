@@ -46,9 +46,30 @@ function removeAvatarFile(p) {
   if (p?.avatar_path) fs.rm(path.join(avatarsDir, p.avatar_path), { force: true }, () => {});
 }
 
+function parentalLock(userId) {
+  const u = db.prepare('SELECT parental_lock, parental_lock_method FROM users WHERE id = ?').get(userId) || {};
+  return { enabled: u.parental_lock !== 0, method: u.parental_lock_method === 'pin' ? 'pin' : 'password' };
+}
+
+// What switching from the current profile to `target` needs: 'pin', 'password' or null.
+function requiredCheck(req, target, lock) {
+  if (target.id === req.profile.id) return null;
+  if (lock.enabled && req.profile.is_kids && !target.is_kids) {
+    // Leaving a Streamling: the parental lock. PIN only if this profile has one.
+    return lock.method === 'pin' && target.pin_hash ? 'pin' : 'password';
+  }
+  return target.pin_hash ? 'pin' : null; // a PIN-locked profile always needs its PIN
+}
+
 router.get('/', authenticate, (req, res) => {
   const rows = db.prepare('SELECT * FROM profiles WHERE user_id = ? ORDER BY is_main DESC, id').all(req.user.id);
-  res.json({ profiles: rows.map(publicProfile), currentProfileId: req.profile.id, maxProfiles: MAX_PROFILES });
+  const lock = parentalLock(req.user.id);
+  res.json({
+    profiles: rows.map(p => ({ ...publicProfile(p), requires: requiredCheck(req, p, lock) })),
+    currentProfileId: req.profile.id,
+    maxProfiles: MAX_PROFILES,
+    parentalLock: lock,
+  });
 });
 
 router.post('/', authenticate, (req, res) => {
@@ -64,9 +85,13 @@ router.post('/', authenticate, (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   const target = getOwnProfile(req, req.params.id);
   if (!target) return res.status(404).json({ error: 'Profile not found' });
-  if (!canEdit(req, target)) return res.status(403).json({ error: "You can't edit this profile" });
+  // Anyone (Streamlings too) can switch English titles for themselves.
+  const onlyEnglish = Object.keys(req.body || {}).every(k => k === 'english_titles');
+  const ownProfile = target.id === req.profile.id;
+  if (!canEdit(req, target) && !(onlyEnglish && ownProfile)) return res.status(403).json({ error: "You can't edit this profile" });
 
   const updates = {};
+  if (req.body.english_titles !== undefined) updates.english_titles = req.body.english_titles ? 1 : 0;
   if (req.body.name !== undefined) {
     const name = cleanName(req.body.name);
     if (!name) return res.status(400).json({ error: 'Profile name must be 1–20 characters' });
@@ -140,26 +165,39 @@ router.delete('/:id/avatar', authenticate, (req, res) => {
 // Switch profile. Returns a new token for that profile. A PIN-locked profile
 // needs its PIN — that's what stops a Streamling switching into an adult
 // profile. Wrong PINs are limited to 5 per 5 minutes per profile.
-const pinFails = new Map(); // profileId -> { count, until }
-const PIN_MAX_FAILS = 5;
-const PIN_LOCK_MS = 5 * 60 * 1000;
+const fails = new Map(); // 'pin:<profileId>' | 'pw:<userId>' -> { count, until }
+const MAX_FAILS = 5;
+const LOCK_MS = 5 * 60 * 1000;
 
 router.post('/:id/select', authenticate, async (req, res) => {
   const target = getOwnProfile(req, req.params.id);
   if (!target) return res.status(404).json({ error: 'Profile not found' });
 
-  if (target.pin_hash && target.id !== req.profile.id) {
-    const f = pinFails.get(target.id);
-    if (f && f.count >= PIN_MAX_FAILS && f.until > Date.now()) {
-      return res.status(429).json({ error: 'Too many wrong PINs — try again in a few minutes' });
+  const needs = requiredCheck(req, target, parentalLock(req.user.id));
+  if (needs) {
+    const key = needs === 'pin' ? `pin:${target.id}` : `pw:${req.user.id}`;
+    const f = fails.get(key);
+    if (f && f.count >= MAX_FAILS && f.until > Date.now()) {
+      return res.status(429).json({ error: `Too many wrong ${needs === 'pin' ? 'PINs' : 'passwords'} — try again in a few minutes` });
     }
-    const ok = /^\d{4}$/.test(String(req.body.pin ?? '')) && await bcrypt.compare(String(req.body.pin), target.pin_hash);
+    let ok = false;
+    if (needs === 'pin') {
+      ok = /^\d{4}$/.test(String(req.body.pin ?? '')) && await bcrypt.compare(String(req.body.pin), target.pin_hash);
+    } else if (req.body.password) {
+      const u = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+      ok = !!u && await bcrypt.compare(String(req.body.password), u.password_hash);
+    }
     if (!ok) {
-      const cur = f && f.until > Date.now() ? f : { count: 0 };
-      pinFails.set(target.id, { count: cur.count + 1, until: Date.now() + PIN_LOCK_MS });
-      return res.status(403).json({ error: req.body.pin ? 'Wrong PIN' : 'PIN required', code: 'PIN_REQUIRED' });
+      const given = needs === 'pin' ? req.body.pin : req.body.password;
+      if (given) {
+        const cur = f && f.until > Date.now() ? f : { count: 0 };
+        fails.set(key, { count: cur.count + 1, until: Date.now() + LOCK_MS });
+      }
+      return needs === 'pin'
+        ? res.status(403).json({ error: given ? 'Wrong PIN' : 'PIN required', code: 'PIN_REQUIRED' })
+        : res.status(403).json({ error: given ? 'Wrong password' : 'Password required', code: 'PASSWORD_REQUIRED' });
     }
-    pinFails.delete(target.id);
+    fails.delete(key);
   }
 
   const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(req.user.id);
@@ -167,3 +205,4 @@ router.post('/:id/select', authenticate, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.imageExt = imageExt;

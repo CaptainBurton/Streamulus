@@ -157,6 +157,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_profiles_user ON profiles(user_id);
 
   -- Admin's per-title choices for Streamlings; overrides the age-rating rule.
+  -- Admin-chosen artwork for a genre card (otherwise a random title's artwork).
+  CREATE TABLE IF NOT EXISTS genre_images (
+    name TEXT PRIMARY KEY,
+    image_path TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS kids_overrides (
     media_type TEXT NOT NULL,   -- 'movie' | 'show'
     media_id INTEGER NOT NULL,
@@ -165,6 +171,25 @@ db.exec(`
   );
 `);
 try { db.exec('ALTER TABLE watch_history ADD COLUMN profile_id INTEGER'); } catch {}
+// Parental lock: leaving a Streamling for an adult profile needs the account
+// password, or that profile's PIN when the method is 'pin' and it has one.
+try { db.exec('ALTER TABLE users ADD COLUMN parental_lock INTEGER NOT NULL DEFAULT 1'); } catch {}
+// Title logo artwork URL from TMDB ('' = none available). See services/logos.js.
+try { db.exec('ALTER TABLE movies ADD COLUMN logo_path TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN logo_path TEXT'); } catch {}
+// Original language (ISO 639-1, e.g. 'ja'): Japanese/Korean/Chinese animation is
+// grouped as "Anime". NULL = not looked up yet. See services/languages.js.
+try { db.exec('ALTER TABLE movies ADD COLUMN original_language TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN original_language TEXT'); } catch {}
+// English title/overview when the stored ones aren't English (services/english.js).
+// NULL = not checked yet, '' = nothing different in English.
+for (const table of ['movies', 'tv_shows', 'episodes']) {
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN title_en TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN overview_en TEXT`); } catch {}
+}
+// Per profile: show titles and descriptions in English where available.
+try { db.exec('ALTER TABLE profiles ADD COLUMN english_titles INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN parental_lock_method TEXT NOT NULL DEFAULT 'password'"); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_wh_profile ON watch_history(profile_id, media_type, media_id)');
 
 // Give every existing account a main profile and move its history onto it.

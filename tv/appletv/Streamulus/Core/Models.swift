@@ -68,9 +68,14 @@ struct Profile: Decodable, Identifiable, Hashable {
     let isMain: Bool
     let isKids: Bool
     let hasPin: Bool
+    /// What switching to this profile needs from the current one: "pin", "password" or nil.
+    let requires: String?
+    /// Show titles and descriptions in English where available.
+    let englishTitles: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id, name
+        case id, name, requires
+        case englishTitles = "english_titles"
         case avatarPath = "avatar_url"
         case isMain = "is_main"
         case isKids = "is_kids"
@@ -87,6 +92,8 @@ extension Profile {
         isMain = c.lossyBool(.isMain)
         isKids = c.lossyBool(.isKids)
         hasPin = c.lossyBool(.hasPin)
+        requires = c.lossyString(.requires)
+        englishTitles = c.lossyBool(.englishTitles)
     }
 }
 
@@ -104,6 +111,10 @@ struct MeResponse: Decodable {
 
 struct ProfilesResponse: Decodable {
     let profiles: [Profile]
+}
+
+struct UpdateProfileResponse: Decodable {
+    let profile: Profile
 }
 
 struct SelectProfileResponse: Decodable {
@@ -141,6 +152,7 @@ struct Movie: Decodable, Identifiable, Hashable {
     let overview: String?
     let posterPath: String?
     let backdropPath: String?
+    let logoPath: String?
     let rating: Double?
     let contentRating: String?
     let genres: [String]
@@ -152,6 +164,7 @@ struct Movie: Decodable, Identifiable, Hashable {
         case id, title, year, overview, rating, genres, duration
         case posterPath = "poster_url"
         case backdropPath = "backdrop_url"
+        case logoPath = "logo_url"
         case contentRating = "content_rating"
         case watchCompleted = "watch_completed"
         case watchPosition = "watch_position"
@@ -167,6 +180,7 @@ extension Movie {
         overview = c.lossyString(.overview)
         posterPath = c.lossyString(.posterPath)
         backdropPath = c.lossyString(.backdropPath)
+        logoPath = c.lossyString(.logoPath)
         rating = c.lossyDouble(.rating)
         contentRating = c.lossyString(.contentRating)
         genres = c.lossyStrings(.genres)
@@ -188,11 +202,13 @@ struct Show: Decodable, Identifiable, Hashable {
     let genres: [String]
     let totalEpisodes: Int
     let watchedEpisodes: Int
+    let logoPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id, title, overview, rating, genres
         case posterPath = "poster_url"
         case backdropPath = "backdrop_url"
+        case logoPath = "logo_url"
         case firstAirDate = "first_air_date"
         case contentRating = "content_rating"
         case totalEpisodes = "total_episodes"
@@ -216,6 +232,7 @@ extension Show {
         genres = c.lossyStrings(.genres)
         totalEpisodes = c.lossyInt(.totalEpisodes) ?? 0
         watchedEpisodes = c.lossyInt(.watchedEpisodes) ?? 0
+        logoPath = c.lossyString(.logoPath)
     }
 }
 
@@ -340,7 +357,52 @@ extension WatchProgress {
 struct MoviesResponse: Decodable { let movies: [Movie] }
 struct ShowsResponse: Decodable { let shows: [Show] }
 struct ContinueResponse: Decodable { let items: [ContinueItem] }
-struct MovieDetailsResponse: Decodable { let movie: Movie }
+struct FeaturedResponse: Decodable {
+    let movie: Movie?
+    /// How often Home switches to another featured movie (admin setting).
+    let rotateSeconds: Int?
+}
+
+struct CastMember: Decodable, Identifiable, Hashable {
+    let id: Int
+    let name: String
+    let character: String?
+    let profilePath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, character
+        case profilePath = "profile_url"
+    }
+}
+
+extension CastMember {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lossyInt(.id) ?? 0
+        name = c.lossyString(.name) ?? ""
+        character = c.lossyString(.character)
+        profilePath = c.lossyString(.profilePath)
+    }
+}
+
+struct MovieDetailsResponse: Decodable {
+    let movie: Movie
+    let cast: [CastMember]
+    let director: String?
+    let similarLocal: [Movie]
+
+    enum CodingKeys: String, CodingKey { case movie, cast, director, similarLocal }
+}
+
+extension MovieDetailsResponse {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        movie = try c.decode(Movie.self, forKey: .movie)
+        cast = (try? c.decode([CastMember].self, forKey: .cast)) ?? []
+        director = c.lossyString(.director)
+        similarLocal = (try? c.decode([Movie].self, forKey: .similarLocal)) ?? []
+    }
+}
 struct SeasonResponse: Decodable { let episodes: [Episode] }
 
 struct ShowDetailsResponse: Decodable {
@@ -348,8 +410,10 @@ struct ShowDetailsResponse: Decodable {
     let seasons: [Season]
     let firstEpisodeId: Int?
     let started: Bool
+    let cast: [CastMember]
+    let similarLocal: [Show]
 
-    enum CodingKeys: String, CodingKey { case show, seasons, firstEpisodeId, started }
+    enum CodingKeys: String, CodingKey { case show, seasons, firstEpisodeId, started, cast, similarLocal }
 }
 
 extension ShowDetailsResponse {
@@ -359,6 +423,8 @@ extension ShowDetailsResponse {
         seasons = (try? c.decode([Season].self, forKey: .seasons)) ?? []
         firstEpisodeId = c.lossyInt(.firstEpisodeId)
         started = c.lossyBool(.started)
+        cast = (try? c.decode([CastMember].self, forKey: .cast)) ?? []
+        similarLocal = (try? c.decode([Show].self, forKey: .similarLocal)) ?? []
     }
 }
 
@@ -411,4 +477,155 @@ extension NextEpisode {
 
 struct NextEpisodeResponse: Decodable {
     let next: NextEpisode?
+    /// Seconds before the end the Up Next card appears (Admin > Settings).
+    let upNextSeconds: Int
+
+    enum CodingKeys: String, CodingKey { case next, upNextSeconds }
+}
+
+extension NextEpisodeResponse {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        next = try? c.decodeIfPresent(NextEpisode.self, forKey: .next)
+        upNextSeconds = c.lossyInt(.upNextSeconds) ?? 30
+    }
+}
+
+// MARK: - Genres
+
+struct GenreSummary: Decodable, Identifiable, Hashable {
+    let name: String
+    let movieCount: Int
+    let showCount: Int
+    /// The admin's image for the genre, or a random title's artwork.
+    let imageURL: String?
+
+    var id: String { name }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case movieCount = "movie_count"
+        case showCount = "show_count"
+        case imageURL = "image_url"
+    }
+}
+
+extension GenreSummary {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.lossyString(.name) ?? ""
+        movieCount = c.lossyInt(.movieCount) ?? 0
+        showCount = c.lossyInt(.showCount) ?? 0
+        imageURL = c.lossyString(.imageURL)
+    }
+}
+
+struct GenresResponse: Decodable {
+    let genres: [GenreSummary]
+}
+
+struct GenreDetailResponse: Decodable {
+    let genre: String
+    let movies: [Movie]
+    let shows: [Show]
+}
+
+/// A movie or a show in a genre's grid. The id keeps movies and shows apart
+/// (both tables number from 1).
+enum GenreItem: Identifiable, Hashable {
+    case movie(Movie)
+    case show(Show)
+
+    var id: Int {
+        switch self {
+        case .movie(let movie): return movie.id * 2
+        case .show(let show): return show.id * 2 + 1
+        }
+    }
+}
+
+// MARK: - Subtitles
+
+struct SubtitleTrack: Decodable, Identifiable, Hashable {
+    let id: String
+    let label: String
+    let language: String?
+    let forced: Bool
+
+    enum CodingKeys: String, CodingKey { case id, label, language, forced }
+}
+
+extension SubtitleTrack {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lossyString(.id) ?? ""
+        label = c.lossyString(.label) ?? "Subtitles"
+        language = c.lossyString(.language)
+        forced = c.lossyBool(.forced)
+    }
+}
+
+struct SubtitleTracksResponse: Decodable {
+    let tracks: [SubtitleTrack]
+}
+
+struct SubtitleCue {
+    let start: Double
+    let end: Double
+    let lines: [String]
+}
+
+/// Minimal WebVTT reader for the player's own subtitle overlay. Cue times are
+/// the video file's own times.
+enum WebVTT {
+    static func parse(_ text: String) -> [SubtitleCue] {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var cues: [SubtitleCue] = []
+        for block in normalized.components(separatedBy: "\n\n") {
+            let lines = block.components(separatedBy: "\n")
+            guard let at = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let parts = lines[at].components(separatedBy: "-->")
+            guard parts.count == 2,
+                  let start = seconds(parts[0]),
+                  let end = seconds(parts[1].trimmingCharacters(in: .whitespaces).components(separatedBy: " ").first ?? ""),
+                  end > start else { continue }
+            let body = lines[(at + 1)...].map(clean).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            if !body.isEmpty { cues.append(SubtitleCue(start: start, end: end, lines: body)) }
+        }
+        return cues.sorted { $0.start < $1.start }
+    }
+
+    /// Lines of every cue showing at `time`.
+    static func lines(in cues: [SubtitleCue], at time: Double) -> [String] {
+        // First cue starting after `time`, then look back over the few before it.
+        var low = 0, high = cues.count
+        while low < high {
+            let mid = (low + high) / 2
+            if cues[mid].start > time { high = mid } else { low = mid + 1 }
+        }
+        var result: [String] = []
+        var index = low - 1
+        while index >= 0 && index >= low - 8 {
+            if cues[index].end > time { result.insert(contentsOf: cues[index].lines, at: 0) }
+            index -= 1
+        }
+        return result
+    }
+
+    private static func seconds(_ stamp: String) -> Double? {
+        let parts = stamp.trimmingCharacters(in: .whitespaces).components(separatedBy: ":").compactMap { Double($0) }
+        switch parts.count {
+        case 3: return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        case 2: return parts[0] * 60 + parts[1]
+        default: return nil
+        }
+    }
+
+    private static func clean(_ line: String) -> String {
+        line.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+    }
 }

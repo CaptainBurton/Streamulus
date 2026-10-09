@@ -9,6 +9,7 @@ const { getHLSSession, getManifestContent, getSegmentPath, getSessionTotalDurati
 const { posterUrl, backdropUrl } = require('../services/tmdb');
 const { resolveFilePath } = require('../services/path-repair');
 const { kidsScope, canAccess } = require('../services/kids');
+const { pick } = require('../services/locale');
 
 const router = express.Router();
 
@@ -243,7 +244,7 @@ router.get('/continue-watching', authenticate, (req, res) => {
 
   const movies = db.prepare(`
     SELECT 'movie' as type, wh.media_id as id, wh.position, wh.watched_at,
-           m.title, m.poster_path, m.backdrop_path, m.year, m.duration
+           m.title, m.title_en, m.poster_path, m.backdrop_path, m.year, m.duration
     FROM watch_history wh
     JOIN movies m ON m.id = wh.media_id
     WHERE wh.profile_id = ? AND wh.media_type='movie' AND wh.completed=0 AND wh.position>?
@@ -257,7 +258,7 @@ router.get('/continue-watching', authenticate, (req, res) => {
   const episodes = db.prepare(`
     SELECT 'episode' as type, wh.media_id as id, wh.position, wh.watched_at,
            s.title, s.poster_path, s.backdrop_path, s.id as show_id,
-           e.season, e.episode_number, e.title as episode_title, e.duration
+           s.title_en, e.season, e.episode_number, e.title as episode_title, e.title_en as episode_title_en, e.duration
     FROM watch_history wh
     JOIN episodes e ON e.id = wh.media_id
     JOIN tv_shows s ON s.id = e.show_id
@@ -265,7 +266,7 @@ router.get('/continue-watching', authenticate, (req, res) => {
     ORDER BY wh.watched_at DESC LIMIT 20
   `).all(req.profile.id, minSecs).map(e => ({
     ...e,
-    subtitle: `S${String(e.season).padStart(2,'0')}E${String(e.episode_number).padStart(2,'0')}${e.episode_title ? ` · ${e.episode_title}` : ''}`,
+    subtitle: `S${String(e.season).padStart(2,'0')}E${String(e.episode_number).padStart(2,'0')}${pick(e, 'episode_title') ? ` · ${pick(e, 'episode_title')}` : ''}`,
     poster_url: resolveImg(e.poster_path, posterUrl),
     backdrop_url: resolveImg(e.backdrop_path, backdropUrl),
   }));
@@ -342,6 +343,91 @@ router.get('/thumbnail/:type/:id', authenticate, guardKids, (req, res) => {
     if (ok) serve(fallback);
     else if (!res.headersSent) res.status(500).json({ error: 'Thumbnail generation failed' });
   });
+});
+
+// ─── still frame (Continue Watching) ──────────────────────────────────────────
+//
+// GET /still/:type/:id?t=<seconds> → a 640px-wide JPEG of that moment, so
+// Continue Watching shows where you stopped instead of generic artwork.
+// Rounded to 10 s and cached on disk; only the newest still per title is kept.
+// At most two extractions run at once so a full Home page can't swamp the server.
+
+const stillsDir = path.join(process.env.DATA_DIR || '/data', 'stills');
+fs.mkdirSync(stillsDir, { recursive: true });
+const STILL_CONCURRENCY = 2;
+let stillsRunning = 0;
+const stillQueue = [];
+const stillJobs = new Map(); // outPath -> Promise<boolean>
+
+function runStillJob(fn) {
+  return new Promise((resolve) => {
+    const start = () => {
+      stillsRunning++;
+      fn().then(resolve, () => resolve(false)).finally(() => {
+        stillsRunning--;
+        const next = stillQueue.shift();
+        if (next) next();
+      });
+    };
+    if (stillsRunning < STILL_CONCURRENCY) start(); else stillQueue.push(start);
+  });
+}
+
+function extractStill(filePath, t, outPath) {
+  return new Promise((resolve) => {
+    const tmp = `${outPath}.tmp.jpg`;
+    const proc = spawn('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error',
+      '-ss', String(t), '-i', filePath,
+      '-frames:v', '1', '-vf', 'scale=640:-2', '-q:v', '4', '-y', tmp,
+    ], { stdio: 'ignore' });
+    try { os.setPriority(proc.pid, 10); } catch {}
+    const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 20000);
+    proc.on('error', () => { clearTimeout(timer); resolve(false); });
+    proc.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code === 0 && fs.existsSync(tmp)) {
+        fs.renameSync(tmp, outPath);
+        resolve(true);
+      } else {
+        try { fs.rmSync(tmp, { force: true }); } catch {}
+        resolve(false);
+      }
+    });
+  });
+}
+
+router.get('/still/:type/:id', authenticate, guardKids, async (req, res) => {
+  const { type, id } = req.params;
+  if (!['movie', 'episode'].includes(type)) return res.status(400).json({ error: 'Bad type' });
+  const t = Math.max(0, Math.round((parseFloat(req.query.t) || 0) / 10) * 10);
+  const prefix = `${type}-${parseInt(id, 10)}-`;
+  const outPath = path.join(stillsDir, `${prefix}${t}.jpg`);
+  const send = () => {
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(outPath);
+  };
+  if (fs.existsSync(outPath)) return send();
+
+  const filePath = getFilePath(type, id);
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+
+  if (!stillJobs.has(outPath)) {
+    const job = runStillJob(() => extractStill(filePath, t, outPath)).then((ok) => {
+      stillJobs.delete(outPath);
+      // Keep only the newest still for this title.
+      if (ok) {
+        for (const f of fs.readdirSync(stillsDir)) {
+          if (f.startsWith(prefix) && f !== path.basename(outPath)) fs.rm(path.join(stillsDir, f), { force: true }, () => {});
+        }
+      }
+      return ok;
+    });
+    stillJobs.set(outPath, job);
+  }
+  const ok = await stillJobs.get(outPath);
+  if (!ok || res.headersSent) return ok ? undefined : res.status(404).json({ error: 'Could not read a frame' });
+  send();
 });
 
 // ─── thumbnail sprite pre-warm (one FFmpeg pass, background) ─────────────────
@@ -465,10 +551,11 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, 
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: `File not found on disk: ${filePath}` });
 
   const start = Math.max(0, parseFloat(req.query.start || '0') || 0);
-  console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s`);
+  const compat = req.query.compat === '1'; // always re-encode (Apple TV retry after a failed stream)
+  console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s${compat ? ' (compat)' : ''}`);
 
   try {
-    const key = await getHLSSession(filePath, start);
+    const key = await getHLSSession(filePath, start, { compat });
     if (res.writableEnded) return; // client disconnected while transcoding
     const segBase = `/api/stream/hls/${type}/${id}/segment?token=${req.query.token}&key=${key}`;
     const manifest = getManifestContent(key, segBase);

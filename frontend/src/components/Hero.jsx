@@ -1,7 +1,54 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import TitleLogo from './TitleLogo';
 
-export default function Hero({ item, type = 'movie' }) {
+const FADE_MS = 1000;
+
+// The Home banner, crossfading when the featured movie changes (Netflix-style):
+// the new banner fades in over the old one, while the old title/text fades out
+// and the new title/text fades in just after. Home preloads the new artwork and
+// logo before switching, so nothing pops in partway through.
+export function CrossfadeHero({ item, type = 'movie' }) {
+  const [layers, setLayers] = useState(() => (item ? [{ key: item.id, item }] : []));
+
+  useEffect(() => {
+    if (!item) { setLayers([]); return; }
+    setLayers(prev => (prev.length && prev[prev.length - 1].key === item.id
+      ? prev
+      : [...prev.slice(-1), { key: item.id, item }]));
+  }, [item]);
+
+  // Drop the old banner once the new one has fully faded in.
+  useEffect(() => {
+    if (layers.length < 2) return;
+    const timer = setTimeout(() => setLayers(l => l.slice(-1)), FADE_MS + 100);
+    return () => clearTimeout(timer);
+  }, [layers]);
+
+  if (!layers.length) return <Hero item={null} type={type} />;
+  const fading = layers.length > 1;
+  return (
+    <div style={{ position: 'relative' }}>
+      {layers.map((layer, i) => {
+        const incoming = fading && i === layers.length - 1;
+        const outgoing = fading && i < layers.length - 1;
+        return (
+          <div
+            key={layer.key}
+            aria-hidden={outgoing || undefined}
+            style={incoming
+              ? { position: 'absolute', inset: 0, zIndex: 1, animation: `heroFade ${FADE_MS}ms ease-in-out both` }
+              : { pointerEvents: outgoing ? 'none' : undefined }}
+          >
+            <Hero item={layer.item} type={type} contentFade={incoming ? 'in' : outgoing ? 'out' : null} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function Hero({ item, type = 'movie', contentFade = null }) {
   const navigate = useNavigate();
   const [showOverview, setShowOverview] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -40,7 +87,8 @@ export default function Hero({ item, type = 'movie' }) {
   return (
     <div style={{
       position: 'relative',
-      height: '80vh',
+      // Taller on desktop so the title and buttons sit low, Netflix-style.
+      height: isMobile ? '80vh' : 'calc(90vh + 68px)',
       minHeight: '500px',
       overflow: 'hidden',
     }}>
@@ -77,10 +125,12 @@ export default function Hero({ item, type = 'movie' }) {
       {/* Content */}
       <div style={{
         position: 'absolute',
-        bottom: isMobile ? '56px' : '100px',
+        bottom: isMobile ? '20px' : '16px',
         left: isMobile ? '16px' : '48px',
         right: isMobile ? '16px' : 'auto',
         maxWidth: isMobile ? 'none' : '550px',
+        animation: contentFade === 'in' ? 'heroFade 600ms ease-in-out 450ms both'
+          : contentFade === 'out' ? 'heroFadeOut 350ms ease-out both' : undefined,
       }}>
         <div style={{
           display: 'inline-flex',
@@ -100,16 +150,21 @@ export default function Hero({ item, type = 'movie' }) {
           {item.rating && `★ ${item.rating.toFixed(1)} · `}{type === 'movie' ? 'Movie' : 'TV Show'}
         </div>
 
-        <h1 style={{
-          fontSize: isMobile ? '28px' : '52px',
-          fontWeight: '800',
-          lineHeight: 1.05,
-          marginBottom: '12px',
-          textShadow: '0 2px 8px rgba(0,0,0,0.5)',
-          letterSpacing: isMobile ? '-0.5px' : '-1px',
-        }}>
-          {title}
-        </h1>
+        <TitleLogo
+          logoUrl={item.logo_url}
+          title={title}
+          maxWidth={isMobile ? 260 : 520}
+          maxHeight={isMobile ? 90 : 170}
+          style={{ marginBottom: '16px' }}
+          textStyle={{
+            fontSize: isMobile ? '28px' : '52px',
+            fontWeight: '800',
+            lineHeight: 1.05,
+            marginBottom: '12px',
+            textShadow: '0 2px 8px rgba(0,0,0,0.5)',
+            letterSpacing: isMobile ? '-0.5px' : '-1px',
+          }}
+        />
 
         {item.year && (
           <div style={{ fontSize: '15px', color: '#aaa', marginBottom: '16px' }}>
@@ -158,6 +213,7 @@ export default function Hero({ item, type = 'movie' }) {
             ▶ Play Now
           </button>
           <button
+            onClick={() => navigate(type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`)}
             style={{
               display: 'flex',
               alignItems: 'center',

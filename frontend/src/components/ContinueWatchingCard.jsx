@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
-
 function fmtTime(secs) {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
@@ -10,71 +8,82 @@ function fmtTime(secs) {
   return `${m}m`;
 }
 
+// Wide card showing a frame from where you stopped (falls back to the banner,
+// then the poster). Title and progress are always visible, like Netflix.
 export default function ContinueWatchingCard({ item }) {
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
-  const [imgError, setImgError] = useState(false);
+  const token = localStorage.getItem('streamulus_token');
+  const sources = [
+    `/api/stream/still/${item.type}/${item.id}?t=${Math.floor(item.position || 0)}&token=${encodeURIComponent(token || '')}`,
+    item.backdrop_url,
+    item.poster_url,
+  ].filter(Boolean);
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const src = sources[sourceIndex];
 
   const pct = item.duration > 0 ? Math.min(98, Math.round((item.position / item.duration) * 100)) : null;
-  const poster = imgError || !item.poster_url ? PLACEHOLDER : item.poster_url;
 
   return (
     <div
       onClick={() => navigate(`/watch/${item.type}/${item.id}`)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      // The zoom is on this outer element and the rounded clip on the inner one —
+      // clipping and scaling the same element lost the corners mid-animation.
       style={{
         position: 'relative',
         borderRadius: '8px',
-        overflow: 'hidden',
         cursor: 'pointer',
         flexShrink: 0,
-        width: '160px',
+        width: '300px',
         transition: 'transform 0.25s, box-shadow 0.25s',
-        transform: hovered ? 'scale(1.06) translateY(-4px)' : 'scale(1)',
+        transform: hovered ? 'scale(1.05) translateY(-4px)' : 'scale(1)',
         boxShadow: hovered ? '0 16px 40px rgba(0,0,0,0.8)' : '0 2px 8px rgba(0,0,0,0.4)',
         zIndex: hovered ? 10 : 1,
       }}
     >
-      <img
-        src={poster}
-        alt={item.title}
-        onError={() => setImgError(true)}
-        style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
-      />
+    <div style={{
+      position: 'relative', borderRadius: '8px', overflow: 'hidden', aspectRatio: '16 / 9', background: '#1e1e1e',
+      WebkitMaskImage: '-webkit-radial-gradient(white, black)', // keeps Safari's rounded clip while scaled
+    }}>
+      {src && (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          onError={() => setSourceIndex(i => i + 1)}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      )}
 
-      {/* Progress bar */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.15)' }}>
-        <div style={{
-          height: '100%',
-          width: pct !== null ? `${pct}%` : '40%',
-          background: '#00c2ff',
-        }} />
-      </div>
-
-      {/* Hover overlay */}
       <div style={{
-        position: 'absolute',
-        inset: 0,
-        background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)',
-        opacity: hovered ? 1 : 0,
-        transition: 'opacity 0.25s',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'flex-end',
-        padding: '10px',
-        paddingBottom: '14px',
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.35) 45%, transparent 75%)',
+        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+        padding: '10px 12px 14px',
       }}>
-        <div style={{ fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '2px', lineHeight: 1.3 }}>
+        <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.title}
         </div>
-        {item.subtitle && (
-          <div style={{ fontSize: '10px', color: '#aaa', marginBottom: '4px' }}>{item.subtitle}</div>
-        )}
-        <div style={{ background: '#00c2ff', color: '#000', borderRadius: '4px', padding: '4px 0', textAlign: 'center', fontSize: '11px', fontWeight: '700' }}>
-          ▶ Resume · {fmtTime(item.position)}
+        <div style={{ fontSize: '12px', color: '#bbb', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {hovered ? `▶ Resume · ${fmtTime(item.position)}` : (item.subtitle || `${fmtTime(item.position)} watched`)}
         </div>
       </div>
+
+      {/* Progress bar */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '4px', background: 'rgba(255,255,255,0.18)' }}>
+        <div style={{ height: '100%', width: pct !== null ? `${pct}%` : '40%', background: '#00c2ff' }} />
+      </div>
+
+      {/* Play button on hover */}
+      <div style={{
+        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -60%)',
+        width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(0,0,0,0.55)', border: '2px solid rgba(255,255,255,0.85)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '18px',
+        opacity: hovered ? 1 : 0, transition: 'opacity 0.2s', pointerEvents: 'none',
+      }}>▶</div>
+    </div>
     </div>
   );
 }

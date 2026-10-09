@@ -213,6 +213,7 @@ router.get('/config', requireAdmin, (req, res) => {
     hlsSegmentDuration: get('hls_segment_duration') ?? '4',
     progressMinSeconds: get('progress_min_seconds') ?? '10',
     upNextSeconds:      get('up_next_seconds')      ?? '30',
+    featuredRotateSeconds: get('featured_rotate_seconds') ?? '120',
     preferredLanguage:  get('preferred_language')   ?? 'en',
     preferredCountry:   get('preferred_country')    ?? 'US',
   });
@@ -224,7 +225,15 @@ router.put('/config', requireAdmin, (req, res) => {
     movieSourceOrder, tvSourceOrder,
     videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration,
     progressMinSeconds, upNextSeconds, preferredLanguage, preferredCountry,
+    featuredRotateSeconds,
   } = req.body;
+  if (featuredRotateSeconds !== undefined) {
+    const raw = String(featuredRotateSeconds).trim();
+    const secs = Number(raw);
+    if (!/^\d+$/.test(raw) || secs < 10 || secs > 86400) {
+      return res.status(400).json({ error: 'Featured movie interval must be a whole number of seconds between 10 and 86400 (24 hours)' });
+    }
+  }
   if (upNextSeconds !== undefined) {
     const secs = parseInt(upNextSeconds);
     if (!(secs >= 5 && secs <= 300)) return res.status(400).json({ error: 'Up Next countdown must be between 5 and 300 seconds' });
@@ -244,6 +253,7 @@ router.put('/config', requireAdmin, (req, res) => {
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
   if (upNextSeconds !== undefined) upsert.run('up_next_seconds', String(parseInt(upNextSeconds)));
+  if (featuredRotateSeconds !== undefined) upsert.run('featured_rotate_seconds', String(Number(String(featuredRotateSeconds).trim())));
   if (preferredLanguage !== undefined) upsert.run('preferred_language', preferredLanguage);
   if (preferredCountry  !== undefined) {
     const current = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value ?? 'US';
@@ -437,6 +447,37 @@ router.post('/movies/:id/refresh', requireAdmin, async (req, res) => {
       .run(result.id, result.overview, result.poster_path, result.backdrop_path, result.vote_average, JSON.stringify(result.genre_ids), movie.id);
   }
   res.json({ success: true, found: !!result });
+});
+
+// ── Fix Match ───────────────────────────────────────────────────
+// Search the configured metadata sources (Settings → source order) for the
+// right movie/show, then apply the chosen result to a library item.
+
+router.get('/match/search', requireAdmin, async (req, res) => {
+  const type = req.query.type === 'show' ? 'show' : 'movie';
+  const query = String(req.query.query || '').trim();
+  const year = /^\d{4}$/.test(String(req.query.year || '').trim()) ? parseInt(req.query.year, 10) : null;
+  if (!query) return res.status(400).json({ error: 'Enter a title to search for' });
+  const result = await require('../services/match').search(type, query, year);
+  if (!result.sources.length) {
+    return res.status(400).json({ error: `No metadata source is set up for ${type === 'movie' ? 'movies' : 'TV shows'} — add an API key in Settings.` });
+  }
+  res.json(result);
+});
+
+router.post('/match/apply', requireAdmin, async (req, res) => {
+  const { type, mediaId, source, id } = req.body || {};
+  if (!['movie', 'show'].includes(type) || !['tmdb', 'tvdb', 'imdb'].includes(source) || !id || !mediaId) {
+    return res.status(400).json({ error: 'type, mediaId, source and id are required' });
+  }
+  try {
+    const { episodes } = await require('../services/match').apply(type, parseInt(mediaId, 10), source, String(id));
+    // English title/overview for the new match (and its episodes, once they've updated).
+    setTimeout(() => require('../services/english').fillMissingEnglish().catch(() => {}), episodes ? 60000 : 0);
+    res.json({ success: true, episodesUpdating: episodes });
+  } catch (e) {
+    res.status(e.status || 502).json({ error: e.message || 'Could not apply that match' });
+  }
 });
 
 // ── Artwork management ──────────────────────────────────────────

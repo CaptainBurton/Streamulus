@@ -1,7 +1,7 @@
 const axios = require('axios');
 const db = require('../database/db');
 
-const TMDB_BASE = 'https://api.themoviedb.org/3';
+const TMDB_BASE = process.env.TMDB_API_BASE || 'https://api.themoviedb.org/3';
 const IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
 const MOVIE_GENRES = {
@@ -41,6 +41,35 @@ async function searchTV(title) {
   try {
     const res = await axios.get(`${TMDB_BASE}/search/tv`, { params: { api_key: apiKey, query: title } });
     return res.data.results[0] || null;
+  } catch { return null; }
+}
+
+// Fix Match: several candidates rather than the best guess.
+async function searchMovieList(title, year) {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+  const params = { api_key: apiKey, query: title };
+  if (year) params.year = year;
+  const res = await axios.get(`${TMDB_BASE}/search/movie`, { params, timeout: 10000 });
+  return (res.data.results || []).slice(0, 12);
+}
+
+async function searchTVList(title, year) {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+  const params = { api_key: apiKey, query: title };
+  if (year) params.first_air_date_year = year;
+  const res = await axios.get(`${TMDB_BASE}/search/tv`, { params, timeout: 10000 });
+  return (res.data.results || []).slice(0, 12);
+}
+
+// Any TMDB path in US English (e.g. '/movie/603'), or null.
+async function getEnglish(path) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}${path}`, { params: { api_key: apiKey, language: 'en-US' }, timeout: 10000 });
+    return res.data;
   } catch { return null; }
 }
 
@@ -178,6 +207,7 @@ function resolveGenreNames(genreIds, isTV = false) {
 }
 
 module.exports = {
+  getApiKey, searchMovieList, searchTVList, getEnglish,
   searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating,
   getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
   getMovieImages, getTVImages,

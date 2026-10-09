@@ -299,6 +299,11 @@ async function scanAllWithProgress(onProgress, filterLibraryId = null) {
   }
 
   onProgress({ type: 'complete', ...grandTotal });
+  // Newly added animated titles: find out which are anime (in the background).
+  require('./languages').fillMissingLanguages()
+    .catch(err => console.error('[languages] Failed:', err.message))
+    .then(() => require('./english').fillMissingEnglish()) // English titles for foreign-language ones
+    .catch(err => console.error('[english] Failed:', err.message));
   // Read runtimes of newly added files in the background ("Ends at" times).
   require('./durations').fillMissingDurations().catch(() => {});
 }

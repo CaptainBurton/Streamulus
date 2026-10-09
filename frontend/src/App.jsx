@@ -9,6 +9,8 @@ import Movies from './pages/Movies';
 import TVShows from './pages/TVShows';
 import Watch from './pages/Watch';
 import MovieDetail from './pages/MovieDetail';
+import Genres from './pages/Genres';
+import Genre from './pages/Genre';
 import TVShow from './pages/TVShow';
 import TVSeason from './pages/TVSeason';
 import Admin from './pages/Admin';
@@ -48,6 +50,8 @@ function AppRoutes() {
       <Route path="/tv/:id" element={<TVShow />} />
       <Route path="/tv/:id/season/:season" element={<TVSeason />} />
       <Route path="/movie/:id" element={<MovieDetail />} />
+      <Route path="/genres" element={<Genres />} />
+      <Route path="/genre/:name" element={<Genre />} />
       <Route path="/watch/:type/:id" element={<Watch />} />
       <Route path="/profiles" element={<ProfilePicker />} />
       <Route path="/profile" element={<ProfileSettings />} />

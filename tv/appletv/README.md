@@ -9,15 +9,19 @@ panel isn't included — use Streamulus in a browser for that.
 - **Sign in** with a username and password, or **Quick Login**: the TV shows a code and a QR
   code; approve it from Streamulus on your phone or computer (profile menu → *Quick Login*,
   or just scan the QR code) and the TV signs itself in.
-- **Who's watching?** with profile pictures, Streamlings (kids profiles) and a remote-friendly
-  PIN pad for locked profiles.
-- **Home**: Continue Watching, recently added movies and shows. **Movies** and **TV Shows** grids.
-- **Movie / show pages**: Resume, Play from Beginning, Mark as Watched, runtime and "Ends at".
-  Shows have a season picker and episode list.
-- **Playback** in Apple's native player (Siri Remote scrubbing, info panel). Progress is saved
-  every 10 seconds and when you leave, so it carries over to the website and back. When an
-  episode ends, the next one starts from the beginning.
-- **Liquid Glass**: glass buttons, labels and panels; the system tab bar is glass too.
+- **Who's watching?** with round profile pictures, Streamlings (kids profiles), a remote-friendly
+  PIN pad, and the account password when the parental lock asks for it.
+- **Home**: a featured banner (artwork, title logo, Play Now / More Info), Continue Watching with a
+  frame from where you stopped, recently added movies and shows.
+- **Movies** and **TV Shows**: 6-across grids grouped A–Z, with an alphabet rail on the right and a
+  big letter while you scroll.
+- **Movie / show pages**: title logo, Resume, Play from Beginning, Mark as Watched, runtime and
+  "Ends at", cast, and More Like This. Shows have a season picker and episode list.
+- **Player**: custom controls (click = play/pause, left/right = 10 s, Back = close), progress bar
+  with "Ends at", and an **Up Next** card near the end of episodes (Play Now / Hide). Progress
+  saves every 10 seconds and when you leave; the next episode starts from the beginning.
+- **Liquid Glass**: glass buttons, labels and panels; the system tab bar is glass too and shows
+  your profile picture.
 
 ## Requirements
 
@@ -47,7 +51,7 @@ server runs in Docker.
 - Plain `http://` to your server is allowed (`Info.plist` → App Transport Security), since home
   servers rarely have HTTPS.
 - Your sign-in token is stored in the Keychain; the server address in app settings.
-- There's no app icon yet — add one in `Assets.xcassets` (New tvOS App Icon & Top Shelf Image)
-  and set it under the target's **General → App Icons** whenever you like.
+- The app icon and Top Shelf images (`Assets.xcassets`) are the web logo on black, as layered
+  images so the icon tilts when focused.
 - `generate_project.rb` rebuilds the Xcode project from the files in `Streamulus/`. You only need
   it if files are added outside Xcode (`gem install xcodeproj && ruby generate_project.rb`).

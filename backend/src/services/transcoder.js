@@ -50,30 +50,92 @@ function makeKey(filePath, startTime) {
     .slice(0, 24);
 }
 
-function probeFile(filePath) {
+function runProbe(args) {
   return new Promise((resolve) => {
-    const proc = spawn('ffprobe', [
-      '-v', 'quiet', '-print_format', 'json',
-      '-show_format', '-show_streams', filePath,
-    ], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const proc = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'ignore'] });
     let out = '';
     proc.stdout.on('data', d => { out += d.toString(); });
-    proc.on('error', () => resolve({ duration: 0, vCodec: null, aCodec: null }));
-    proc.on('exit', () => {
-      try {
-        const parsed = JSON.parse(out);
-        const duration = parseFloat(parsed.format?.duration) || 0;
-        const streams = parsed.streams || [];
-        const vStream = streams.find(s => s.codec_type === 'video');
-        const aStream = streams.find(s => s.codec_type === 'audio');
-        resolve({
-          duration,
-          vCodec: vStream?.codec_name || null,
-          aCodec: aStream?.codec_name || null,
-        });
-      } catch { resolve({ duration: 0, vCodec: null, aCodec: null }); }
-    });
+    proc.on('error', () => resolve(''));
+    proc.on('exit', () => resolve(out));
   });
+}
+
+const EMPTY_PROBE = { duration: 0, vCodec: null, aCodec: null, video: null, audio: null };
+
+async function probeFile(filePath) {
+  const out = await runProbe(['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filePath]);
+  try {
+    const parsed = JSON.parse(out);
+    const duration = parseFloat(parsed.format?.duration) || 0;
+    const streams = parsed.streams || [];
+    // Skip embedded cover art: MKV/MP4 files often carry the poster as a
+    // one-frame "video" stream, sometimes listed before the film itself.
+    const IMAGE_CODECS = ['mjpeg', 'png', 'bmp', 'gif', 'webp'];
+    const videos = streams.filter(s => s.codec_type === 'video' && !s.disposition?.attached_pic);
+    const video = videos.find(s => !IMAGE_CODECS.includes(s.codec_name)) || videos[0] || null;
+    const audio = streams.find(s => s.codec_type === 'audio') || null;
+    return { duration, vCodec: video?.codec_name || null, aCodec: audio?.codec_name || null, video, audio };
+  } catch { return EMPTY_PROBE; }
+}
+
+// Longest gap between keyframes in two short samples (start and middle of the
+// file). Reads packet headers only — no decoding.
+async function maxKeyframeGap(filePath, streamIndex, duration) {
+  const intervals = ['%+20'];
+  if (duration > 120) intervals.push(`${Math.floor(duration / 2)}%+20`);
+  const out = await runProbe([
+    '-v', 'quiet', '-select_streams', String(streamIndex),
+    '-read_intervals', intervals.join(','),
+    '-show_entries', 'packet=pts_time,flags', '-of', 'csv=p=0', filePath,
+  ]);
+  let maxGap = 0, keyframes = 0, last = null;
+  for (const line of out.split('\n')) {
+    const [pts, flags] = line.trim().split(',');
+    const t = parseFloat(pts);
+    if (!flags || !flags.includes('K') || isNaN(t)) continue;
+    keyframes++;
+    // A jump backwards or far forward is the start of the second sample.
+    if (last !== null && t > last && t - last < 25) maxGap = Math.max(maxGap, t - last);
+    last = t;
+  }
+  return keyframes >= 2 ? maxGap : Infinity;
+}
+
+// Whether the source video can go into the HLS stream as-is. Apple TV and
+// Safari only decode 8-bit 4:2:0 progressive H.264 (High profile at most), and
+// the playlist lists one segment every `segmentDuration` seconds from the
+// start, which only matches what FFmpeg writes when it can cut there — i.e.
+// when there is a keyframe at least that often. Many movie encodes only have
+// one every ~10 s (x264's default), so copying them gave a playlist whose
+// segments didn't match their contents and Apple TV refused to play
+// ("CoreMediaErrorDomain error -12971").
+const copyCache = new Map(); // filePath → { mtimeMs, copy, reason }
+async function canCopyVideo(filePath, video, duration, segmentDuration) {
+  if (!video || video.codec_name !== 'h264') return { copy: false, reason: `codec ${video?.codec_name || 'none'}` };
+  const pixFmt = video.pix_fmt || '';
+  if (pixFmt && !['yuv420p', 'yuvj420p'].includes(pixFmt)) return { copy: false, reason: `pixel format ${pixFmt}` };
+  const profile = (video.profile || '').toLowerCase();
+  if (profile && !['baseline', 'constrained baseline', 'main', 'high'].includes(profile)) return { copy: false, reason: `profile ${video.profile}` };
+  if (video.level > 52) return { copy: false, reason: `level ${video.level}` };
+  if (['tt', 'bb', 'tb', 'bt'].includes(video.field_order)) return { copy: false, reason: 'interlaced' };
+
+  let mtimeMs = 0;
+  try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch {}
+  const cached = copyCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached;
+  const gap = await maxKeyframeGap(filePath, video.index, duration);
+  const result = gap <= segmentDuration + 0.1
+    ? { mtimeMs, copy: true, reason: `keyframes every ≤${gap.toFixed(1)}s` }
+    : { mtimeMs, copy: false, reason: `keyframes up to ${isFinite(gap) ? gap.toFixed(1) + 's' : '?'} apart` };
+  copyCache.set(filePath, result);
+  return result;
+}
+
+// AAC (LC or HE) in up to 5.1 channels plays everywhere, so it can be copied.
+function canCopyAudio(audio) {
+  if (!audio || audio.codec_name !== 'aac') return false;
+  if ((audio.channels || 2) > 6) return false;
+  return !audio.profile || ['lc', 'he-aac', 'he-aacv2'].includes(audio.profile.toLowerCase());
 }
 
 function getSettings() {
@@ -88,7 +150,7 @@ function getSettings() {
   };
 }
 
-function buildVideoFilter(resolution) {
+function buildVideoFilter(resolution, deinterlace) {
   const even = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
   const fmt = 'format=yuv420p';
   const limits = {
@@ -96,12 +158,25 @@ function buildVideoFilter(resolution) {
     '720':  'scale=1280:720:force_original_aspect_ratio=decrease',
     '480':  'scale=854:480:force_original_aspect_ratio=decrease',
   };
-  return limits[resolution] ? `${limits[resolution]},${even},${fmt}` : `${even},${fmt}`;
+  const filters = [
+    ...(deinterlace ? ['yadif'] : []),
+    ...(limits[resolution] ? [limits[resolution]] : []),
+    even, fmt,
+  ];
+  return filters.join(',');
 }
 
-// copyMode: when true, source is H.264 — skip video re-encoding for speed.
-// audioCopy: when true, source audio is AAC — copy it too (zero transcoding).
-function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, copyMode = false, audioCopy = false) {
+// media (from getHLSSession):
+//   copyMode   — the source video can be copied as-is (see canCopyVideo)
+//   audioCopy  — the source audio is AAC that can be copied as-is
+//   vMap/aMap  — FFmpeg -map specifiers for the film's video and audio streams
+//   deinterlace, audioMaxChannels
+function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, media = {}) {
+  const { copyMode = false, audioCopy = false, vMap = '0:v:0', aMap = '0:a:0?', deinterlace = false, audioMaxChannels = 0 } = media;
+  // "Original" channels still has to fit AAC in HLS: at most 5.1.
+  const channels = settings.audioChannels !== 'original'
+    ? settings.audioChannels
+    : (audioMaxChannels > 6 ? '6' : null);
   return [
     '-hide_banner', '-loglevel', 'warning',
     '-fflags', '+genpts+discardcorrupt',
@@ -109,7 +184,7 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
     '-avoid_negative_ts', 'make_zero',
     ...(startSec > 0 ? ['-ss', String(startSec)] : []),
     '-i', filePath,
-    '-map', '0:v:0', '-map', '0:a:0?', '-sn',
+    '-map', vMap, '-map', aMap, '-sn', '-dn',
     ...(copyMode ? [
       '-c:v', 'copy',
     ] : [
@@ -118,7 +193,7 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
       '-threads', '0',
       '-profile:v', 'high', '-level:v', '5.1',
       '-pix_fmt', 'yuv420p',
-      '-vf', buildVideoFilter(settings.resolution),
+      '-vf', buildVideoFilter(settings.resolution, deinterlace),
       '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
       // Force keyframes at exact segment boundaries regardless of source framerate.
       // -g/-keyint_min depends on fps (e.g. -g 120 at 24fps = 5s GOPs, wrong for 4s segments).
@@ -130,7 +205,7 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
       '-c:a', 'copy',
     ] : [
       '-c:a', 'aac', '-b:a', settings.audioBitrate,
-      ...(settings.audioChannels !== 'original' ? ['-ac', settings.audioChannels] : []),
+      ...(channels ? ['-ac', channels] : []),
       '-ar', '48000',
     ]),
     ...(outputTsOffset > 0 ? ['-output_ts_offset', String(outputTsOffset)] : []),
@@ -155,8 +230,10 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
 // delayed the first frame (3 × 4 s segments = 12 s of video encoded up front).
 const INITIAL_SEGMENT_BUFFER = 1;
 
-async function getHLSSession(filePath, startTime = 0) {
-  const key = makeKey(filePath, startTime);
+// compat: always re-encode (H.264 + AAC) — the Apple TV app asks for this when
+// a stream fails to play, in case copying the source was the problem.
+async function getHLSSession(filePath, startTime = 0, { compat = false } = {}) {
+  const key = makeKey(compat ? `${filePath}#compat` : filePath, startTime);
 
   // A new stream of this file (the player seeked somewhere outside its current
   // stream, or reopened it) — stop transcoding for its other streams.
@@ -181,13 +258,23 @@ async function getHLSSession(filePath, startTime = 0) {
   }
 
   const settings = getSettings();
-  const { duration: totalDuration, vCodec, aCodec } = await probeFile(filePath);
+  const { duration: totalDuration, vCodec, aCodec, video, audio } = await probeFile(filePath);
   require('./durations').recordDuration(filePath, totalDuration); // for "Ends at" times
-  // Copy mode: if source is already H.264, skip video re-encoding (10-50x faster segment gen)
-  const copyMode = vCodec === 'h264';
-  // Only copy audio when both video AND audio can be passthrough — AAC in TS is universally supported.
-  const audioCopy = copyMode && aCodec === 'aac';
-  if (copyMode) console.log(`[transcode] Copy mode: ${path.basename(filePath)} video=${vCodec} audio=${aCodec} audioCopy=${audioCopy}`);
+  // Copy mode: if the source is H.264 the player can take as-is, skip video
+  // re-encoding (10-50x faster segment generation).
+  const copyCheck = compat ? { copy: false, reason: 'compatibility mode' }
+    : await canCopyVideo(filePath, video, totalDuration, settings.segmentDuration);
+  const copyMode = copyCheck.copy;
+  // Only copy audio when both video AND audio can be passthrough.
+  const audioCopy = copyMode && canCopyAudio(audio);
+  const media = {
+    copyMode, audioCopy,
+    vMap: video ? `0:${video.index}` : '0:v:0',
+    aMap: audio ? `0:${audio.index}` : '0:a:0?',
+    deinterlace: ['tt', 'bb', 'tb', 'bt'].includes(video?.field_order),
+    audioMaxChannels: audio?.channels || 0,
+  };
+  console.log(`[transcode] ${copyMode ? 'Copy' : 'Transcode'} mode (${copyCheck.reason}): ${path.basename(filePath)} video=${vCodec} audio=${aCodec} audioCopy=${audioCopy}`);
 
   const dir = path.join(HLS_BASE, key);
   fs.mkdirSync(dir, { recursive: true });
@@ -201,7 +288,7 @@ async function getHLSSession(filePath, startTime = 0) {
   // Each entry { fromIdx, dir } maps a range of global segment indices to a
   // local directory where FFmpeg wrote seg00000.ts, seg00001.ts, ...
   // Global segment N → seek point with highest fromIdx ≤ N → local file seg{N-fromIdx}.ts
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, totalDuration, settings, copyMode, audioCopy, ffmpegDone: false, seekPoints: [{ fromIdx: 0, dir }] };
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, totalDuration, settings, copyMode, audioCopy, media, ffmpegDone: false, seekPoints: [{ fromIdx: 0, dir }] };
 
   // Precompute a VOD manifest so Safari and Apple TV see a scrubber instead of
   // a "Live" badge from the very first request.  Copy mode uses approximate
@@ -232,7 +319,7 @@ async function getHLSSession(filePath, startTime = 0) {
   sessions.set(key, session);
   pauseOthers(session);
 
-  const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir, 0, copyMode, audioCopy);
+  const ffmpegArgs = buildFfmpegArgs(filePath, startTime, settings, dir, 0, media);
 
   console.log(`[transcode] Starting FFmpeg for: ${path.basename(filePath)} start=${startTime}s`);
   console.log(`[transcode] Command: ffmpeg ${ffmpegArgs.join(' ')}`);
@@ -465,7 +552,7 @@ async function getSegmentPath(key, segmentName) {
     // resume position, so the player stalled waiting for the right timestamps.
     const tsOffset = requestedIdx * session.settings.segmentDuration;
     const proc = spawn('ffmpeg',
-      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, tsOffset, session.copyMode, session.audioCopy),
+      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, tsOffset, session.media),
       { stdio: ['ignore', 'ignore', 'pipe'] });
     session.process = proc;
     proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));

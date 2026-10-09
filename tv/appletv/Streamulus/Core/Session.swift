@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Which screen the app shows, and the signed-in account/profile.
 @MainActor
@@ -15,7 +16,11 @@ final class Session: ObservableObject {
 
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var user: User?
-    @Published private(set) var profile: Profile?
+    @Published private(set) var profile: Profile? {
+        didSet { if profile != oldValue { Task { await refreshTabAvatar() } } }
+    }
+    /// Small round picture of the current profile for the tab bar (still).
+    @Published private(set) var tabAvatar: UIImage?
     @Published private(set) var serverURL: URL?
 
     private var api: APIClient?
@@ -122,9 +127,11 @@ final class Session: ObservableObject {
         return response.profiles
     }
 
-    func selectProfile(_ target: Profile, pin: String?) async throws {
+    /// Switch profile. `pin` / `password` when the profile list says it needs one.
+    func selectProfile(_ target: Profile, pin: String? = nil, password: String? = nil) async throws {
         var body: [String: Any] = [:]
         if let pin { body["pin"] = pin }
+        if let password { body["password"] = password }
         let response: SelectProfileResponse = try await post("/api/profiles/\(target.id)/select", body: body)
         Keychain.set(response.token, for: Self.tokenKey)
         api?.token = response.token
@@ -136,6 +143,14 @@ final class Session: ObservableObject {
         phase = .pickingProfile
     }
 
+    /// Show titles and descriptions in English (this profile, web and TV).
+    /// Screens reload their lists when `profile` changes.
+    func setEnglishTitles(_ on: Bool) async throws {
+        guard let current = profile else { return }
+        let response: UpdateProfileResponse = try await signedIn { try await $0.put("/api/profiles/\(current.id)", body: ["english_titles": on]) }
+        profile = response.profile
+    }
+
     // MARK: Requests (signed in)
 
     func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type = T.self) async throws -> T {
@@ -144,6 +159,18 @@ final class Session: ObservableObject {
 
     func post<T: Decodable>(_ path: String, body: [String: Any] = [:], as type: T.Type = T.self) async throws -> T {
         try await signedIn { try await $0.post(path, body: body) }
+    }
+
+    func getText(_ path: String) async throws -> String {
+        try await signedIn { try await $0.getText(path) }
+    }
+
+    /// Subtitles: the WebVTT text and whether it's complete (the server serves
+    /// what it has read so far while it extracts subtitles from a big file).
+    func getSubtitles(_ path: String) async throws -> (text: String, complete: Bool) {
+        let response = try await signedIn { try await $0.getTextResponse(path) }
+        let flag = response.headers.first { String(describing: $0.key).lowercased() == "x-subtitles-complete" }?.value as? String
+        return (response.text, flag != "0")
     }
 
     /// Runs a request; a 401 (expired token, removed profile) signs out.
@@ -161,6 +188,48 @@ final class Session: ObservableObject {
         return api
     }
 
+    // MARK: Tab bar avatar
+
+    private func refreshTabAvatar() async {
+        guard let profile else { tabAvatar = nil; return }
+        var photo: UIImage?
+        if let url = imageURL(profile.avatarPath) {
+            photo = await AnimatedImageLoader.load(url, maxPixelSize: 96)
+        }
+        guard self.profile?.id == profile.id else { return }
+        // Tab bar icons are shown at their own size, so keep this within the bar's height.
+        // A GIF shows its first frame.
+        tabAvatar = Self.roundAvatar(photo: photo?.images?.first ?? photo, profile: profile, size: 32)
+    }
+
+    /// Circle-cropped photo, or the profile's initial on its gradient.
+    private static func roundAvatar(photo: UIImage?, profile: Profile, size: CGFloat) -> UIImage {
+        let rect = CGRect(x: 0, y: 0, width: size, height: size)
+        let image = UIGraphicsImageRenderer(size: rect.size).image { context in
+            UIBezierPath(ovalIn: rect).addClip()
+            if let photo {
+                let scale = max(size / photo.size.width, size / photo.size.height)
+                let drawSize = CGSize(width: photo.size.width * scale, height: photo.size.height * scale)
+                photo.draw(in: CGRect(x: (size - drawSize.width) / 2, y: (size - drawSize.height) / 2, width: drawSize.width, height: drawSize.height))
+            } else {
+                let colors = profile.isKids
+                    ? [UIColor(red: 1, green: 0.72, blue: 0.01, alpha: 1).cgColor, UIColor(red: 0.98, green: 0.34, blue: 0.03, alpha: 1).cgColor]
+                    : [UIColor(red: 0, green: 0.76, blue: 1, alpha: 1).cgColor, UIColor(red: 0.48, green: 0.18, blue: 1, alpha: 1).cgColor]
+                if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1]) {
+                    context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size, y: size), options: [])
+                }
+                let initial = String(profile.name.prefix(1)).uppercased() as NSString
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: size * 0.45, weight: .bold),
+                    .foregroundColor: UIColor.white,
+                ]
+                let textSize = initial.size(withAttributes: attributes)
+                initial.draw(at: CGPoint(x: (size - textSize.width) / 2, y: (size - textSize.height) / 2), withAttributes: attributes)
+            }
+        }
+        return image.withRenderingMode(.alwaysOriginal)
+    }
+
     // MARK: URLs
 
     /// Artwork URL: full URLs as-is, uploads from this server, other paths from TMDB.
@@ -172,11 +241,22 @@ final class Session: ObservableObject {
         return nil
     }
 
-    /// HLS stream for a movie/episode, starting `start` seconds in.
-    func streamURL(type: MediaType, id: Int, start: Int) -> URL? {
+    /// A frame from `seconds` into the movie/episode (Continue Watching).
+    func stillURL(type: String, id: Int, at seconds: Int) -> URL? {
+        guard let api, let token = api.token else { return nil }
+        return api.url("/api/stream/still/\(type)/\(id)", query: [
+            URLQueryItem(name: "t", value: String(seconds)),
+            URLQueryItem(name: "token", value: token),
+        ])
+    }
+
+    /// HLS stream for a movie/episode, starting `start` seconds in. `compat` asks
+    /// the server to re-encode everything instead of copying the source.
+    func streamURL(type: MediaType, id: Int, start: Int, compat: Bool = false) -> URL? {
         guard let api, let token = api.token else { return nil }
         var query = [URLQueryItem(name: "token", value: token)]
         if start > 0 { query.append(URLQueryItem(name: "start", value: String(start))) }
+        if compat { query.append(URLQueryItem(name: "compat", value: "1")) }
         return api.url("/api/stream/hls/\(type.rawValue)/\(id)/manifest.m3u8", query: query)
     }
 }

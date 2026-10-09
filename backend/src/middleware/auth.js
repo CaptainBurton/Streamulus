@@ -35,7 +35,8 @@ function authenticate(req, res, next) {
 
   req.user = user;
   req.profile = profile;
-  next();
+  // Titles/overviews in English for profiles that asked for it (services/locale.js).
+  require('../services/locale').run(req, res, next);
 }
 
 function requireAdmin(req, res, next) {

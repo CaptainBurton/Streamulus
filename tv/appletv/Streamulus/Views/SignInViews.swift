@@ -217,42 +217,56 @@ struct QuickLoginView: View {
 struct ProfilePickerView: View {
     @EnvironmentObject private var session: Session
     @State private var profiles: [Profile] = []
-    @State private var pinFor: Profile?
+    @State private var prompt: (profile: Profile, kind: String)? // kind: "pin" | "password"
     @State private var errorText: String?
 
     var body: some View {
         VStack(spacing: 60) {
-            if let pinFor {
-                PinPad(profile: pinFor, errorText: errorText, onSubmit: { pin in await choose(pinFor, pin: pin) }, onCancel: {
-                    self.pinFor = nil
-                    errorText = nil
-                })
+            if let prompt {
+                if prompt.kind == "pin" {
+                    PinPad(profile: prompt.profile, errorText: errorText,
+                           onSubmit: { pin in await choose(prompt.profile, pin: pin) },
+                           onCancel: cancelPrompt)
+                } else {
+                    PasswordPrompt(profile: prompt.profile, errorText: errorText,
+                                   onSubmit: { password in await choose(prompt.profile, password: password) },
+                                   onCancel: cancelPrompt)
+                }
             } else {
                 Text("Who's watching?").font(.system(size: 64, weight: .bold))
                 if let errorText { Text(errorText).foregroundStyle(.red) }
-                HStack(spacing: 60) {
+                HStack(alignment: .top, spacing: 70) {
                     ForEach(profiles) { profile in
-                        VStack(spacing: 18) {
+                        VStack(spacing: 24) {
                             Button {
-                                if profile.hasPin && profile.id != session.profile?.id {
+                                if let needs = profile.requires {
                                     errorText = nil
-                                    pinFor = profile
+                                    prompt = (profile: profile, kind: needs)
                                 } else {
-                                    Task { await choose(profile, pin: nil) }
+                                    Task { await choose(profile) }
                                 }
                             } label: {
                                 ProfileAvatar(profile: profile, size: 220)
-                                    .overlay(alignment: .bottomTrailing) {
-                                        if profile.hasPin {
-                                            Image(systemName: "lock.fill").padding(14).glassEffect(.regular, in: .circle).padding(10)
+                                    // Inside the circle, so Streamling tiles line up with the others.
+                                    .overlay(alignment: .bottom) {
+                                        if profile.isKids {
+                                            Text("STREAMLING")
+                                                .font(.caption2.weight(.heavy))
+                                                .foregroundStyle(.black)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 6)
+                                                .background(Theme.streamling, in: Capsule())
+                                                .padding(.bottom, 18)
+                                        }
+                                    }
+                                    .overlay(alignment: .topTrailing) {
+                                        if profile.requires != nil {
+                                            Image(systemName: "lock.fill").padding(14).glassEffect(.regular, in: .circle)
                                         }
                                     }
                             }
-                            .buttonStyle(.card)
+                            .buttonStyle(AvatarButtonStyle())
                             Text(profile.name).font(.headline)
-                            if profile.isKids {
-                                Text("STREAMLING").font(.caption.weight(.heavy)).foregroundStyle(Theme.streamling)
-                            }
                         }
                     }
                 }
@@ -264,6 +278,11 @@ struct ProfilePickerView: View {
         .task { await load() }
     }
 
+    private func cancelPrompt() {
+        prompt = nil
+        errorText = nil
+    }
+
     private func load() async {
         do {
             profiles = try await session.profiles()
@@ -272,11 +291,78 @@ struct ProfilePickerView: View {
         }
     }
 
-    private func choose(_ profile: Profile, pin: String?) async {
+    private func choose(_ profile: Profile, pin: String? = nil, password: String? = nil) async {
         do {
-            try await session.selectProfile(profile, pin: pin)
+            try await session.selectProfile(profile, pin: pin, password: password)
+        } catch let error as APIError {
+            // The server says what it needs — switch to that prompt.
+            if error.code == "PIN_REQUIRED" { prompt = (profile: profile, kind: "pin") }
+            if error.code == "PASSWORD_REQUIRED" { prompt = (profile: profile, kind: "password") }
+            errorText = error.message
         } catch {
             errorText = error.localizedDescription
+        }
+    }
+}
+
+/// Round profile picture that grows and gets a white ring when focused.
+struct AvatarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        AvatarButtonLabel(configuration: configuration)
+    }
+}
+
+private struct AvatarButtonLabel: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        configuration.label
+            .overlay(Circle().stroke(Color.white, lineWidth: isFocused ? 8 : 0))
+            .scaleEffect(configuration.isPressed ? 1.04 : (isFocused ? 1.12 : 1))
+            .shadow(color: .black.opacity(isFocused ? 0.6 : 0), radius: 24, y: 12)
+            .animation(.easeOut(duration: 0.15), value: isFocused)
+    }
+}
+
+/// Account password, for leaving a Streamling when the parental lock asks for it.
+struct PasswordPrompt: View {
+    let profile: Profile
+    let errorText: String?
+    let onSubmit: (String) async -> Void
+    let onCancel: () -> Void
+
+    @State private var password = ""
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 36) {
+            ProfileAvatar(profile: profile, size: 150)
+            Text("Enter your account password to switch to \(profile.name)").font(.title2)
+            SecureField("Password", text: $password)
+                .textContentType(.password)
+                .frame(width: 700)
+            if let errorText { Text(errorText).foregroundStyle(.red) }
+            GlassEffectContainer(spacing: 30) {
+                HStack(spacing: 30) {
+                    Button {
+                        busy = true
+                        let entered = password
+                        Task {
+                            await onSubmit(entered)
+                            password = ""
+                            busy = false
+                        }
+                    } label: {
+                        Text(busy ? "Checking…" : "Continue").frame(width: 260)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .disabled(password.isEmpty || busy)
+
+                    Button("Cancel", action: onCancel)
+                        .buttonStyle(.glass)
+                }
+            }
         }
     }
 }

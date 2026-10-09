@@ -15,6 +15,7 @@ export default function ProfileSettings() {
   const navigate = useNavigate();
   const [profiles, setProfiles] = useState([]);
   const [maxProfiles, setMaxProfiles] = useState(6);
+  const [parentalLock, setParentalLock] = useState(null); // { enabled, method }
   const [flash, setFlash] = useState(null); // { text, error }
 
   const isMain = !!profile?.is_main;
@@ -31,6 +32,7 @@ export default function ProfileSettings() {
   const loadProfiles = () => axios.get('/api/profiles').then(r => {
     setProfiles(r.data.profiles);
     setMaxProfiles(r.data.maxProfiles || 6);
+    setParentalLock(r.data.parentalLock || null);
   }).catch(() => {});
   useEffect(() => { loadProfiles(); }, []);
 
@@ -71,10 +73,16 @@ export default function ProfileSettings() {
           <ProfileEditor p={profile} self canManage={isMain} onChanged={afterProfileChange} say={say} errText={errText} />
         )}
 
+        <LanguageSection profile={profile} onChanged={refresh} say={say} errText={errText} />
+
         {!isKids && (
           <Card title="Quick Login" subtitle="Sign in your Apple TV or another device without typing your password: choose Quick Login on that device, then enter the code it shows here.">
             <Btn primary onClick={() => navigate('/quick-login')}>Enter a Quick Login code</Btn>
           </Card>
+        )}
+
+        {isMain && !isKids && parentalLock && (
+          <ParentalLockSection lock={parentalLock} onChanged={setParentalLock} say={say} errText={errText} />
         )}
 
         {isMain && !isKids && <AccountSection user={user} onChanged={refresh} say={say} errText={errText} />}
@@ -217,6 +225,78 @@ function AddProfile({ onAdded, say, errText }) {
       </label>
       <Btn type="submit" primary disabled={busy || !name.trim()}>+ Add Profile</Btn>
     </form>
+  );
+}
+
+// ── Parental lock (main profile only) ────────────────────────────────────────
+// ── Titles in English (any profile, Streamlings too) ─────────────────────────
+function LanguageSection({ profile, onChanged, say, errText }) {
+  const [busy, setBusy] = useState(false);
+  const on = !!profile.english_titles;
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      await axios.put(`/api/profiles/${profile.id}`, { english_titles: !on });
+      await onChanged();
+      say(!on ? 'Titles and descriptions will show in English' : 'Titles and descriptions will show as stored');
+    } catch (err) { say(errText(err, "Couldn't save that setting"), true); }
+    setBusy(false);
+  };
+  return (
+    <Card title="Language" subtitle="For movies and shows whose title or description is in another language (often anime and foreign shows).">
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', cursor: 'pointer' }}>
+        <span>
+          <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#ccc' }}>Show titles and descriptions in English</span>
+          <span style={{ display: 'block', fontSize: '12px', color: '#666', marginTop: '2px' }}>Where an English version is available. Applies to this profile, on the web and the Apple TV.</span>
+        </span>
+        <button type="button" role="switch" aria-checked={on} aria-label="Show titles and descriptions in English" disabled={busy} onClick={toggle}
+          style={{ width: '46px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0,
+            background: on ? '#00c2ff' : 'rgba(255,255,255,0.15)', transition: 'background 0.2s' }}>
+          <span style={{ position: 'absolute', top: '3px', left: on ? '23px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+        </button>
+      </label>
+    </Card>
+  );
+}
+
+function ParentalLockSection({ lock, onChanged, say, errText }) {
+  const [busy, setBusy] = useState(false);
+  const save = async (changes) => {
+    setBusy(true);
+    try {
+      const r = await axios.put('/api/auth/account/parental-lock', changes);
+      onChanged(r.data.parentalLock);
+      say(r.data.parentalLock.enabled ? 'Parental lock saved' : 'Parental lock turned off');
+    } catch (err) { say(errText(err, "Couldn't save the parental lock"), true); }
+    setBusy(false);
+  };
+  const option = (value, title, hint) => (
+    <label style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '12px 14px', borderRadius: '10px', cursor: lock.enabled ? 'pointer' : 'default',
+      background: lock.method === value && lock.enabled ? 'rgba(0,194,255,0.08)' : 'rgba(255,255,255,0.03)',
+      border: `1px solid ${lock.method === value && lock.enabled ? 'rgba(0,194,255,0.35)' : 'rgba(255,255,255,0.08)'}` }}>
+      <input type="radio" name="lock-method" checked={lock.method === value} disabled={busy || !lock.enabled}
+        onChange={() => save({ method: value })} style={{ marginTop: '3px', accentColor: '#00c2ff' }} />
+      <span>
+        <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#ddd' }}>{title}</span>
+        <span style={{ display: 'block', fontSize: '12px', color: '#666', marginTop: '2px' }}>{hint}</span>
+      </span>
+    </label>
+  );
+  return (
+    <Card title="Parental lock" subtitle="Stops Streamlings switching to a grown-up profile on their own.">
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', marginBottom: '16px', cursor: 'pointer' }}>
+        <span style={{ fontSize: '14px', fontWeight: 600, color: '#ccc' }}>Lock grown-up profiles when leaving a Streamling</span>
+        <button type="button" role="switch" aria-checked={lock.enabled} disabled={busy} onClick={() => save({ enabled: !lock.enabled })}
+          style={{ width: '46px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0,
+            background: lock.enabled ? '#00c2ff' : 'rgba(255,255,255,0.15)', transition: 'background 0.2s' }}>
+          <span style={{ position: 'absolute', top: '3px', left: lock.enabled ? '23px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+        </button>
+      </label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', opacity: lock.enabled ? 1 : 0.45 }}>
+        {option('password', 'Account password', 'Ask for the password you sign in with.')}
+        {option('pin', 'Profile PIN', "Ask for the profile's PIN — or the account password if that profile has no PIN.")}
+      </div>
+    </Card>
   );
 }
 
