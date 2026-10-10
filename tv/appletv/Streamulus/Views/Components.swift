@@ -1,16 +1,6 @@
 import SwiftUI
 import UIKit
 
-struct Logo: View {
-    var size: CGFloat = 72
-
-    var body: some View {
-        Text("STREAMULUS")
-            .font(.system(size: size, weight: .heavy))
-            .foregroundStyle(Theme.logoGradient)
-    }
-}
-
 /// Remote image that fills its frame, with a dark placeholder while loading.
 struct RemoteImage: View {
     let url: URL?

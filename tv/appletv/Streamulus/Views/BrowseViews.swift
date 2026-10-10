@@ -358,7 +358,17 @@ struct FeaturedHero: View {
                 }
             }
             .padding(.horizontal, 80)
-            .padding(.bottom, 40)
+            // Keep the buttons (and their focus growth) inside the TV's 60 pt bottom
+            // margin. Below it, tvOS scrolled Home down to show the highlighted button,
+            // and a page scrolled off its top doesn't let "up" reach the tab bar.
+            .padding(.bottom, 70)
+        }
+        // Whose app this is: the logo (and/or name, per Admin › Branding) top-left.
+        .overlay(alignment: .topLeading) {
+            BrandMark(size: 30)
+                .shadow(color: .black.opacity(0.5), radius: 10)
+                .padding(.leading, 80)
+                .padding(.top, 58)
         }
         .containerRelativeFrame(.horizontal, alignment: .leading)
         .frame(height: Self.height)
@@ -776,7 +786,11 @@ struct AccountView: View {
             .disabled(savingEnglish)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Server: \(session.serverURL?.absoluteString ?? "")")
+                Text("Server: \(session.serverURL?.absoluteString ?? "")"
+                     + (session.usingPublicAddress ? " — away from home, using the public address" : ""))
+                if let publicURL = session.publicURL, !session.usingPublicAddress {
+                    Text("Public address (used away from home): \(publicURL.absoluteString)")
+                }
                 Text("App version \(Self.appVersion)")
                 Text("To sign in another TV or browser without a password, choose Quick Login on it, then approve the code from Streamulus on your phone or computer.")
             }

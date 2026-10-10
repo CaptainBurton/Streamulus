@@ -48,7 +48,7 @@ struct UnreachableView: View {
 
     var body: some View {
         VStack(spacing: 40) {
-            Logo()
+            BrandMark(size: 60)
             Text("Can't reach your Streamulus server").font(.title2)
             Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 1100)
             GlassEffectContainer(spacing: 40) {

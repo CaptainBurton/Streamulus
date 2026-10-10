@@ -21,26 +21,63 @@ final class Session: ObservableObject {
     }
     /// Small round picture of the current profile for the tab bar (still).
     @Published private(set) var tabAvatar: UIImage?
+    /// The address in use right now: the home one, or the public one when away.
     @Published private(set) var serverURL: URL?
+    /// The address entered when setting up (usually on the home network).
+    @Published private(set) var homeURL: URL?
+    /// The server's public address (Admin › Settings › Remote Access, e.g. a
+    /// Tailscale Funnel URL), learned from the server; used when home doesn't answer.
+    @Published private(set) var publicURL: URL?
+    /// Logo / text settings from Admin › Settings › Branding.
+    @Published private(set) var branding = Branding.default
+
+    var usingPublicAddress: Bool { serverURL != nil && serverURL == publicURL && serverURL != homeURL }
 
     private var api: APIClient?
 
     private static let serverKey = "serverURL"
+    private static let publicKey = "publicServerURL"
     private static let tokenKey = "token"
 
     init() {
         if let saved = UserDefaults.standard.string(forKey: Self.serverKey), let url = URL(string: saved) {
+            homeURL = url
             serverURL = url
             api = APIClient(baseURL: url, token: Keychain.get(Self.tokenKey))
+        } else if let preset = Self.presetServer {
+            // Built-in server (see StreamulusServerURL in Info.plist), so the app just works.
+            homeURL = preset
         }
+        if let saved = UserDefaults.standard.string(forKey: Self.publicKey), let url = URL(string: saved) {
+            publicURL = url
+        }
+    }
+
+    /// Optional server address built into the app (Info.plist key StreamulusServerURL),
+    /// e.g. your public Tailscale Funnel address for friends' phones.
+    static var presetServer: URL? {
+        guard let text = Bundle.main.object(forInfoDictionaryKey: "StreamulusServerURL") as? String,
+              !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return URL(string: text.trimmingCharacters(in: .whitespaces))
     }
 
     // MARK: Start-up
 
     func start() async {
-        guard let api else { phase = .needsServer; return }
-        guard api.token != nil else { phase = .signedOut; return }
+        guard homeURL != nil else { phase = .needsServer; return }
         phase = .starting
+        // Whichever answers: the home address first, then the public one.
+        guard await connectToReachableAddress() else {
+            phase = .unreachable(publicURL == nil
+                ? "The server isn't answering at \(homeURL?.host ?? "its address")."
+                : "The server isn't answering at home (\(homeURL?.host ?? "")) or at \(publicURL?.host ?? "its public address").")
+            return
+        }
+        if UserDefaults.standard.string(forKey: Self.serverKey) == nil, let home = homeURL {
+            UserDefaults.standard.set(home.absoluteString, forKey: Self.serverKey) // first run with a preset server
+        }
+        await refreshBranding()
+        guard api?.token != nil else { phase = .signedOut; return }
         do {
             let me: MeResponse = try await api.get("/api/auth/me")
             user = me.user
@@ -55,7 +92,7 @@ final class Session: ObservableObject {
 
     // MARK: Server
 
-    /// Accepts "192.168.1.20:8096", "http://nas.local:8096/", etc.
+    /// Accepts "192.168.1.20:8096", "http://nas.local:8096/", "https://name.tailnet.ts.net", etc.
     func setServer(_ text: String) async throws {
         var address = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !address.contains("://") { address = "http://" + address }
@@ -66,18 +103,69 @@ final class Session: ObservableObject {
         let client = APIClient(baseURL: url)
         _ = try await client.get("/api/health", as: HealthResponse.self)
         UserDefaults.standard.set(url.absoluteString, forKey: Self.serverKey)
+        UserDefaults.standard.removeObject(forKey: Self.publicKey) // another server's public address
         Keychain.delete(Self.tokenKey)
+        homeURL = url
+        publicURL = nil
         serverURL = url
         api = client
+        await refreshBranding()
         phase = .signedOut
     }
 
     func changeServer() {
         signOut()
         UserDefaults.standard.removeObject(forKey: Self.serverKey)
+        UserDefaults.standard.removeObject(forKey: Self.publicKey)
+        homeURL = nil
+        publicURL = nil
         serverURL = nil
         api = nil
+        branding = .default
         phase = .needsServer
+    }
+
+    // MARK: Home / public address
+
+    /// Use the home address if it answers quickly, otherwise the public one.
+    private func connectToReachableAddress() async -> Bool {
+        if let home = homeURL, await APIClient.ping(home, timeout: 4) {
+            use(home)
+            return true
+        }
+        if let pub = publicURL, pub != homeURL, await APIClient.ping(pub, timeout: 10) {
+            use(pub)
+            return true
+        }
+        return false
+    }
+
+    private func use(_ url: URL) {
+        guard serverURL != url || api == nil else { return }
+        serverURL = url
+        api = APIClient(baseURL: url, token: Keychain.get(Self.tokenKey))
+    }
+
+    /// The current address stopped answering (left home, or came back): try the other one.
+    private func switchAddress() async -> Bool {
+        let other = serverURL == publicURL ? homeURL : publicURL
+        guard let other, other != serverURL, await APIClient.ping(other, timeout: 6) else { return false }
+        use(other)
+        return true
+    }
+
+    /// Branding and the public address from the server (public endpoint, no sign-in needed).
+    func refreshBranding() async {
+        guard let api else { return }
+        guard let fetched = try? await api.get("/api/branding", as: Branding.self) else { return }
+        branding = fetched
+        if let text = fetched.publicUrl, let url = URL(string: text) {
+            publicURL = url
+            UserDefaults.standard.set(url.absoluteString, forKey: Self.publicKey)
+        } else {
+            publicURL = nil
+            UserDefaults.standard.removeObject(forKey: Self.publicKey)
+        }
     }
 
     // MARK: Sign in / out
@@ -180,8 +268,16 @@ final class Session: ObservableObject {
         } catch let error as APIError where error.status == 401 {
             signOut()
             throw error
+        } catch let error as URLError where Self.unreachable.contains(error.code) {
+            // Left home (or came back): switch between the home and public address and retry once.
+            guard await switchAddress() else { throw error }
+            return try await request(try client())
         }
     }
+
+    private static let unreachable: Set<URLError.Code> = [
+        .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet, .dnsLookupFailed,
+    ]
 
     private func client() throws -> APIClient {
         guard let api else { throw APIError(status: 0, message: "No server set up.", code: nil) }

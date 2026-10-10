@@ -10,9 +10,9 @@ struct ServerSetupView: View {
 
     var body: some View {
         VStack(spacing: 36) {
-            Logo()
+            BrandMark(size: 60)
             Text("Connect to your Streamulus server").font(.title2)
-            Text("Enter the address you use in your browser, for example 192.168.1.20:8096")
+            Text("Enter the address you use in your browser, for example 192.168.1.20:8096 or https://streamulus.your-tailnet.ts.net")
                 .foregroundStyle(.secondary)
             TextField("Server address", text: $address)
                 .textInputAutocapitalization(.never)
@@ -59,7 +59,7 @@ struct LoginView: View {
             QuickLoginView(onCancel: { quickLogin = false })
         } else {
             VStack(spacing: 30) {
-                Logo()
+                BrandMark(size: 60)
                 Text("Sign in").font(.title2)
                 TextField("Username", text: $username)
                     .textContentType(.username)

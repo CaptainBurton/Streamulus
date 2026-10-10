@@ -8,13 +8,15 @@ struct RemotePicture: View {
     let url: URL?
     /// Decoded at no more than this many pixels across.
     var maxPixelSize: CGFloat = 512
+    /// .fill for profile pictures, .fit for logos.
+    var contentMode: ContentMode = .fill
 
     @State private var image: UIImage?
 
     var body: some View {
         ZStack {
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode)
             }
         }
         .task(id: url) {

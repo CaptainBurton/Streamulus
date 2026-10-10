@@ -629,3 +629,30 @@ enum WebVTT {
             .replacingOccurrences(of: "&nbsp;", with: " ")
     }
 }
+
+// MARK: - Branding
+
+/// Admin › Settings › Branding and Remote Access (GET /api/branding).
+struct Branding: Decodable, Equatable {
+    var showLogo = true
+    var showText = true
+    /// An uploaded logo ("/uploads/branding/…"), or nil for the built-in one.
+    var logoUrl: String?
+    /// The server's public address, e.g. a Tailscale Funnel URL.
+    var publicUrl: String?
+
+    static let `default` = Branding()
+
+    enum CodingKeys: String, CodingKey { case showLogo, showText, logoUrl, publicUrl }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        showLogo = (try? c.decodeIfPresent(Bool.self, forKey: .showLogo)) ?? true
+        showText = (try? c.decodeIfPresent(Bool.self, forKey: .showText)) ?? true
+        logoUrl = c.lossyString(.logoUrl)
+        publicUrl = c.lossyString(.publicUrl)
+        if !showLogo && !showText { showText = true }
+    }
+}

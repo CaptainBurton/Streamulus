@@ -42,12 +42,18 @@ def add_dir(project, target, group, dir)
 end
 add_dir(project, target, main_group, File.join(ROOT, SOURCE_DIR))
 
+# Code shared with the iPhone app (shared/apple/StreamulusCore): API client,
+# models, session, playback controller, image loading, branding.
+SHARED_DIR = '../../shared/apple/StreamulusCore'
+shared_group = project.main_group.new_group('Shared', SHARED_DIR)
+add_dir(project, target, shared_group, File.join(ROOT, SHARED_DIR))
+
 target.build_configurations.each do |config|
   s = config.build_settings
   s['PRODUCT_NAME'] = '$(TARGET_NAME)'
   s['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.streamulus.appletv'
-  s['MARKETING_VERSION'] = '1.23'
-  s['CURRENT_PROJECT_VERSION'] = '24'
+  s['MARKETING_VERSION'] = '1.24'
+  s['CURRENT_PROJECT_VERSION'] = '25'
   s['SDKROOT'] = 'appletvos'
   s['TARGETED_DEVICE_FAMILY'] = '3'
   s['TVOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET

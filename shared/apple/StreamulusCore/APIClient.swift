@@ -34,6 +34,18 @@ final class APIClient {
         session = URLSession(configuration: config)
     }
 
+    /// Does a Streamulus server answer at `url` within `timeout` seconds?
+    static func ping(_ url: URL, timeout: TimeInterval) async -> Bool {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = timeout
+        config.timeoutIntervalForResource = timeout
+        let probe = URLSession(configuration: config)
+        defer { probe.finishTasksAndInvalidate() }
+        guard let result = try? await probe.data(from: url.appendingPathComponent("api/health")),
+              let http = result.1 as? HTTPURLResponse else { return false }
+        return http.statusCode == 200
+    }
+
     /// Absolute URL for a server path such as "/api/movies".
     func url(_ path: String, query: [URLQueryItem] = []) -> URL {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
