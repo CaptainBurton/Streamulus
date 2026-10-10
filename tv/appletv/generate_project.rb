@@ -8,6 +8,27 @@ PROJECT_PATH = File.join(ROOT, 'Streamulus.xcodeproj')
 SOURCE_DIR = 'Streamulus'
 DEPLOYMENT_TARGET = '26.0' # Liquid Glass (glassEffect, .glass button styles) needs tvOS 26+
 
+
+# Code shared with the other Apple app lives in shared/apple/StreamulusCore (the
+# master copy). It's copied into Streamulus/Shared so this folder builds on its
+# own — e.g. if the project folder is moved out of the repository. Edit the
+# master, then run this script (for both apps) to refresh the copies.
+require 'fileutils'
+SHARED_MASTER = File.expand_path('../../shared/apple/StreamulusCore', ROOT)
+SHARED_COPY = File.join(ROOT, SOURCE_DIR, 'Shared')
+if Dir.exist?(SHARED_MASTER)
+  FileUtils.rm_rf(SHARED_COPY)
+  FileUtils.mkdir_p(SHARED_COPY)
+  Dir.glob(File.join(SHARED_MASTER, '*.swift')).sort.each do |src|
+    banner = "// Copied from shared/apple/StreamulusCore/#{File.basename(src)} by generate_project.rb.\n" \
+             "// Edit the original there, then run generate_project.rb for both apps.\n\n"
+    File.write(File.join(SHARED_COPY, File.basename(src)), banner + File.read(src))
+  end
+  puts "Copied shared code from #{SHARED_MASTER}"
+else
+  puts "shared/apple/StreamulusCore not found next to this project — using the copy in #{SOURCE_DIR}/Shared"
+end
+
 project = Xcodeproj::Project.new(PROJECT_PATH)
 project.root_object.attributes['LastUpgradeCheck'] = '2600'
 project.root_object.attributes['BuildIndependentTargetsInParallel'] = 'YES'
@@ -42,18 +63,12 @@ def add_dir(project, target, group, dir)
 end
 add_dir(project, target, main_group, File.join(ROOT, SOURCE_DIR))
 
-# Code shared with the iPhone app (shared/apple/StreamulusCore): API client,
-# models, session, playback controller, image loading, branding.
-SHARED_DIR = '../../shared/apple/StreamulusCore'
-shared_group = project.main_group.new_group('Shared', SHARED_DIR)
-add_dir(project, target, shared_group, File.join(ROOT, SHARED_DIR))
-
 target.build_configurations.each do |config|
   s = config.build_settings
   s['PRODUCT_NAME'] = '$(TARGET_NAME)'
   s['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.streamulus.appletv'
-  s['MARKETING_VERSION'] = '1.24'
-  s['CURRENT_PROJECT_VERSION'] = '25'
+  s['MARKETING_VERSION'] = '1.25'
+  s['CURRENT_PROJECT_VERSION'] = '26'
   s['SDKROOT'] = 'appletvos'
   s['TARGETED_DEVICE_FAMILY'] = '3'
   s['TVOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET

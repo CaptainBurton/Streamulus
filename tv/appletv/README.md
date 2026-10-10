@@ -56,7 +56,8 @@ server runs in Docker.
 - The app icon and Top Shelf images (`Assets.xcassets`) are the Streamulus logo on a dark background, as
   layered images so the icon tilts when focused. The logo also shows on the sign-in screens and top-left on
   Home, following Admin › Settings › Branding.
-- Code shared with the iPhone & iPad app lives in [`shared/apple/StreamulusCore`](../../shared/apple/StreamulusCore);
-  this project includes it as the **Shared** group.
-- `generate_project.rb` rebuilds the Xcode project from the files in `Streamulus/` and the shared folder. You only need
+- Code shared with the iPhone & iPad app is in `Streamulus/Shared`, a copy of
+  [`shared/apple/StreamulusCore`](../../shared/apple/StreamulusCore) so this folder builds on its own. To change
+  shared code, edit the original there, then run `ruby generate_project.rb` here and in `mobile/ios/xcode-project`.
+- `generate_project.rb` refreshes `Streamulus/Shared` (inside the repository) and rebuilds the Xcode project. You only need
   it if files are added outside Xcode (`gem install xcodeproj && ruby generate_project.rb`).

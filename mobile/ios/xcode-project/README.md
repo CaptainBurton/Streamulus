@@ -57,12 +57,13 @@ included — use Streamulus in a browser for that.
 ## Notes
 
 - Code shared with the Apple TV app (API client, models, session and server switching, playback, image
-  loading, branding) lives in [`shared/apple/StreamulusCore`](../../../shared/apple/StreamulusCore); this
-  project includes it as the **Shared** group.
+  loading, branding) is in `Streamulus/Shared`, a copy of [`shared/apple/StreamulusCore`](../../../shared/apple/StreamulusCore)
+  so this folder builds on its own (even moved out of the repository). To change shared code, edit the
+  original in `shared/apple/StreamulusCore`, then run `ruby generate_project.rb` here and in `tv/appletv`.
 - Plain `http://` to your server is allowed (`Info.plist` → App Transport Security), since home servers rarely
   have HTTPS.
 - Your sign-in token is stored in the Keychain; the server addresses in app settings.
 - The app icon (`Assets.xcassets/AppIcon`) has standard, dark and tinted versions, made from
   [`branding/`](../../../branding).
-- `generate_project.rb` rebuilds the Xcode project from the files in `Streamulus/` and the shared folder. You
-  only need it if files are added outside Xcode (`gem install xcodeproj && ruby generate_project.rb`).
+- `generate_project.rb` refreshes `Streamulus/Shared` (when run inside the repository) and rebuilds the Xcode
+  project from the files in `Streamulus/` (`gem install xcodeproj && ruby generate_project.rb`).
