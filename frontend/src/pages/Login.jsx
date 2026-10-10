@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import QuickLoginRequest from '../components/QuickLoginRequest';
+import BrandMark from '../components/BrandMark';
 
 export default function Login() {
   const { login } = useAuth();
@@ -46,17 +47,8 @@ export default function Login() {
     }}>
       <div style={{ width: '100%', maxWidth: '420px' }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <div style={{
-            fontSize: '40px',
-            fontWeight: '800',
-            letterSpacing: '-1px',
-            background: 'linear-gradient(135deg, #00c2ff, #7b2fff)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            marginBottom: '8px',
-          }}>
-            STREAMULUS
+          <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'center' }}>
+            <BrandMark size={40} />
           </div>
           <div style={{ color: '#555', fontSize: '14px' }}>{useCode ? 'Sign in with a code' : 'Sign in to continue'}</div>
         </div>

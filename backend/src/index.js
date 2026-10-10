@@ -28,6 +28,7 @@ app.use('/api/movies', require('./routes/movies'));
 app.use('/api/tv', require('./routes/tv'));
 app.use('/api/genres', require('./routes/genres'));
 app.use('/api/subtitles', require('./routes/subtitles'));
+app.use('/api/branding', require('./routes/branding'));
 app.use('/api/stream', require('./routes/stream'));
 app.use('/api/admin', require('./routes/admin'));
 

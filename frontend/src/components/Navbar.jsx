@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ProfileAvatar from './ProfileAvatar';
+import BrandMark from './BrandMark';
 
 const styles = {
   nav: {
@@ -200,7 +201,7 @@ export default function Navbar() {
         {/* Left side: logo + desktop nav links */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Link to="/" style={styles.logo}>STREAMULUS</Link>
+            <Link to="/" aria-label="Streamulus home" style={{ display: 'flex', textDecoration: 'none' }}><BrandMark size={isMobile ? 22 : 26} /></Link>
             {profile?.is_kids && (
               <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#1a1200', background: 'linear-gradient(135deg, #ffb703, #fb5607)' }}>
                 Streamlings

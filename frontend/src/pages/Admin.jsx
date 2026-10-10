@@ -5,6 +5,7 @@ import RefreshIcon from '../components/RefreshIcon';
 import ProfileAvatar from '../components/ProfileAvatar';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
 import GenresAdmin from '../components/GenresAdmin';
+import BrandingAdmin from '../components/BrandingAdmin';
 
 function StatCard({ label, value, icon }) {
   return (
@@ -1139,6 +1140,8 @@ export default function Admin() {
                 Save Encoding Settings
               </button>
             </div>
+
+            <BrandingAdmin flash={flash} />
 
             {/* Home Page */}
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>

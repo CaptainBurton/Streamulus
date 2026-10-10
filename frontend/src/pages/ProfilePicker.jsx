@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import ProfileAvatar from '../components/ProfileAvatar';
+import BrandMark from '../components/BrandMark';
 
 // "Who's watching?" — shown after login when an account has several profiles,
 // and from the menu via "Switch Profile". Each profile says what switching to
@@ -56,7 +57,7 @@ export default function ProfilePicker() {
 
   return (
     <div style={S.page}>
-      <div style={S.logo}>STREAMULUS</div>
+      <div style={S.logo}><BrandMark size={26} /></div>
 
       {!prompt ? (
         <>
@@ -138,7 +139,7 @@ export default function ProfilePicker() {
 
 const S = {
   page: { minHeight: '100vh', background: '#0f0f0f', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 16px 48px' },
-  logo: { position: 'fixed', top: 18, left: 24, fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', background: 'linear-gradient(135deg, #00c2ff, #7b2fff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' },
+  logo: { position: 'fixed', top: 18, left: 24 },
   title: { fontSize: 'clamp(26px, 5vw, 44px)', fontWeight: 700, marginBottom: '36px', textAlign: 'center' },
   grid: { display: 'flex', flexWrap: 'wrap', gap: '28px', justifyContent: 'center', alignItems: 'flex-start', maxWidth: '900px' },
   tile: { background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', width: '140px', transition: 'transform 0.2s', fontFamily: 'inherit' },

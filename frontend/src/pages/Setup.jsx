@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import BrandMark from '../components/BrandMark';
 
 const STEPS = ['Welcome', 'Media Folders', 'Admin Account', 'Metadata', 'Done'];
 
@@ -101,17 +102,8 @@ export default function Setup({ onComplete }) {
 
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <div style={{
-            fontSize: '36px',
-            fontWeight: '800',
-            letterSpacing: '-1px',
-            background: 'linear-gradient(135deg, #00c2ff, #7b2fff)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            marginBottom: '8px',
-          }}>
-            STREAMULUS
+          <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'center' }}>
+            <BrandMark size={40} />
           </div>
           <div style={{ color: '#555', fontSize: '14px' }}>Setup Wizard</div>
         </div>
