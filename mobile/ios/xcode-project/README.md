@@ -36,7 +36,8 @@ included — use Streamulus in a browser for that.
 
 ## Run it on your iPhone or iPad
 
-1. Open `mobile/ios/xcode-project/Streamulus.xcodeproj` in Xcode.
+1. Open `mobile/ios/xcode-project/Streamulus-iOS.xcodeproj` in Xcode. Everything the app needs is inside this
+   folder, so you can also copy the folder anywhere and open it from there.
 2. Select the **Streamulus** target → **Signing & Capabilities** → choose your **Team**. If Xcode says the
    bundle ID is taken, change `com.streamulus.ios` to something unique, e.g. `com.yourname.streamulus`.
 3. Connect the device (or pick a simulator), choose it as the run destination and press **Run** (⌘R).
@@ -56,14 +57,13 @@ included — use Streamulus in a browser for that.
 
 ## Notes
 
-- Code shared with the Apple TV app (API client, models, session and server switching, playback, image
-  loading, branding) is in `Streamulus/Shared`, a copy of [`shared/apple/StreamulusCore`](../../../shared/apple/StreamulusCore)
-  so this folder builds on its own (even moved out of the repository). To change shared code, edit the
-  original in `shared/apple/StreamulusCore`, then run `ruby generate_project.rb` here and in `tv/appletv`.
+- `Streamulus/Shared` holds code the Apple TV app also uses (API client, models, session and server switching,
+  playback, image loading, branding). `tv/appletv/generate_project.rb` copies it into the Apple TV project —
+  after changing it here, run that script to update the Apple TV copy.
 - Plain `http://` to your server is allowed (`Info.plist` → App Transport Security), since home servers rarely
   have HTTPS.
 - Your sign-in token is stored in the Keychain; the server addresses in app settings.
 - The app icon (`Assets.xcassets/AppIcon`) has standard, dark and tinted versions, made from
   [`branding/`](../../../branding).
-- `generate_project.rb` refreshes `Streamulus/Shared` (when run inside the repository) and rebuilds the Xcode
-  project from the files in `Streamulus/` (`gem install xcodeproj && ruby generate_project.rb`).
+- `generate_project.rb` rebuilds `Streamulus-iOS.xcodeproj` from the files in `Streamulus/`. You only need it
+  if files are added outside Xcode (`gem install xcodeproj && ruby generate_project.rb`).

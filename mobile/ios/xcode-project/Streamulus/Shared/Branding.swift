@@ -1,5 +1,5 @@
-// Copied from shared/apple/StreamulusCore/Branding.swift by generate_project.rb.
-// Edit the original there, then run generate_project.rb for both apps.
+// Shared with the Apple TV app — tv/appletv/generate_project.rb copies this folder into
+// its project. Edit it here, then run that script to update the Apple TV copy.
 
 import SwiftUI
 

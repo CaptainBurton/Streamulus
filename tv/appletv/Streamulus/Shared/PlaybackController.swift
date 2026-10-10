@@ -1,11 +1,10 @@
-// Copied from shared/apple/StreamulusCore/PlaybackController.swift by generate_project.rb.
-// Edit the original there, then run generate_project.rb for both apps.
+// Copied from mobile/ios/xcode-project/Streamulus/Shared/PlaybackController.swift by generate_project.rb.
+// Edit the original there, then run tv/appletv/generate_project.rb.
 
 import AVKit
 import Combine
 import SwiftUI
 
-// Shared by the Apple TV and iPhone apps (shared/apple/StreamulusCore).
 
 /// Something to play. `start` is where to begin, in seconds into the file.
 struct PlayRequest: Identifiable {

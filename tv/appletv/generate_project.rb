@@ -9,24 +9,25 @@ SOURCE_DIR = 'Streamulus'
 DEPLOYMENT_TARGET = '26.0' # Liquid Glass (glassEffect, .glass button styles) needs tvOS 26+
 
 
-# Code shared with the other Apple app lives in shared/apple/StreamulusCore (the
-# master copy). It's copied into Streamulus/Shared so this folder builds on its
-# own — e.g. if the project folder is moved out of the repository. Edit the
-# master, then run this script (for both apps) to refresh the copies.
+# Code shared with the iPhone & iPad app lives in that app's folder
+# (mobile/ios/xcode-project/Streamulus/Shared). It's copied into Streamulus/Shared
+# here so this folder builds on its own. Edit it there, then run this script.
 require 'fileutils'
-SHARED_MASTER = File.expand_path('../../shared/apple/StreamulusCore', ROOT)
+SHARED_MASTER = File.expand_path('../../mobile/ios/xcode-project/Streamulus/Shared', ROOT)
 SHARED_COPY = File.join(ROOT, SOURCE_DIR, 'Shared')
 if Dir.exist?(SHARED_MASTER)
   FileUtils.rm_rf(SHARED_COPY)
   FileUtils.mkdir_p(SHARED_COPY)
   Dir.glob(File.join(SHARED_MASTER, '*.swift')).sort.each do |src|
-    banner = "// Copied from shared/apple/StreamulusCore/#{File.basename(src)} by generate_project.rb.\n" \
-             "// Edit the original there, then run generate_project.rb for both apps.\n\n"
-    File.write(File.join(SHARED_COPY, File.basename(src)), banner + File.read(src))
+    # Swap the master's header for one pointing back to it.
+    body = File.read(src, encoding: 'UTF-8').sub(/\A(\/\/[^\n]*\n)+\n/, '')
+    banner = "// Copied from mobile/ios/xcode-project/Streamulus/Shared/#{File.basename(src)} by generate_project.rb.\n" \
+             "// Edit the original there, then run tv/appletv/generate_project.rb.\n\n"
+    File.write(File.join(SHARED_COPY, File.basename(src)), banner + body, encoding: 'UTF-8')
   end
   puts "Copied shared code from #{SHARED_MASTER}"
 else
-  puts "shared/apple/StreamulusCore not found next to this project — using the copy in #{SOURCE_DIR}/Shared"
+  puts "iPhone/iPad project not found next to this one — using the copy in #{SOURCE_DIR}/Shared"
 end
 
 project = Xcodeproj::Project.new(PROJECT_PATH)
@@ -67,8 +68,8 @@ target.build_configurations.each do |config|
   s = config.build_settings
   s['PRODUCT_NAME'] = '$(TARGET_NAME)'
   s['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.streamulus.appletv'
-  s['MARKETING_VERSION'] = '1.25'
-  s['CURRENT_PROJECT_VERSION'] = '26'
+  s['MARKETING_VERSION'] = '1.26'
+  s['CURRENT_PROJECT_VERSION'] = '27'
   s['SDKROOT'] = 'appletvos'
   s['TARGETED_DEVICE_FAMILY'] = '3'
   s['TVOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET

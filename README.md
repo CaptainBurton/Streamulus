@@ -197,8 +197,8 @@ streamulus/
 │       ├── pages/    # Setup, Login, Home, Movies, TV, Genres, Watch, Admin
 │       └── components/
 ├── tv/appletv/       # Apple TV app (Xcode project)
-├── mobile/ios/xcode-project/  # iPhone & iPad app (Xcode project)
-├── shared/apple/     # Swift code shared by the Apple TV and iPhone apps
+├── mobile/ios/xcode-project/  # iPhone & iPad app (Xcode project, self-contained;
+│                              #   Streamulus/Shared is also used by the Apple TV app)
 ├── branding/         # Logo (PNG, light/dark SVG) and app icon
 ├── Dockerfile        # Multi-stage build
 └── docker-compose.yml

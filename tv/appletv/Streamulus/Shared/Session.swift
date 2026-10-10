@@ -1,5 +1,5 @@
-// Copied from shared/apple/StreamulusCore/Session.swift by generate_project.rb.
-// Edit the original there, then run generate_project.rb for both apps.
+// Copied from mobile/ios/xcode-project/Streamulus/Shared/Session.swift by generate_project.rb.
+// Edit the original there, then run tv/appletv/generate_project.rb.
 
 import Foundation
 import SwiftUI

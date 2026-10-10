@@ -1,33 +1,15 @@
-# Regenerates Streamulus.xcodeproj (iPhone + iPad, iOS 26+) from the files in
-# Streamulus/, after refreshing Streamulus/Shared from shared/apple/StreamulusCore.
+# Regenerates Streamulus-iOS.xcodeproj (iPhone + iPad, iOS 26+) from the files in
+# Streamulus/ — everything the app needs is in this folder, including Streamulus/Shared
+# (code the Apple TV app copies from here).
 #   gem install xcodeproj && ruby generate_project.rb
 require 'xcodeproj'
 
 ROOT = __dir__
-PROJECT_PATH = File.join(ROOT, 'Streamulus.xcodeproj')
+PROJECT_PATH = File.join(ROOT, 'Streamulus-iOS.xcodeproj')
 SOURCE_DIR = 'Streamulus'
 DEPLOYMENT_TARGET = '26.0' # Liquid Glass (glassEffect, .glass button styles, tab bar minimise) needs iOS 26+
 
 
-# Code shared with the other Apple app lives in shared/apple/StreamulusCore (the
-# master copy). It's copied into Streamulus/Shared so this folder builds on its
-# own — e.g. if the project folder is moved out of the repository. Edit the
-# master, then run this script (for both apps) to refresh the copies.
-require 'fileutils'
-SHARED_MASTER = File.expand_path('../../../shared/apple/StreamulusCore', ROOT)
-SHARED_COPY = File.join(ROOT, SOURCE_DIR, 'Shared')
-if Dir.exist?(SHARED_MASTER)
-  FileUtils.rm_rf(SHARED_COPY)
-  FileUtils.mkdir_p(SHARED_COPY)
-  Dir.glob(File.join(SHARED_MASTER, '*.swift')).sort.each do |src|
-    banner = "// Copied from shared/apple/StreamulusCore/#{File.basename(src)} by generate_project.rb.\n" \
-             "// Edit the original there, then run generate_project.rb for both apps.\n\n"
-    File.write(File.join(SHARED_COPY, File.basename(src)), banner + File.read(src))
-  end
-  puts "Copied shared code from #{SHARED_MASTER}"
-else
-  puts "shared/apple/StreamulusCore not found next to this project — using the copy in #{SOURCE_DIR}/Shared"
-end
 
 project = Xcodeproj::Project.new(PROJECT_PATH)
 project.root_object.attributes['LastUpgradeCheck'] = '2600'

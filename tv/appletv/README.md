@@ -57,7 +57,7 @@ server runs in Docker.
   layered images so the icon tilts when focused. The logo also shows on the sign-in screens and top-left on
   Home, following Admin › Settings › Branding.
 - Code shared with the iPhone & iPad app is in `Streamulus/Shared`, a copy of
-  [`shared/apple/StreamulusCore`](../../shared/apple/StreamulusCore) so this folder builds on its own. To change
-  shared code, edit the original there, then run `ruby generate_project.rb` here and in `mobile/ios/xcode-project`.
+  [`mobile/ios/xcode-project/Streamulus/Shared`](../../mobile/ios/xcode-project/Streamulus/Shared) so this folder
+  builds on its own. To change shared code, edit it there, then run `ruby generate_project.rb` here.
 - `generate_project.rb` refreshes `Streamulus/Shared` (inside the repository) and rebuilds the Xcode project. You only need
   it if files are added outside Xcode (`gem install xcodeproj && ruby generate_project.rb`).
