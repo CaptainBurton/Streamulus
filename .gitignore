@@ -15,3 +15,7 @@ tv/appletv/**/*.xcuserstate
 tv/appletv/build/
 tv/appletv/DerivedData/
 .DS_Store
+mobile/ios/**/xcuserdata/
+mobile/ios/**/*.xcuserstate
+mobile/ios/**/build/
+mobile/ios/**/DerivedData/

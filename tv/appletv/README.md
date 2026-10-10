@@ -5,7 +5,9 @@ panel isn't included — use Streamulus in a browser for that.
 
 ## What's in it
 
-- **Connect** to your server by address (e.g. `192.168.1.20:8096`).
+- **Connect** to your server by address (e.g. `192.168.1.20:8096`, or a public one such as
+  `https://streamulus.your-tailnet.ts.net`). It learns the server's public address (Admin › Settings ›
+  Remote Access) and switches to it when the home address doesn't answer.
 - **Sign in** with a username and password, or **Quick Login**: the TV shows a code and a QR
   code; approve it from Streamulus on your phone or computer (profile menu → *Quick Login*,
   or just scan the QR code) and the TV signs itself in.
@@ -51,7 +53,10 @@ server runs in Docker.
 - Plain `http://` to your server is allowed (`Info.plist` → App Transport Security), since home
   servers rarely have HTTPS.
 - Your sign-in token is stored in the Keychain; the server address in app settings.
-- The app icon and Top Shelf images (`Assets.xcassets`) are the web logo on black, as layered
-  images so the icon tilts when focused.
-- `generate_project.rb` rebuilds the Xcode project from the files in `Streamulus/`. You only need
+- The app icon and Top Shelf images (`Assets.xcassets`) are the Streamulus logo on a dark background, as
+  layered images so the icon tilts when focused. The logo also shows on the sign-in screens and top-left on
+  Home, following Admin › Settings › Branding.
+- Code shared with the iPhone & iPad app lives in [`shared/apple/StreamulusCore`](../../shared/apple/StreamulusCore);
+  this project includes it as the **Shared** group.
+- `generate_project.rb` rebuilds the Xcode project from the files in `Streamulus/` and the shared folder. You only need
   it if files are added outside Xcode (`gem install xcodeproj && ruby generate_project.rb`).

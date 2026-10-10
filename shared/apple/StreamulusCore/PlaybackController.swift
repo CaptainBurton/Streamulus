@@ -303,6 +303,18 @@ final class PlaybackController: ObservableObject {
         }
     }
 
+    /// Jump to `seconds` into the file (dragging the iPhone progress bar).
+    /// `commit: false` only moves the knob while the finger is still down.
+    func seek(to seconds: Double, commit: Bool = true) {
+        var target = seconds
+        if duration > 0 { target = min(target, duration - 3) }
+        target = max(0, target)
+        pendingSeek = target
+        seekCommit?.cancel()
+        guard commit else { return }
+        seekCommit = Task { [weak self] in await self?.commitSeek() }
+    }
+
     private func commitSeek() async {
         guard let target = pendingSeek else { return }
         if target < Double(current.start) {

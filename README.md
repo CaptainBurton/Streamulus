@@ -1,17 +1,41 @@
-# Streamulus
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/streamulus-logo-dark.svg">
+    <img src="branding/streamulus-logo-light.svg" alt="Streamulus logo" width="140">
+  </picture>
+</p>
 
-A self-hosted media server with a Netflix-style interface. Stream your movies and TV shows from anywhere.
+<h1 align="center">Streamulus</h1>
+
+<p align="center">
+  A self-hosted media server with a Netflix-style interface — in the browser, on Apple TV, iPhone and iPad.
+</p>
+
+<p align="center">
+  <img alt="Docker ready" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
+  <img alt="Node.js 20" src="https://img.shields.io/badge/Node.js-20-339933?logo=nodedotjs&logoColor=white">
+  <img alt="Express" src="https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white">
+  <img alt="React 18" src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black">
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white">
+  <img alt="FFmpeg HLS" src="https://img.shields.io/badge/FFmpeg-HLS%20streaming-007808?logo=ffmpeg&logoColor=white">
+  <br>
+  <img alt="tvOS 26+" src="https://img.shields.io/badge/tvOS-26%2B-000000?logo=apple&logoColor=white">
+  <img alt="iOS and iPadOS 26+" src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-000000?logo=apple&logoColor=white">
+  <img alt="SwiftUI Liquid Glass" src="https://img.shields.io/badge/SwiftUI-Liquid%20Glass-F05138?logo=swift&logoColor=white">
+  <img alt="Tailscale Funnel friendly" src="https://img.shields.io/badge/Remote%20access-Tailscale%20Funnel-242424?logo=tailscale&logoColor=white">
+</p>
 
 ## Features
 
-- **Netflix-style UI** — Dark theme, hero banner, horizontal scrolling rows, hover effects
-- **Setup wizard** — 5-step guided first-run setup
-- **TMDB integration** — Automatic metadata, posters, backdrops, and ratings
-- **Movies & TV Shows** — Full library browsing with search and sort
-- **Video streaming** — HTTP range request streaming with seek support
-- **Watch progress** — Resume where you left off
-- **Admin dashboard** — Manage libraries, users, and settings
-- **Multi-user** — Admin and user roles
+- **Netflix-style UI** — Dark theme, rotating featured banner with title logos, horizontal rows, hover effects
+- **Apps** — Native [Apple TV](tv/appletv/README.md) and [iPhone & iPad](mobile/ios/xcode-project/README.md) apps (SwiftUI, Liquid Glass)
+- **Profiles** — Netflix-style "Who's watching?", Streamlings (kids profiles) with admin-picked titles, PIN or password lock
+- **Quick Login** — Sign a TV or phone in by approving a code from a device that's already signed in
+- **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
+- **Streaming** — HLS with smart copy/transcode, buffered progress, Up Next, subtitles (embedded and sidecar files)
+- **Metadata** — TMDB / TVDB / IMDb, Fix Match, custom artwork, English titles for foreign-language titles
+- **Watch progress** — Resume where you left off, Continue Watching with stills, mark as watched
+- **Admin dashboard** — Libraries, users, Streamlings, genres, branding (logo / text), remote access
 - **Docker-ready** — Single container, deployable via Portainer
 
 ---
@@ -133,8 +157,27 @@ Access at `/admin` (admin users only):
 
 - **Overview** — Stats and media scan trigger
 - **Libraries** — Add/remove media library paths
-- **Users** — Create and manage user accounts
-- **Settings** — Update TMDB API key
+- **Users** — Create and manage user accounts and their profiles
+- **Streamlings** — What kids profiles can watch
+- **Genres** — Custom artwork for each genre
+- **Settings** — Metadata sources and keys, encoding, Up Next, featured movie interval, branding (logo and/or
+  STREAMULUS text, custom logo), remote access (public URL), regional settings
+
+---
+
+## Apps and remote access
+
+- **Apple TV** — [`tv/appletv`](tv/appletv/README.md) (tvOS 26+)
+- **iPhone & iPad** — [`mobile/ios/xcode-project`](mobile/ios/xcode-project/README.md) (iOS / iPadOS 26+)
+
+Both connect to your server's address. To use them away from home without a VPN, give the server a public
+HTTPS address — for example with [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)
+(`tailscale funnel 8096`) — and enter it in **Admin › Settings › Remote Access**. The apps learn it when they
+connect at home and switch to it automatically when the home address doesn't answer. Friends can enter the
+public address directly, or you can build it into the iPhone app (see its README).
+
+The logo files live in [`branding/`](branding): the original artwork (`streamulus-logo.png`), light and dark SVGs
+and the app icon.
 
 ---
 
@@ -149,9 +192,14 @@ streamulus/
 │       ├── services/ # TMDB + file scanner
 │       └── middleware/
 ├── frontend/         # React + Vite
+│   ├── public/       # Favicons, logo
 │   └── src/
-│       ├── pages/    # Setup, Login, Home, Movies, TV, Watch, Admin
+│       ├── pages/    # Setup, Login, Home, Movies, TV, Genres, Watch, Admin
 │       └── components/
+├── tv/appletv/       # Apple TV app (Xcode project)
+├── mobile/ios/xcode-project/  # iPhone & iPad app (Xcode project)
+├── shared/apple/     # Swift code shared by the Apple TV and iPhone apps
+├── branding/         # Logo (PNG, light/dark SVG) and app icon
 ├── Dockerfile        # Multi-stage build
 └── docker-compose.yml
 ```

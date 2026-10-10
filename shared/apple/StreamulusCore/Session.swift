@@ -195,7 +195,8 @@ final class Session: ObservableObject {
     // MARK: Quick Login
 
     func quickLoginStart() async throws -> QuickStartResponse {
-        try await client().post("/api/auth/quick/start", body: ["deviceName": "Apple TV"])
+        // "Apple TV", "iPhone" or "iPad" — shown on the device that approves it.
+        try await client().post("/api/auth/quick/start", body: ["deviceName": UIDevice.current.model])
     }
 
     func quickLoginPoll(requestId: String) async throws -> QuickPollResponse {

@@ -42,7 +42,8 @@ router.get('/', authenticate, (req, res) => {
   `;
   const params = [req.profile.id];
 
-  if (search) { query += ' AND m.title LIKE ?'; params.push(`%${search}%`); }
+  // Also matches English titles (Profile › Show titles in English).
+  if (search) { query += ' AND (m.title LIKE ? OR m.title_en LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
   // Streamlings only see allowed titles
   const scope = kidsScope(req);
   if (scope) { query += ' AND m.id IN (SELECT value FROM json_each(?))'; params.push(scope.moviesJson); }
@@ -55,7 +56,7 @@ router.get('/', authenticate, (req, res) => {
 
   const movies = db.prepare(query).all(...params).map(formatMovie);
   const where = [], whereParams = [];
-  if (search) { where.push('title LIKE ?'); whereParams.push(`%${search}%`); }
+  if (search) { where.push('(title LIKE ? OR title_en LIKE ?)'); whereParams.push(`%${search}%`, `%${search}%`); }
   if (scope) { where.push('id IN (SELECT value FROM json_each(?))'); whereParams.push(scope.moviesJson); }
   const total = db.prepare('SELECT COUNT(*) as count FROM movies' + (where.length ? ` WHERE ${where.join(' AND ')}` : '')).get(...whereParams).count;
   res.json({ movies, total });

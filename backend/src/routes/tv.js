@@ -52,8 +52,8 @@ router.get('/', authenticate, (req, res) => {
   const params = [req.profile.id];
 
   if (search) {
-    query += ' AND s.title LIKE ?';
-    params.push(`%${search}%`);
+    query += ' AND (s.title LIKE ? OR s.title_en LIKE ?)'; // English titles too
+    params.push(`%${search}%`, `%${search}%`);
   }
   // Streamlings only see allowed shows
   const scope = kidsScope(req);
@@ -67,7 +67,7 @@ router.get('/', authenticate, (req, res) => {
 
   const shows = db.prepare(query).all(...params).map(formatShow);
   const where = [], whereParams = [];
-  if (search) { where.push('title LIKE ?'); whereParams.push(`%${search}%`); }
+  if (search) { where.push('(title LIKE ? OR title_en LIKE ?)'); whereParams.push(`%${search}%`, `%${search}%`); }
   if (scope) { where.push('id IN (SELECT value FROM json_each(?))'); whereParams.push(scope.showsJson); }
   const total = db.prepare('SELECT COUNT(*) as count FROM tv_shows' + (where.length ? ` WHERE ${where.join(' AND ')}` : '')).get(...whereParams).count;
   res.json({ shows, total });
