@@ -11,6 +11,11 @@ struct ScrubBar: View {
     var buffered: Double = 0
     let duration: Double
     let seeking: Bool
+    /// Bar thickness and knob size at rest and while seeking. The defaults suit the
+    /// TV; the iPhone / iPad player passes smaller ones.
+    var barHeight: CGFloat = 10
+    var knobSize: CGFloat = 22
+    var seekingKnobSize: CGFloat = 34
 
     var body: some View {
         GeometryReader { geo in
@@ -18,7 +23,7 @@ struct ScrubBar: View {
             let shownFraction = duration > 0 ? min(max(shown / duration, 0), 1) : 0
             let playedFraction = duration > 0 ? min(max(played / duration, 0), 1) : 0
             let bufferedFraction = duration > 0 ? min(max(buffered / duration, playedFraction), 1) : 0
-            let knob: CGFloat = seeking ? 34 : 22
+            let knob: CGFloat = seeking ? seekingKnobSize : knobSize
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.2))
                 Capsule().fill(Color.white.opacity(0.35)).frame(width: width * bufferedFraction)
@@ -30,7 +35,7 @@ struct ScrubBar: View {
                     .offset(x: width * shownFraction - knob / 2)
             }
         }
-        .frame(height: 10)
+        .frame(height: barHeight)
     }
 }
 

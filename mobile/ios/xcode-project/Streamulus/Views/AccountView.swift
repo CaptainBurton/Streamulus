@@ -120,6 +120,7 @@ struct ApproveSignInView: View {
     @State private var busy = false
     @State private var errorText: String?
     @State private var approved = false
+    @State private var scanning = false
     @FocusState private var focused: Bool
 
     private var normalized: String {
@@ -128,6 +129,18 @@ struct ApproveSignInView: View {
 
     var body: some View {
         Form {
+            Section {
+                Button {
+                    focused = false
+                    scanning = true
+                } label: {
+                    Label("Scan QR Code", systemImage: "qrcode.viewfinder")
+                        .font(.headline)
+                }
+            } footer: {
+                Text("Point your camera at the QR code the TV or browser shows.")
+            }
+
             Section {
                 TextField("ABC-234", text: $code)
                     .font(.system(.title2, design: .monospaced).weight(.bold))
@@ -142,9 +155,9 @@ struct ApproveSignInView: View {
                         approved = false
                     }
             } header: {
-                Text("Code from the other device")
+                Text("Or type the code")
             } footer: {
-                Text("On the TV or browser, choose Quick Login — it shows a 6-character code.")
+                Text("On the TV or browser, choose Quick Login — it shows a QR code and a 6-character code.")
             }
 
             if let errorText {
@@ -178,7 +191,16 @@ struct ApproveSignInView: View {
             }
         }
         .navigationTitle("Approve a Sign-In")
-        .onAppear { focused = true }
+        .fullScreenCover(isPresented: $scanning) {
+            QRScanSheet { scanned in
+                code = scanned
+                // Look it up straight away; you still confirm with Approve.
+                Task {
+                    await Task.yield()
+                    await lookUp()
+                }
+            }
+        }
     }
 
     private struct CodeInfo: Decodable {

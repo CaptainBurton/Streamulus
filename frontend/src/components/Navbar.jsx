@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import ProfileAvatar from './ProfileAvatar';
 import BrandMark from './BrandMark';
@@ -141,6 +142,33 @@ const styles = {
   },
 };
 
+// Admins get a dot on their picture while accounts wait for an Admin Passphrase.
+// Checked at most once a minute across page changes; the admin panel reports
+// changes straight away (notePendingRequests).
+let pendingCache = { at: 0, count: 0 };
+const PENDING_EVENT = 'streamulus:pending-requests';
+
+export function notePendingRequests(count) {
+  pendingCache = { at: Date.now(), count };
+  window.dispatchEvent(new CustomEvent(PENDING_EVENT, { detail: count }));
+}
+
+function usePendingRequests(enabled) {
+  const [count, setCount] = useState(pendingCache.count);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const onChange = (e) => setCount(e.detail);
+    window.addEventListener(PENDING_EVENT, onChange);
+    if (Date.now() - pendingCache.at > 60000) {
+      axios.get('/api/admin/stats')
+        .then(r => notePendingRequests(r.data.pendingCount || 0))
+        .catch(() => {});
+    }
+    return () => window.removeEventListener(PENDING_EVENT, onChange);
+  }, [enabled]);
+  return enabled ? count : 0;
+}
+
 export default function Navbar() {
   const { user, profile, logout } = useAuth();
   const location = useLocation();
@@ -149,6 +177,7 @@ export default function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const pendingRequests = usePendingRequests(user?.role === 'admin' && !profile?.is_kids);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -240,6 +269,10 @@ export default function Navbar() {
               title={profile?.name}
             >
               <ProfileAvatar profile={profile} size={34} />
+              {pendingRequests > 0 && (
+                <span title={`${pendingRequests} account request${pendingRequests === 1 ? '' : 's'} waiting`}
+                  style={{ position: 'absolute', top: '-2px', right: '-2px', width: '12px', height: '12px', borderRadius: '50%', background: '#00c2ff', border: '2px solid #0f0f0f' }} />
+              )}
             </div>
             {userMenuOpen && (
               <div style={styles.dropdown}>
@@ -295,6 +328,9 @@ export default function Navbar() {
                     }}
                   >
                     Admin Dashboard
+                    {pendingRequests > 0 && (
+                      <span style={{ marginLeft: '8px', padding: '1px 7px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{pendingRequests}</span>
+                    )}
                   </Link>
                 )}
                 <button

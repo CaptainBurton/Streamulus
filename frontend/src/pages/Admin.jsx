@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
-import Navbar from '../components/Navbar';
+import Navbar, { notePendingRequests } from '../components/Navbar';
 import RefreshIcon from '../components/RefreshIcon';
 import ProfileAvatar from '../components/ProfileAvatar';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
+import AccountRequests from '../components/AccountRequests';
 import GenresAdmin from '../components/GenresAdmin';
 import BrandingAdmin from '../components/BrandingAdmin';
 
@@ -347,6 +348,7 @@ export default function Admin() {
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data.users || []);
+      notePendingRequests((usersRes.data.users || []).filter(u => u.status === 'pending').length);
       setConfig(configRes.data);
       setTmdbKey(configRes.data.tmdbApiKey || '');
       setTvdbKey(configRes.data.tvdbApiKey || '');
@@ -540,6 +542,9 @@ export default function Admin() {
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
   const tabs = ['overview', 'libraries', 'users', 'streamlings', 'genres', 'settings'];
+  // Accounts people created themselves, waiting for an Admin Passphrase.
+  const pendingUsers = users.filter(u => u.status === 'pending');
+  const activeUsers = users.filter(u => u.status !== 'pending');
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
@@ -558,6 +563,9 @@ export default function Admin() {
           {tabs.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', whiteSpace: 'nowrap', flexShrink: 0, transition: 'color 0.15s' }}>
               {tab}
+              {tab === 'users' && pendingUsers.length > 0 && (
+                <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{pendingUsers.length}</span>
+              )}
             </button>
           ))}
         </div>
@@ -565,6 +573,15 @@ export default function Admin() {
         {/* Overview */}
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {pendingUsers.length > 0 && (
+              <button onClick={() => setActiveTab('users')} style={{ display: 'flex', alignItems: 'center', gap: '12px', textAlign: 'left', padding: '14px 18px', background: 'rgba(0,194,255,0.08)', border: '1px solid rgba(0,194,255,0.25)', borderRadius: '10px', color: '#cfefff', fontSize: '14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <span style={{ fontSize: '18px' }}>👋</span>
+                <span style={{ flex: 1 }}>
+                  <strong style={{ color: '#fff' }}>{pendingUsers.length} account request{pendingUsers.length === 1 ? '' : 's'}</strong> waiting for an Admin Passphrase
+                </span>
+                <span style={{ color: '#00c2ff', fontWeight: 700 }}>Review →</span>
+              </button>
+            )}
             {stats && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
                 <StatCard label="Movies" value={stats.movieCount} icon="🎬" />
@@ -693,6 +710,7 @@ export default function Admin() {
         {/* Users */}
         {activeTab === 'users' && (
           <div>
+            <AccountRequests users={pendingUsers} onChange={loadData} flash={flash} />
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '24px', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Add User</h3>
               <form onSubmit={handleAddUser} style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
@@ -713,7 +731,7 @@ export default function Admin() {
               </form>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {users.map(user => (
+              {activeUsers.map(user => (
                 <div key={user.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '14px 20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>

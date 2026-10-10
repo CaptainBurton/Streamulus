@@ -21,8 +21,11 @@ function authenticate(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
-  const user = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(payload.userId);
+  const user = db.prepare('SELECT id, username, role, status FROM users WHERE id = ?').get(payload.userId);
   if (!user) return res.status(401).json({ error: 'User not found' });
+  // Only active accounts get tokens; this just makes sure of it.
+  if (user.status !== 'active') return res.status(401).json({ error: 'This account is not active yet' });
+  delete user.status;
 
   let profile;
   if (payload.profileId) {

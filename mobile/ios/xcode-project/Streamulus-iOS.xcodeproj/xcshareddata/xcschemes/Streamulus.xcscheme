@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "F801CBF7F88ECBBF7AD28CE1"
+               BlueprintIdentifier = "A85AF85B4D8DCD1A7ED7A5C3"
                BuildableName = "Streamulus.app"
                BlueprintName = "Streamulus"
                ReferencedContainer = "container:Streamulus-iOS.xcodeproj">
@@ -30,7 +30,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "F801CBF7F88ECBBF7AD28CE1"
+            BlueprintIdentifier = "A85AF85B4D8DCD1A7ED7A5C3"
             BuildableName = "Streamulus.app"
             BlueprintName = "Streamulus"
             ReferencedContainer = "container:Streamulus-iOS.xcodeproj">
@@ -53,7 +53,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "F801CBF7F88ECBBF7AD28CE1"
+            BlueprintIdentifier = "A85AF85B4D8DCD1A7ED7A5C3"
             BuildableName = "Streamulus.app"
             BlueprintName = "Streamulus"
             ReferencedContainer = "container:Streamulus-iOS.xcodeproj">
@@ -70,7 +70,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "F801CBF7F88ECBBF7AD28CE1"
+            BlueprintIdentifier = "A85AF85B4D8DCD1A7ED7A5C3"
             BuildableName = "Streamulus.app"
             BlueprintName = "Streamulus"
             ReferencedContainer = "container:Streamulus-iOS.xcodeproj">

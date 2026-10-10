@@ -70,7 +70,7 @@ struct LoginView: View {
                     .textContentType(.password)
                     .frame(width: 700)
                 if let errorText {
-                    Text(errorText).foregroundStyle(.red)
+                    Text(errorText).foregroundStyle(.red).multilineTextAlignment(.center).frame(maxWidth: 1100)
                 }
                 GlassEffectContainer(spacing: 40) {
                     HStack(spacing: 40) {
@@ -93,9 +93,22 @@ struct LoginView: View {
                 Button("Change Server · \(session.serverURL?.host ?? "")") { session.changeServer() }
                     .buttonStyle(.glass)
                     .font(.caption)
+                // Accounts are created on a phone or the web, where the new account's
+                // one-time Admin Passphrase is entered too.
+                Text("New to Streamulus? Create an account first in the Streamulus app on your phone, or in a browser at \(createAccountAddress). Once it's set up, sign in here.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 1100)
             }
             .padding(80)
         }
+    }
+
+    private var createAccountAddress: String {
+        guard let server = session.serverURL else { return "your Streamulus server" }
+        let address = server.appendingPathComponent("create-account").absoluteString
+        return address.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
     }
 
     private func signIn() async {
@@ -103,6 +116,9 @@ struct LoginView: View {
         errorText = nil
         do {
             try await session.login(username: username, password: password)
+        } catch let error as APIError where error.isPassphraseError {
+            // A new account that hasn't been activated with its Admin Passphrase yet.
+            errorText = "This account isn't set up yet. Finish creating it in the Streamulus app on your phone or in a browser — you'll need the Admin Passphrase from your admin — then sign in here."
         } catch {
             errorText = error.localizedDescription
         }
@@ -127,7 +143,7 @@ struct QuickLoginView: View {
         HStack(alignment: .center, spacing: 100) {
             VStack(alignment: .leading, spacing: 30) {
                 Text("Quick Login").font(.title)
-                Text("On your phone or computer, open Streamulus, choose **Quick Login** in the profile menu, and enter:")
+                Text("In the Streamulus app on your iPhone or iPad, open **Profile & Settings › Approve a Sign-In** and scan the QR code. Or on a computer, choose **Quick Login** in the profile menu and enter:")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -170,7 +186,7 @@ struct QuickLoginView: View {
                         .frame(width: 400, height: 400)
                         .padding(28)
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 28))
-                    Text("Or scan with your phone's camera").foregroundStyle(.secondary)
+                    Text("Scan with the Streamulus app or your phone's camera").foregroundStyle(.secondary)
                 }
                 .padding(36)
                 .glassEffect(.regular, in: .rect(cornerRadius: 48))
@@ -221,7 +237,7 @@ struct ProfilePickerView: View {
     @State private var errorText: String?
 
     var body: some View {
-        VStack(spacing: 60) {
+        VStack(spacing: profiles.contains(where: \.isKids) ? 44 : 60) {
             if let prompt {
                 if prompt.kind == "pin" {
                     PinPad(profile: prompt.profile, errorText: errorText,
@@ -233,41 +249,21 @@ struct ProfilePickerView: View {
                                    onCancel: cancelPrompt)
                 }
             } else {
-                Text("Who's watching?").font(.system(size: 64, weight: .bold))
+                let streamlings = profiles.filter(\.isKids)
+                // Two rows need a little less room each to fit on screen.
+                let avatar: CGFloat = streamlings.isEmpty ? 220 : 180
+                Text("Who's watching?").font(.system(size: streamlings.isEmpty ? 64 : 56, weight: .bold))
                 if let errorText { Text(errorText).foregroundStyle(.red) }
-                HStack(alignment: .top, spacing: 70) {
-                    ForEach(profiles) { profile in
-                        VStack(spacing: 24) {
-                            Button {
-                                if let needs = profile.requires {
-                                    errorText = nil
-                                    prompt = (profile: profile, kind: needs)
-                                } else {
-                                    Task { await choose(profile) }
-                                }
-                            } label: {
-                                ProfileAvatar(profile: profile, size: 220)
-                                    // Inside the circle, so Streamling tiles line up with the others.
-                                    .overlay(alignment: .bottom) {
-                                        if profile.isKids {
-                                            Text("STREAMLING")
-                                                .font(.caption2.weight(.heavy))
-                                                .foregroundStyle(.black)
-                                                .padding(.horizontal, 14)
-                                                .padding(.vertical, 6)
-                                                .background(Theme.streamling, in: Capsule())
-                                                .padding(.bottom, 18)
-                                        }
-                                    }
-                                    .overlay(alignment: .topTrailing) {
-                                        if profile.requires != nil {
-                                            Image(systemName: "lock.fill").padding(14).glassEffect(.regular, in: .circle)
-                                        }
-                                    }
-                            }
-                            .buttonStyle(AvatarButtonStyle())
-                            Text(profile.name).font(.headline)
-                        }
+                VStack(spacing: 36) {
+                    profileRow(profiles.filter { !$0.isKids }, avatar: avatar)
+                    // Streamlings get their own section beneath everyone else's profiles.
+                    if !streamlings.isEmpty {
+                        Text("STREAMLINGS")
+                            .font(.callout.weight(.heavy))
+                            .tracking(3)
+                            .foregroundStyle(Theme.streamling)
+                            .padding(.top, 8)
+                        profileRow(streamlings, avatar: avatar)
                     }
                 }
                 Button("Sign Out") { session.signOut() }
@@ -276,6 +272,34 @@ struct ProfilePickerView: View {
         }
         .padding(80)
         .task { await load() }
+    }
+
+    private func profileRow(_ profiles: [Profile], avatar: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 70) {
+            ForEach(profiles) { profile in
+                VStack(spacing: 24) {
+                    Button {
+                        if let needs = profile.requires {
+                            errorText = nil
+                            prompt = (profile: profile, kind: needs)
+                        } else {
+                            Task { await choose(profile) }
+                        }
+                    } label: {
+                        ProfileAvatar(profile: profile, size: avatar)
+                            .overlay(alignment: .topTrailing) {
+                                if profile.requires != nil {
+                                    Image(systemName: "lock.fill").padding(14).glassEffect(.regular, in: .circle)
+                                }
+                            }
+                    }
+                    .buttonStyle(AvatarButtonStyle())
+                    Text(profile.name).font(.headline)
+                }
+            }
+        }
+        // Moving down from any profile reaches the next row, wherever it sits.
+        .focusSection()
     }
 
     private func cancelPrompt() {

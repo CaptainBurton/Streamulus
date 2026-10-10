@@ -22,10 +22,8 @@ struct HomeView: View {
                     if let featured {
                         FeaturedBanner(movie: featured, metrics: m, topInset: geo.safeAreaInsets.top)
                     } else {
-                        // No featured movie (yet): just the logo under the status bar.
-                        BrandMark(size: 22)
-                            .padding(.horizontal, m.margin)
-                            .padding(.top, geo.safeAreaInsets.top + 8)
+                        // No featured movie (yet): keep the rows clear of the top bar.
+                        Color.clear.frame(height: geo.safeAreaInsets.top)
                         if !loaded { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 60) }
                     }
 
@@ -81,6 +79,15 @@ struct HomeView: View {
         }
         .background(Theme.background)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            // In the top bar with the profile picture, so it sits right at the top and
+            // stays put when the page scrolls or is pulled down past the top.
+            ToolbarItem(placement: .topBarLeading) {
+                BrandMark(size: 20)
+                    .shadow(color: .black.opacity(0.5), radius: 8)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
         .accountButton()
         .mediaDestinations()
         .refreshable { await load() }
@@ -173,13 +180,6 @@ struct FeaturedBanner: View {
                     .init(color: Theme.background.opacity(0.85), location: 0.82),
                     .init(color: Theme.background, location: 1),
                 ], startPoint: .top, endPoint: .bottom)
-            }
-            .overlay(alignment: .topLeading) {
-                // Whose app this is (Admin › Branding: logo and/or name).
-                BrandMark(size: 20)
-                    .shadow(color: .black.opacity(0.5), radius: 8)
-                    .padding(.leading, metrics.margin)
-                    .padding(.top, topInset + 10)
             }
             .overlay(alignment: .bottomLeading) {
                 VStack(alignment: .leading, spacing: 12) {

@@ -50,8 +50,8 @@ target.build_configurations.each do |config|
   s = config.build_settings
   s['PRODUCT_NAME'] = '$(TARGET_NAME)'
   s['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.streamulus.ios'
-  s['MARKETING_VERSION'] = '1.0'
-  s['CURRENT_PROJECT_VERSION'] = '1'
+  s['MARKETING_VERSION'] = '1.1'
+  s['CURRENT_PROJECT_VERSION'] = '2'
   s['SDKROOT'] = 'iphoneos'
   s['TARGETED_DEVICE_FAMILY'] = '1,2' # iPhone and iPad
   s['IPHONEOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET

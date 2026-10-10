@@ -190,6 +190,12 @@ for (const table of ['movies', 'tv_shows', 'episodes']) {
 // Per profile: show titles and descriptions in English where available.
 try { db.exec('ALTER TABLE profiles ADD COLUMN english_titles INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN parental_lock_method TEXT NOT NULL DEFAULT 'password'"); } catch {}
+// Accounts people create themselves are 'pending' until they enter the single-use
+// Admin Passphrase an admin made for them (services/accounts.js).
+try { db.exec("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN passphrase_hash TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN passphrase_expires_at INTEGER'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN passphrase_attempts INTEGER NOT NULL DEFAULT 0'); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_wh_profile ON watch_history(profile_id, media_type, media_id)');
 
 // Give every existing account a main profile and move its history onto it.

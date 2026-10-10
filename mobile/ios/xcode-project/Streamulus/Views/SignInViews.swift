@@ -79,69 +79,233 @@ struct SignInView: View {
     @State private var password = ""
     @State private var busy = false
     @State private var errorText: String?
-    @State private var quickLogin = false
+    @State private var mode: Mode = .password
+    /// A new account's first sign-in needs the Admin Passphrase: why, and whether it was just made.
+    @State private var passphraseNote: String?
+    @State private var justCreated = false
+    @State private var passphrase = ""
+
+    enum Mode { case password, quickLogin, create }
 
     var body: some View {
-        if quickLogin {
-            QuickLoginRequestView(onCancel: { quickLogin = false })
-        } else {
-            ScrollView {
-                VStack(spacing: 18) {
-                    BrandMark(size: 30).padding(.top, 60)
-                    Text("Sign in").font(.title2.weight(.semibold))
+        switch mode {
+        case .quickLogin:
+            QuickLoginRequestView(onCancel: { mode = .password })
+        case .create:
+            CreateAccountView(onCancel: { mode = .password }) { name, newPassword, message in
+                username = name
+                password = newPassword
+                passphrase = ""
+                passphraseNote = message
+                justCreated = true
+                errorText = nil
+                mode = .password
+            }
+        case .password:
+            signInForm
+        }
+    }
 
-                    VStack(spacing: 12) {
-                        TextField("Username", text: $username)
-                            .textContentType(.username)
+    private var signInForm: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                BrandMark(size: 30).padding(.top, 60)
+                Text(passphraseNote == nil ? "Sign in" : "One more step").font(.title2.weight(.semibold))
+
+                if let passphraseNote {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if justCreated {
+                            Label("Account created", systemImage: "checkmark.circle.fill")
+                                .font(.headline)
+                                .foregroundStyle(.green)
+                        }
+                        Text(passphraseNote).font(.subheadline)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .glassEffect(.regular.tint(Theme.accent.opacity(0.25)), in: .rect(cornerRadius: 16))
+                }
+
+                VStack(spacing: 12) {
+                    TextField("Username", text: $username)
+                        .textContentType(.username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .disabled(justCreated)
+                        .padding(14)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                    SecureField("Password", text: $password)
+                        .textContentType(.password)
+                        .submitLabel(.go)
+                        .onSubmit { Task { await signIn() } }
+                        .padding(14)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                    if passphraseNote != nil {
+                        TextField("Admin Passphrase", text: $passphrase, prompt: Text("Admin Passphrase, e.g. maple-river-otter-comet"))
+                            .textContentType(.oneTimeCode)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .padding(14)
-                            .glassEffect(.regular, in: .rect(cornerRadius: 14))
-                        SecureField("Password", text: $password)
-                            .textContentType(.password)
                             .submitLabel(.go)
                             .onSubmit { Task { await signIn() } }
                             .padding(14)
                             .glassEffect(.regular, in: .rect(cornerRadius: 14))
                     }
+                }
 
-                    if let errorText {
-                        Text(errorText).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
+                if let errorText {
+                    Text(errorText).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
+                }
+
+                Button { Task { await signIn() } } label: {
+                    Group {
+                        if busy { ProgressView() } else { Text(passphraseNote == nil ? "Sign In" : "Activate & Sign In") }
                     }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.large)
+                .disabled(username.isEmpty || password.isEmpty || busy
+                          || (passphraseNote != nil && passphrase.trimmingCharacters(in: .whitespaces).isEmpty))
 
-                    Button { Task { await signIn() } } label: {
-                        Group {
-                            if busy { ProgressView() } else { Text("Sign In") }
-                        }
-                        .frame(maxWidth: .infinity)
+                if passphraseNote != nil {
+                    Button("Back to sign in") {
+                        passphraseNote = nil
+                        justCreated = false
+                        passphrase = ""
+                        errorText = nil
                     }
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.large)
-                    .disabled(username.isEmpty || password.isEmpty || busy)
-
-                    Button { quickLogin = true } label: {
+                    .font(.subheadline)
+                } else {
+                    Button { mode = .quickLogin } label: {
                         Label("Quick Login with a code", systemImage: "qrcode").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.glass)
                     .controlSize(.large)
 
-                    Button("Change Server · \(session.serverURL?.host ?? "")") { session.changeServer() }
-                        .font(.footnote)
-                        .padding(.top, 8)
+                    Button {
+                        errorText = nil
+                        mode = .create
+                    } label: {
+                        Label("Create Account", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.large)
                 }
-                .padding(24)
-                .frame(maxWidth: 460)
-                .frame(maxWidth: .infinity)
+
+                Button("Change Server · \(session.serverURL?.host ?? "")") { session.changeServer() }
+                    .font(.footnote)
+                    .padding(.top, 8)
             }
-            .scrollDismissesKeyboard(.interactively)
+            .padding(24)
+            .frame(maxWidth: 460)
+            .frame(maxWidth: .infinity)
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private func signIn() async {
+        guard !busy else { return }
         busy = true
         errorText = nil
         do {
-            try await session.login(username: username, password: password)
+            try await session.login(username: username, password: password,
+                                    passphrase: passphraseNote == nil ? nil : passphrase.trimmingCharacters(in: .whitespaces))
+        } catch let error as APIError where error.isPassphraseError {
+            // First sign-in of a new account: ask for (or retry) the Admin Passphrase.
+            if passphraseNote == nil || error.code == "PASSPHRASE_REQUIRED" {
+                passphraseNote = error.message
+            } else {
+                errorText = error.message
+            }
+        } catch {
+            errorText = error.localizedDescription
+        }
+        busy = false
+    }
+}
+
+/// Create an account: a display name (also the sign-in name) and a password. It
+/// then needs an Admin Passphrase from the server's admin before the first sign-in.
+struct CreateAccountView: View {
+    let onCancel: () -> Void
+    /// Name as the server stored it, the password, and what happens next.
+    let onCreated: (String, String, String) -> Void
+    @EnvironmentObject private var session: Session
+    @State private var name = ""
+    @State private var password = ""
+    @State private var confirm = ""
+    @State private var busy = false
+    @State private var errorText: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                BrandMark(size: 30).padding(.top, 60)
+                Text("Create Account").font(.title2.weight(.semibold))
+
+                VStack(spacing: 12) {
+                    TextField("Display name", text: $name)
+                        .textContentType(.username)
+                        .autocorrectionDisabled()
+                        .padding(14)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                    SecureField("Password (at least 6 characters)", text: $password)
+                        .textContentType(.newPassword)
+                        .padding(14)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                    SecureField("Confirm password", text: $confirm)
+                        .textContentType(.newPassword)
+                        .submitLabel(.go)
+                        .onSubmit { Task { await create() } }
+                        .padding(14)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                }
+                Text("You'll sign in with your display name.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let errorText {
+                    Text(errorText).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
+                }
+
+                Button { Task { await create() } } label: {
+                    Group {
+                        if busy { ProgressView() } else { Text("Create Account") }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.large)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty || confirm.isEmpty || busy)
+
+                Text("New accounts need an **Admin Passphrase** from your Streamulus admin before the first sign-in. It usually takes 5–10 minutes to get one.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button("Already have an account? Sign in", action: onCancel)
+                    .font(.subheadline)
+                    .padding(.top, 4)
+            }
+            .padding(24)
+            .frame(maxWidth: 460)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    private func create() async {
+        guard !busy else { return }
+        guard password == confirm else {
+            errorText = "The passwords don't match."
+            return
+        }
+        busy = true
+        errorText = nil
+        do {
+            let created = try await session.register(displayName: name, password: password)
+            onCreated(created.username, password, created.message)
         } catch {
             errorText = error.localizedDescription
         }
@@ -164,11 +328,21 @@ struct QuickLoginRequestView: View {
             VStack(spacing: 22) {
                 BrandMark(size: 26).padding(.top, 60)
                 Text("Quick Login").font(.title2.weight(.semibold))
-                Text("On a device that's signed in — Streamulus in a browser, or this app on another iPhone or iPad — open **Quick Login** and enter:")
+                Text("On a device that's signed in — Streamulus in a browser, or this app on another iPhone or iPad (Profile & Settings › Approve a Sign-In) — scan this or enter the code:")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
                 if let request, !expired {
+                    if let qr = QRCode.image(for: session.quickLoginLink(code: request.code)) {
+                        Image(uiImage: qr)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 170, height: 170)
+                            .padding(12)
+                            .background(Color.white, in: .rect(cornerRadius: 18))
+                            .accessibilityLabel("Sign-in QR code")
+                    }
                     Text(Fmt.code(request.code))
                         .font(.system(size: 52, weight: .heavy, design: .monospaced))
                         .foregroundStyle(Theme.accent)
@@ -264,44 +438,18 @@ struct ProfilePickerView: View {
                 if let errorText, prompt == nil {
                     Text(errorText).font(.footnote).foregroundStyle(.red)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: avatar + 20), spacing: 24)], spacing: 28) {
-                    ForEach(profiles) { profile in
-                        Button {
-                            if let needs = profile.requires {
-                                errorText = nil
-                                prompt = Prompt(profile: profile, kind: needs)
-                            } else {
-                                Task { await choose(profile) }
-                            }
-                        } label: {
-                            VStack(spacing: 10) {
-                                ProfileAvatar(profile: profile, size: avatar)
-                                    .overlay(alignment: .bottom) {
-                                        if profile.isKids {
-                                            Text("STREAMLING")
-                                                .font(.system(size: 10, weight: .heavy))
-                                                .foregroundStyle(.black)
-                                                .padding(.horizontal, 8)
-                                                .padding(.vertical, 3)
-                                                .background(Theme.streamling, in: Capsule())
-                                                .padding(.bottom, 10)
-                                        }
-                                    }
-                                    .overlay(alignment: .topTrailing) {
-                                        if profile.requires != nil {
-                                            Image(systemName: "lock.fill")
-                                                .font(.caption)
-                                                .padding(7)
-                                                .glassEffect(.regular, in: .circle)
-                                        }
-                                    }
-                                Text(profile.name).font(.headline).foregroundStyle(.primary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
+                profileGrid(profiles.filter { !$0.isKids }, avatar: avatar)
+                // Streamlings get their own section beneath everyone else's profiles.
+                let streamlings = profiles.filter(\.isKids)
+                if !streamlings.isEmpty {
+                    Text("Streamlings")
+                        .font(.subheadline.weight(.heavy))
+                        .tracking(1.5)
+                        .textCase(.uppercase)
+                        .foregroundStyle(Theme.streamling)
+                        .padding(.top, 10)
+                    profileGrid(streamlings, avatar: avatar)
                 }
-                .frame(maxWidth: 760)
                 Button("Sign Out") { session.signOut() }
                     .buttonStyle(.glass)
             }
@@ -315,6 +463,36 @@ struct ProfilePickerView: View {
             }
             .presentationDetents([.medium])
         }
+    }
+
+    private func profileGrid(_ profiles: [Profile], avatar: CGFloat) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: avatar + 20), spacing: 24)], spacing: 28) {
+            ForEach(profiles) { profile in
+                Button {
+                    if let needs = profile.requires {
+                        errorText = nil
+                        prompt = Prompt(profile: profile, kind: needs)
+                    } else {
+                        Task { await choose(profile) }
+                    }
+                } label: {
+                    VStack(spacing: 10) {
+                        ProfileAvatar(profile: profile, size: avatar)
+                            .overlay(alignment: .topTrailing) {
+                                if profile.requires != nil {
+                                    Image(systemName: "lock.fill")
+                                        .font(.caption)
+                                        .padding(7)
+                                        .glassEffect(.regular, in: .circle)
+                                }
+                            }
+                        Text(profile.name).font(.headline).foregroundStyle(.primary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: 760)
     }
 
     private func load() async {

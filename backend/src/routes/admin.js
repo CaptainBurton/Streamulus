@@ -7,6 +7,7 @@ const db = require('../database/db');
 const { requireAdmin } = require('../middleware/auth');
 const { scanAllWithProgress, validatePath } = require('../services/scanner');
 const { ensureMainProfile, publicProfile, deleteProfileData } = require('../services/profiles');
+const accounts = require('../services/accounts');
 
 const uploadsDir = path.join(process.env.DATA_DIR || '/data', 'uploads');
 const upload = multer({
@@ -30,9 +31,10 @@ router.get('/stats', requireAdmin, (req, res) => {
   const movieCount = db.prepare('SELECT COUNT(*) as count FROM movies').get().count;
   const showCount = db.prepare('SELECT COUNT(*) as count FROM tv_shows').get().count;
   const episodeCount = db.prepare('SELECT COUNT(*) as count FROM episodes').get().count;
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+  const userCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE status = 'active'").get().count;
+  const pendingCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE status = 'pending'").get().count;
   const libraries = db.prepare('SELECT * FROM libraries').all();
-  res.json({ movieCount, showCount, episodeCount, userCount, libraries });
+  res.json({ movieCount, showCount, episodeCount, userCount, pendingCount, libraries });
 });
 
 // SSE endpoint — streams scan progress events in real time
@@ -154,16 +156,32 @@ router.delete('/libraries/:id', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// Accounts with their profiles nested underneath (main profile first).
+// Accounts with their profiles nested underneath (main profile first). Accounts
+// people created themselves show as status 'pending' until they're activated
+// with an Admin Passphrase; passphraseExpiresAt says whether one is out (ms).
 router.get('/users', requireAdmin, (req, res) => {
-  const users = db.prepare('SELECT id, username, email, role, created_at FROM users ORDER BY id').all();
+  const users = db.prepare('SELECT id, username, email, role, status, passphrase_expires_at, created_at FROM users ORDER BY id').all();
   const profiles = db.prepare('SELECT * FROM profiles ORDER BY is_main DESC, id').all();
   res.json({
-    users: users.map(u => ({
+    users: users.map(({ passphrase_expires_at, ...u }) => ({
       ...u,
+      passphraseExpiresAt: u.status === 'pending' ? passphrase_expires_at : null,
       profiles: profiles.filter(p => p.user_id === u.id).map(p => ({ ...publicProfile(p), created_at: p.created_at })),
     })),
   });
+});
+
+// Make a new single-use Admin Passphrase for an account that's waiting, valid for
+// an hour. It replaces any earlier one and is only ever shown here, once.
+router.post('/users/:id/passphrase', requireAdmin, (req, res) => {
+  const user = db.prepare('SELECT id, username, status FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Account not found' });
+  if (user.status !== 'pending') return res.status(400).json({ error: 'That account is already active' });
+  const passphrase = accounts.generatePassphrase();
+  const expiresAt = Date.now() + accounts.PASSPHRASE_TTL_MS;
+  db.prepare('UPDATE users SET passphrase_hash = ?, passphrase_expires_at = ?, passphrase_attempts = 0 WHERE id = ?')
+    .run(accounts.hashPassphrase(passphrase), expiresAt, user.id);
+  res.json({ passphrase, expiresAt, username: user.username });
 });
 
 router.post('/users', requireAdmin, async (req, res) => {

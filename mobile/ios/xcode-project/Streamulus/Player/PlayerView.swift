@@ -199,8 +199,13 @@ struct PlayerView: View {
                 played: controller.position,
                 buffered: controller.buffered,
                 duration: controller.duration,
-                seeking: scrubbing || controller.pendingSeek != nil
+                // Only grows while your finger is on it — not while the new spot buffers.
+                seeking: scrubbing,
+                barHeight: scrubbing ? 8 : 5,
+                knobSize: 14,
+                seekingKnobSize: 22
             )
+            .animation(.easeOut(duration: 0.15), value: scrubbing)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(

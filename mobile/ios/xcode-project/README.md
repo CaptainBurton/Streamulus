@@ -9,11 +9,14 @@ included — use Streamulus in a browser for that.
   (e.g. `https://streamulus.your-tailnet.ts.net`). After connecting at home once, the app learns the server's
   public address (Admin › Settings › Remote Access) and **switches to it by itself** when the home address
   doesn't answer — and back again when you're home.
-- **Sign in** with a username and password, or **Quick Login**: the app shows a code; approve it from
-  Streamulus in a browser or this app on another device.
+- **Sign in** with a username and password, or **Quick Login**: the app shows a code and QR code; approve it
+  from Streamulus in a browser or this app on another device.
+- **Create Account**: a display name and password. Your admin then makes you a single-use **Admin Passphrase**
+  (Admin › Users › Account Requests — usually within 5–10 minutes); enter it at your first sign-in. It works for
+  1 hour. The Apple TV app doesn't create accounts — create one here or on the web first.
 - **Approve a sign-in** for an Apple TV, another phone or a browser: Profile & Settings → *Approve a Sign-In*,
-  enter the code it shows.
-- **Who's watching?** with Streamlings (kids profiles) and the PIN / password lock.
+  then **scan its QR code** with the camera or type the code it shows.
+- **Who's watching?** with Streamlings (kids profiles) in their own section, and the PIN / password lock.
 - **Home**: rotating featured banner (title logo, Play / More Info), Continue Watching with a frame from where
   you stopped, recently added movies and shows. Pull to refresh.
 - **Movies** and **TV Shows**: A–Z grids with an index down the right edge (tap or drag), plus a filter box.
@@ -60,6 +63,7 @@ included — use Streamulus in a browser for that.
 - `Streamulus/Shared` holds code the Apple TV app also uses (API client, models, session and server switching,
   playback, image loading, branding). `tv/appletv/generate_project.rb` copies it into the Apple TV project —
   after changing it here, run that script to update the Apple TV copy.
+- The camera is only used to scan sign-in QR codes (iOS asks the first time).
 - Plain `http://` to your server is allowed (`Info.plist` → App Transport Security), since home servers rarely
   have HTTPS.
 - Your sign-in token is stored in the Keychain; the server addresses in app settings.

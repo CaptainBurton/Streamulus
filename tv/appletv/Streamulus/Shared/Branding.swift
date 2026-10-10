@@ -18,7 +18,7 @@ struct BrandMark: View {
                     if let custom = session.imageURL(session.branding.logoUrl) {
                         RemotePicture(url: custom, maxPixelSize: size * 6, contentMode: .fit)
                     } else {
-                        Image("StreamulusLogo").resizable().scaledToFit()
+                        Image("StreamulusLogo").renderingMode(.original).resizable().scaledToFit()
                     }
                 }
                 .frame(width: size * 1.35, height: size * 1.35)

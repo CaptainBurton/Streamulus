@@ -173,9 +173,18 @@ final class Session: ObservableObject {
 
     // MARK: Sign in / out
 
-    func login(username: String, password: String) async throws {
-        let response: LoginResponse = try await client().post("/api/auth/login", body: ["username": username, "password": password])
+    /// `passphrase`: the single-use Admin Passphrase, only for a new account's first sign-in.
+    func login(username: String, password: String, passphrase: String? = nil) async throws {
+        var body: [String: Any] = ["username": username, "password": password]
+        if let passphrase, !passphrase.isEmpty { body["passphrase"] = passphrase }
+        let response: LoginResponse = try await client().post("/api/auth/login", body: body)
         completeSignIn(token: response.token, user: response.user, profile: response.profile, profileCount: response.profileCount)
+    }
+
+    /// Create an account with a display name (also the sign-in name) and password.
+    /// It can't be used until the person signs in with an Admin Passphrase.
+    func register(displayName: String, password: String) async throws -> RegisterResponse {
+        try await client().post("/api/auth/register", body: ["displayName": displayName, "password": password])
     }
 
     /// Finish signing in with a token from a password sign-in or an approved Quick Login.

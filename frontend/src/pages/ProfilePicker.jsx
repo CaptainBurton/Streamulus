@@ -49,6 +49,20 @@ export default function ProfilePicker() {
     setBusy(false);
   };
 
+  const grown = (profiles || []).filter(p => !p.is_kids);
+  const streamlings = (profiles || []).filter(p => p.is_kids);
+
+  const tile = (p) => (
+    <button key={p.id} className="profile-tile" style={S.tile} onClick={() => choose(p)} disabled={busy}>
+      <div style={{ position: 'relative' }}>
+        <ProfileAvatar profile={p} size={128}
+          style={{ border: p.id === current?.id ? '3px solid #fff' : '3px solid transparent', transition: 'border-color 0.2s' }} />
+        {p.requires && <div style={S.lock} title={p.requires === 'pin' ? 'PIN locked' : 'Needs the account password'}>🔒</div>}
+      </div>
+      <div style={S.name}>{p.name}</div>
+    </button>
+  );
+
   const onPinChange = (v) => {
     const digits = v.replace(/\D/g, '').slice(0, 4);
     setSecret(digits);
@@ -64,19 +78,17 @@ export default function ProfilePicker() {
           <h1 style={S.title}>Who's watching?</h1>
           {error && <div style={S.error}>{error}</div>}
           <div style={S.grid}>
-            {(profiles || []).map(p => (
-              <button key={p.id} className="profile-tile" style={S.tile} onClick={() => choose(p)} disabled={busy}>
-                <div style={{ position: 'relative' }}>
-                  <ProfileAvatar profile={p} size={128}
-                    style={{ border: p.id === current?.id ? '3px solid #fff' : '3px solid transparent', transition: 'border-color 0.2s' }} />
-                  {/* Inside the circle, so Streamling tiles line up with the others */}
-                  {p.is_kids && <div style={S.streamling}>Streamling</div>}
-                  {p.requires && <div style={S.lock} title={p.requires === 'pin' ? 'PIN locked' : 'Needs the account password'}>🔒</div>}
-                </div>
-                <div style={S.name}>{p.name}</div>
-              </button>
-            ))}
+            {grown.map(tile)}
           </div>
+          {/* Streamlings get their own row beneath everyone else's profiles. */}
+          {streamlings.length > 0 && (
+            <>
+              <div style={S.section}>Streamlings</div>
+              <div style={S.grid}>
+                {streamlings.map(tile)}
+              </div>
+            </>
+          )}
           <div style={{ display: 'flex', gap: '12px', marginTop: '48px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {current?.is_main && !needsProfilePick && (
               <button style={S.outline} onClick={() => navigate('/profile')}>Manage Profiles</button>
@@ -144,7 +156,7 @@ const S = {
   grid: { display: 'flex', flexWrap: 'wrap', gap: '28px', justifyContent: 'center', alignItems: 'flex-start', maxWidth: '900px' },
   tile: { background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', width: '140px', transition: 'transform 0.2s', fontFamily: 'inherit' },
   name: { fontSize: '16px', color: '#aaa', fontWeight: 500, textAlign: 'center', wordBreak: 'break-word', transition: 'color 0.2s' },
-  streamling: { position: 'absolute', left: '50%', bottom: '12px', transform: 'translateX(-50%)', padding: '3px 9px', borderRadius: '20px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#1a1200', background: '#ffb703', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' },
+  section: { margin: '44px 0 22px', fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: '#ffb703' },
   lock: { position: 'absolute', right: 0, top: 0, width: 30, height: 30, borderRadius: '50%', background: '#1e1e1e', border: '1px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' },
   outline: { padding: '10px 26px', background: 'transparent', color: '#aaa', border: '1px solid #555', borderRadius: '6px', fontSize: '14px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'inherit' },
   pin: { width: '180px', textAlign: 'center', fontSize: '32px', letterSpacing: '18px', padding: '12px 0 12px 18px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '10px', color: '#fff', outline: 'none' },

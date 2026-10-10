@@ -65,8 +65,9 @@ export function AuthProvider({ children }) {
     return user;
   };
 
-  const login = async (username, password) => {
-    const res = await axios.post('/api/auth/login', { username, password });
+  // passphrase: the single-use Admin Passphrase, only for a new account's first sign-in.
+  const login = async (username, password, passphrase) => {
+    const res = await axios.post('/api/auth/login', { username, password, ...(passphrase ? { passphrase } : {}) });
     return completeLogin(res.data);
   };
 

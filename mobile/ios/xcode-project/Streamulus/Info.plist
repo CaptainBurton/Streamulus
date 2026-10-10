@@ -20,6 +20,9 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Streamulus connects to your media server on your local network.</string>
+	<!-- Approve a Sign-In: scan the QR code an Apple TV or browser shows. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Streamulus uses the camera to scan the sign-in QR code shown on your TV or in a browser.</string>
 
 	<!-- Keeps playing in Picture in Picture and over AirPlay when you leave the app. -->
 	<key>UIBackgroundModes</key>

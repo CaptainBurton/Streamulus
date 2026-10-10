@@ -31,6 +31,7 @@
 - **Apps** — Native [Apple TV](tv/appletv/README.md) and [iPhone & iPad](mobile/ios/xcode-project/README.md) apps (SwiftUI, Liquid Glass)
 - **Profiles** — Netflix-style "Who's watching?", Streamlings (kids profiles) with admin-picked titles, PIN or password lock
 - **Quick Login** — Sign a TV or phone in by approving a code from a device that's already signed in
+- **Create an account** — On the web or in the iPhone / iPad app (display name + password); an admin approves it with a single-use **Admin Passphrase** that works for 1 hour
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
 - **Streaming** — HLS with smart copy/transcode, buffered progress, Up Next, subtitles (embedded and sidecar files)
 - **Metadata** — TMDB / TVDB / IMDb, Fix Match, custom artwork, English titles for foreign-language titles
@@ -157,7 +158,7 @@ Access at `/admin` (admin users only):
 
 - **Overview** — Stats and media scan trigger
 - **Libraries** — Add/remove media library paths
-- **Users** — Create and manage user accounts and their profiles
+- **Users** — Create and manage user accounts and their profiles; **Account Requests** from people who signed up, with a *Generate Passphrase* button (single use, valid 1 hour)
 - **Streamlings** — What kids profiles can watch
 - **Genres** — Custom artwork for each genre
 - **Settings** — Metadata sources and keys, encoding, Up Next, featured movie interval, branding (logo and/or

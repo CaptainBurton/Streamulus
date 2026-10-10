@@ -107,6 +107,17 @@ struct LoginResponse: Decodable {
     let profileCount: Int
 }
 
+/// A new account, waiting for its Admin Passphrase.
+struct RegisterResponse: Decodable {
+    let username: String
+    let message: String
+}
+
+extension APIError {
+    /// The server wants (or didn't accept) a new account's Admin Passphrase.
+    var isPassphraseError: Bool { code?.hasPrefix("PASSPHRASE_") == true }
+}
+
 struct MeResponse: Decodable {
     let user: User
     let profile: Profile
