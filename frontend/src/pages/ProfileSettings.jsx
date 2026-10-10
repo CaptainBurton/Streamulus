@@ -3,12 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ProfileAvatar from '../components/ProfileAvatar';
+import AvatarPicker from '../components/AvatarPicker';
 import { useAuth } from '../context/AuthContext';
 
 const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
 
 // Profile & Account page.
 //  - Everyone (except Streamlings): their own photo, name and PIN.
+//  - Streamlings: pick one of the admin's provided pictures (no uploading).
 //  - Main profile: also the account's username/password and all profiles.
 export default function ProfileSettings() {
   const { user, profile, refresh } = useAuth();
@@ -17,6 +19,7 @@ export default function ProfileSettings() {
   const [maxProfiles, setMaxProfiles] = useState(6);
   const [parentalLock, setParentalLock] = useState(null); // { enabled, method }
   const [flash, setFlash] = useState(null); // { text, error }
+  const [pickingOwn, setPickingOwn] = useState(false); // Streamling choosing a provided picture
 
   const isMain = !!profile?.is_main;
   const isKids = !!profile?.is_kids;
@@ -64,10 +67,17 @@ export default function ProfileSettings() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
               <ProfileAvatar profile={profile} size={72} radius="14px" />
               <p style={{ color: '#aaa', fontSize: '14px', lineHeight: 1.6, flex: 1, minWidth: '220px' }}>
-                Streamling profiles show movies and shows picked for kids. Ask a grown-up on the main profile to change your name or picture.
+                Streamling profiles show movies and shows picked for kids. Choose a new picture any time — ask a grown-up on the main profile to change your name.
               </p>
             </div>
-            <div style={{ marginTop: '18px' }}><Btn onClick={() => navigate('/profiles')}>Switch Profile</Btn></div>
+            <div style={{ marginTop: '18px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <Btn primary onClick={() => setPickingOwn(true)}>Choose a picture</Btn>
+              <Btn onClick={() => navigate('/profiles')}>Switch Profile</Btn>
+            </div>
+            {pickingOwn && (
+              <AvatarPicker profile={profile} onClose={() => setPickingOwn(false)}
+                onPicked={async () => { await afterProfileChange(); setPickingOwn(false); say('Picture updated'); }} />
+            )}
           </Card>
         ) : (
           <ProfileEditor p={profile} self canManage={isMain} onChanged={afterProfileChange} say={say} errText={errText} />
@@ -112,6 +122,7 @@ function ProfileEditor({ p, self, canManage, compact, onChanged, say, errText })
   const [editingPin, setEditingPin] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
   const fileRef = useRef(null);
   useEffect(() => setName(p.name), [p.name]);
 
@@ -139,10 +150,15 @@ function ProfileEditor({ p, self, canManage, compact, onChanged, say, errText })
           <ProfileAvatar profile={p} size={compact ? 64 : 96} radius="14px" />
           <input ref={fileRef} type="file" accept={IMAGE_TYPES} style={{ display: 'none' }}
             onChange={e => { uploadPhoto(e.target.files[0]); e.target.value = ''; }} />
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <SmallBtn onClick={() => fileRef.current?.click()} disabled={busy}>{p.avatar_url ? 'Change' : 'Add photo'}</SmallBtn>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '190px' }}>
+            <SmallBtn onClick={() => setPicking(true)} disabled={busy}>Choose picture</SmallBtn>
+            <SmallBtn onClick={() => fileRef.current?.click()} disabled={busy}>Upload photo</SmallBtn>
             {p.avatar_url && <SmallBtn onClick={() => run(() => axios.delete(`/api/profiles/${p.id}/avatar`), 'Photo removed')} disabled={busy}>Remove</SmallBtn>}
           </div>
+          {picking && (
+            <AvatarPicker profile={p} onClose={() => setPicking(false)}
+              onPicked={async () => { await onChanged(); setPicking(false); say(`Picture updated for ${p.name}`); }} />
+          )}
         </div>
 
         <div style={{ flex: 1, minWidth: '230px', display: 'flex', flexDirection: 'column', gap: '12px' }}>

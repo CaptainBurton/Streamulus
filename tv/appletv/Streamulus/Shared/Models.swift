@@ -131,6 +131,24 @@ struct UpdateProfileResponse: Decodable {
     let profile: Profile
 }
 
+/// Profile pictures the admin provides (Admin › Profile Pictures), as offered to
+/// one profile: only those meant for Streamers or Streamlings, as it is.
+struct AvatarChoices: Decodable {
+    let categories: [AvatarCategory]
+    let currentImageId: Int?
+}
+
+struct AvatarCategory: Decodable, Identifiable {
+    let id: Int
+    let name: String
+    let images: [AvatarChoice]
+}
+
+struct AvatarChoice: Decodable, Identifiable, Hashable {
+    let id: Int
+    let url: String
+}
+
 struct SelectProfileResponse: Decodable {
     let token: String
     let profile: Profile

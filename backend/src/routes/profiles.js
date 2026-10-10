@@ -4,7 +4,10 @@
 //  - The main profile manages everything: add / edit / delete any profile,
 //    make a profile a Streamling (kids), set or clear any PIN.
 //  - Other adult profiles can edit their own name, photo and PIN.
-//  - Streamling profiles can't edit profiles.
+//  - Streamling profiles can't edit profiles — except to pick one of the
+//    admin's provided pictures for themselves.
+//  - Provided pictures (Admin › Profile Pictures) are offered to a profile only
+//    when meant for it: Streamers (grown-ups), Streamlings, or both.
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
@@ -13,6 +16,7 @@ const multer = require('multer');
 const db = require('../database/db');
 const { authenticate, signToken } = require('../middleware/auth');
 const { MAX_PROFILES, publicProfile, deleteProfileData } = require('../services/profiles');
+const library = require('../services/avatarLibrary');
 
 const router = express.Router();
 
@@ -147,7 +151,7 @@ router.post('/:id/avatar', authenticate, (req, res) => {
 
     const filename = `p${target.id}-${Date.now()}.${ext}`;
     fs.writeFileSync(path.join(avatarsDir, filename), req.file.buffer);
-    db.prepare('UPDATE profiles SET avatar_path = ? WHERE id = ?').run(filename, target.id);
+    db.prepare('UPDATE profiles SET avatar_path = ?, avatar_library_id = NULL WHERE id = ?').run(filename, target.id);
     removeAvatarFile(target);
     res.json({ profile: publicProfile(db.prepare('SELECT * FROM profiles WHERE id = ?').get(target.id)) });
   });
@@ -157,7 +161,37 @@ router.delete('/:id/avatar', authenticate, (req, res) => {
   const target = getOwnProfile(req, req.params.id);
   if (!target) return res.status(404).json({ error: 'Profile not found' });
   if (!canEdit(req, target)) return res.status(403).json({ error: "You can't edit this profile" });
-  db.prepare('UPDATE profiles SET avatar_path = NULL WHERE id = ?').run(target.id);
+  db.prepare('UPDATE profiles SET avatar_path = NULL, avatar_library_id = NULL WHERE id = ?').run(target.id);
+  removeAvatarFile(target);
+  res.json({ profile: publicProfile(db.prepare('SELECT * FROM profiles WHERE id = ?').get(target.id)) });
+});
+
+// Provided pictures: anyone may pick one for themselves (Streamlings too); the
+// main profile for any profile. Only pictures meant for that profile are offered.
+const canPickPicture = (req, target) => isManager(req) || target.id === req.profile.id;
+
+router.get('/:id/avatar/library', authenticate, (req, res) => {
+  const target = getOwnProfile(req, req.params.id);
+  if (!target) return res.status(404).json({ error: 'Profile not found' });
+  if (!canPickPicture(req, target)) return res.status(403).json({ error: "You can't change this profile's picture" });
+  res.json({ categories: library.choicesFor(target), currentImageId: target.avatar_library_id ?? null });
+});
+
+router.put('/:id/avatar/library', authenticate, (req, res) => {
+  const target = getOwnProfile(req, req.params.id);
+  if (!target) return res.status(404).json({ error: 'Profile not found' });
+  if (!canPickPicture(req, target)) return res.status(403).json({ error: "You can't change this profile's picture" });
+  const choice = library.findChoice(target, Number(req.body?.imageId));
+  if (!choice) return res.status(404).json({ error: "That picture isn't available for this profile" });
+
+  // The profile gets its own copy, so it keeps the picture even if the admin removes it later.
+  const filename = `p${target.id}-${Date.now()}${path.extname(choice.file)}`;
+  try {
+    fs.copyFileSync(path.join(library.libraryDir, choice.file), path.join(avatarsDir, filename));
+  } catch {
+    return res.status(410).json({ error: 'That picture is missing — ask your admin to add it again' });
+  }
+  db.prepare('UPDATE profiles SET avatar_path = ?, avatar_library_id = ? WHERE id = ?').run(filename, choice.id, target.id);
   removeAvatarFile(target);
   res.json({ profile: publicProfile(db.prepare('SELECT * FROM profiles WHERE id = ?').get(target.id)) });
 });

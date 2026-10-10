@@ -252,6 +252,21 @@ final class Session: ObservableObject {
         profile = response.profile
     }
 
+    /// The admin's provided pictures this profile may pick (Streamlings too).
+    func avatarChoices() async throws -> AvatarChoices {
+        guard let current = profile else { return AvatarChoices(categories: [], currentImageId: nil) }
+        return try await get("/api/profiles/\(current.id)/avatar/library")
+    }
+
+    /// Make one of the provided pictures this profile's picture.
+    func chooseAvatar(_ imageId: Int) async throws {
+        guard let current = profile else { return }
+        let response: UpdateProfileResponse = try await signedIn {
+            try await $0.put("/api/profiles/\(current.id)/avatar/library", body: ["imageId": imageId])
+        }
+        profile = response.profile
+    }
+
     // MARK: Requests (signed in)
 
     func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type = T.self) async throws -> T {

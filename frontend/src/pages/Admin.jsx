@@ -5,6 +5,7 @@ import RefreshIcon from '../components/RefreshIcon';
 import ProfileAvatar from '../components/ProfileAvatar';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
 import AccountRequests from '../components/AccountRequests';
+import AvatarLibraryAdmin from '../components/AvatarLibraryAdmin';
 import GenresAdmin from '../components/GenresAdmin';
 import BrandingAdmin from '../components/BrandingAdmin';
 
@@ -541,7 +542,8 @@ export default function Admin() {
 
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
-  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'genres', 'settings'];
+  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'settings'];
+  const TAB_LABELS = { pictures: 'Profile Pictures' };
   // Accounts people created themselves, waiting for an Admin Passphrase.
   const pendingUsers = users.filter(u => u.status === 'pending');
   const activeUsers = users.filter(u => u.status !== 'pending');
@@ -562,7 +564,7 @@ export default function Admin() {
           <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
           {tabs.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', whiteSpace: 'nowrap', flexShrink: 0, transition: 'color 0.15s' }}>
-              {tab}
+              {TAB_LABELS[tab] || tab}
               {tab === 'users' && pendingUsers.length > 0 && (
                 <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{pendingUsers.length}</span>
               )}
@@ -775,6 +777,8 @@ export default function Admin() {
 
         {/* Streamlings (kids profiles) */}
         {activeTab === 'streamlings' && <StreamlingsAdmin flash={flash} />}
+
+        {activeTab === 'pictures' && <AvatarLibraryAdmin flash={flash} />}
 
         {activeTab === 'genres' && <GenresAdmin flash={flash} />}
 

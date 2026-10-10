@@ -752,6 +752,12 @@ struct AccountView: View {
                         if let user = session.user {
                             Text("Signed in as \(user.username)").foregroundStyle(.secondary)
                         }
+                        // Pictures are chosen on a phone or the web, not with the remote.
+                        Label("Change your picture in the Streamulus app on iPhone or iPad, or on the web",
+                              systemImage: "person.crop.circle.badge.plus")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 6)
                     }
                 }
             }

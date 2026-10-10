@@ -31,6 +31,12 @@ struct AccountView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    // The admin's provided pictures — also how Streamlings change theirs.
+                    NavigationLink {
+                        AvatarPickerView()
+                    } label: {
+                        Label("Choose a Picture", systemImage: "person.crop.circle.badge.plus")
+                    }
                     Button {
                         dismiss()
                         session.switchProfile()

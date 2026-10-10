@@ -30,6 +30,7 @@
 - **Netflix-style UI** — Dark theme, rotating featured banner with title logos, horizontal rows, hover effects
 - **Apps** — Native [Apple TV](tv/appletv/README.md) and [iPhone & iPad](mobile/ios/xcode-project/README.md) apps (SwiftUI, Liquid Glass)
 - **Profiles** — Netflix-style "Who's watching?", Streamlings (kids profiles) with admin-picked titles, PIN or password lock
+- **Profile pictures** — Upload a photo, or choose from picture categories the admin provides (e.g. "The Simpsons"), each set for Streamers, Streamlings or both
 - **Quick Login** — Sign a TV or phone in by approving a code from a device that's already signed in
 - **Create an account** — On the web or in the iPhone / iPad app (display name + password); an admin approves it with a single-use **Admin Passphrase** that works for 1 hour
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
@@ -160,6 +161,7 @@ Access at `/admin` (admin users only):
 - **Libraries** — Add/remove media library paths
 - **Users** — Create and manage user accounts and their profiles; **Account Requests** from people who signed up, with a *Generate Passphrase* button (single use, valid 1 hour)
 - **Streamlings** — What kids profiles can watch
+- **Profile Pictures** — Categories of pictures profiles can choose from, and who each category / picture is for (Streamers, Streamlings or both)
 - **Genres** — Custom artwork for each genre
 - **Settings** — Metadata sources and keys, encoding, Up Next, featured movie interval, branding (logo and/or
   STREAMULUS text, custom logo), remote access (public URL), regional settings

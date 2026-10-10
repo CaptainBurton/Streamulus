@@ -156,13 +156,31 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_profiles_user ON profiles(user_id);
 
-  -- Admin's per-title choices for Streamlings; overrides the age-rating rule.
   -- Admin-chosen artwork for a genre card (otherwise a random title's artwork).
   CREATE TABLE IF NOT EXISTS genre_images (
     name TEXT PRIMARY KEY,
     image_path TEXT NOT NULL
   );
 
+  -- Profile pictures the admin provides, in named categories (e.g. "The Simpsons"),
+  -- that profiles pick from. audience: 'all' | 'adults' | 'kids' (Streamlings) —
+  -- a picture is offered when both its category and the picture allow the profile.
+  CREATE TABLE IF NOT EXISTS avatar_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    audience TEXT NOT NULL DEFAULT 'all',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS avatar_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER NOT NULL REFERENCES avatar_categories(id) ON DELETE CASCADE,
+    file TEXT NOT NULL,
+    audience TEXT NOT NULL DEFAULT 'all',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_avatar_images_category ON avatar_images(category_id);
+
+  -- Admin's per-title choices for Streamlings; overrides the age-rating rule.
   CREATE TABLE IF NOT EXISTS kids_overrides (
     media_type TEXT NOT NULL,   -- 'movie' | 'show'
     media_id INTEGER NOT NULL,
@@ -189,6 +207,9 @@ for (const table of ['movies', 'tv_shows', 'episodes']) {
 }
 // Per profile: show titles and descriptions in English where available.
 try { db.exec('ALTER TABLE profiles ADD COLUMN english_titles INTEGER NOT NULL DEFAULT 0'); } catch {}
+// The provided picture (avatar_images.id) a profile picked, if its photo is one;
+// the profile keeps its own copy of the file, so removing the picture is harmless.
+try { db.exec('ALTER TABLE profiles ADD COLUMN avatar_library_id INTEGER'); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN parental_lock_method TEXT NOT NULL DEFAULT 'password'"); } catch {}
 // Accounts people create themselves are 'pending' until they enter the single-use
 // Admin Passphrase an admin made for them (services/accounts.js).
