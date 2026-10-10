@@ -80,7 +80,7 @@ final class Session: ObservableObject {
             UserDefaults.standard.set(home.absoluteString, forKey: Self.serverKey) // first run with a preset server
         }
         await refreshBranding()
-        guard api?.token != nil else { phase = .signedOut; return }
+        guard let api, api.token != nil else { phase = .signedOut; return }
         do {
             let me: MeResponse = try await api.get("/api/auth/me")
             user = me.user

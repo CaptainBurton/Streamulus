@@ -208,9 +208,10 @@ struct SearchView: View {
             guard !Task.isCancelled else { return }
             searching = true
             let search = [URLQueryItem(name: "search", value: text), URLQueryItem(name: "limit", value: "60")]
-            async let foundMovies = try? session.get("/api/movies", query: search, as: MoviesResponse.self)
-            async let foundShows = try? session.get("/api/tv", query: search, as: ShowsResponse.self)
-            let (movieResults, showResults) = await (foundMovies, foundShows)
+            async let foundMovies = session.get("/api/movies", query: search, as: MoviesResponse.self)
+            async let foundShows = session.get("/api/tv", query: search, as: ShowsResponse.self)
+            let movieResults = try? await foundMovies
+            let showResults = try? await foundShows
             guard !Task.isCancelled else { return }
             movies = movieResults?.movies ?? []
             shows = showResults?.shows ?? []

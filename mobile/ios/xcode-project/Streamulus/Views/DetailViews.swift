@@ -66,6 +66,8 @@ struct MovieDetailView: View {
     @State private var similar: [Movie] = []
     @State private var progress = WatchProgress.none
     @State private var saving = false
+    /// Year · runtime · rating… wrapping onto a second line on narrow screens.
+    private let metaRow = FlowRow()
 
     private var shown: Movie { details ?? movie }
     private var inProgress: Bool { !progress.completed && progress.position > 10 }
@@ -82,7 +84,7 @@ struct MovieDetailView: View {
                              logo: session.imageURL(shown.logoPath), title: shown.title, metrics: m)
 
                 VStack(alignment: .leading, spacing: 14) {
-                    FlowRow {
+                    metaRow {
                         if let year = shown.year { Text(String(year)) }
                         if let duration = shown.duration, duration > 0 { Text(Fmt.runtime(duration)) }
                         if let rating = shown.contentRating { Pill(text: rating) }
@@ -192,6 +194,7 @@ struct ShowDetailView: View {
     @State private var season: Int?
     @State private var episodes: [Episode] = []
     @State private var saving = false
+    private let metaRow = FlowRow()
 
     private var shown: Show { details?.show ?? show }
     private var seasons: [Season] { details?.seasons ?? [] }
@@ -207,7 +210,7 @@ struct ShowDetailView: View {
                              logo: session.imageURL(shown.logoPath), title: shown.title, metrics: m)
 
                 VStack(alignment: .leading, spacing: 14) {
-                    FlowRow {
+                    metaRow {
                         if let year = shown.year { Text(year) }
                         Text("\(seasons.count) season\(seasons.count == 1 ? "" : "s")")
                         if let rating = shown.contentRating { Pill(text: rating) }
