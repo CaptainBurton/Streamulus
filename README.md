@@ -59,7 +59,7 @@
 git clone https://github.com/captainburton/streamulus.git
 cd streamulus
 
-# Edit docker-compose.yml to set your media paths and JWT_SECRET
+# Edit docker-compose.yml to set your media paths
 docker compose up -d
 ```
 
@@ -78,12 +78,9 @@ Set where your media lives on the server with two environment variables. In Port
 
 In the app, libraries are always `/tv` and `/movies`, whatever the server folders are called.
 
-Also change the secret in `docker-compose.yml`:
-
-```yaml
-environment:
-  - JWT_SECRET=your-strong-random-secret-here  # change this!
-```
+Sign-in tokens are signed with a secret. You can set your own as a `JWT_SECRET` environment variable
+(32+ random characters, e.g. from `openssl rand -hex 32`); otherwise Streamulus makes a random one and keeps it
+in the data volume. Known example values are ignored, so the server is safe to put on the internet.
 
 ---
 
@@ -148,7 +145,7 @@ Game of Thrones/Game of Thrones - 1x01 - Winter Is Coming.mkv
 |----------|---------|-------------|
 | `PORT` | `8096` | Web server port |
 | `DATA_DIR` | `/data` | Database and config storage |
-| `JWT_SECRET` | *(insecure default)* | Secret for JWT tokens — **change this!** |
+| `JWT_SECRET` | *(random, kept in `/data`)* | Secret for sign-in tokens — set your own or leave empty |
 | `NODE_ENV` | `production` | Environment mode |
 
 ---
@@ -175,7 +172,7 @@ Access at `/admin` (admin users only):
 
 Both connect to your server's address. To use them away from home without a VPN, give the server a public
 HTTPS address — for example with [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)
-(`tailscale funnel 8096`) — and enter it in **Admin › Settings › Remote Access**. The apps learn it when they
+(`sudo tailscale funnel --bg 8096`) — and enter it in **Admin › Settings › Remote Access**. The apps learn it when they
 connect at home and switch to it automatically when the home address doesn't answer. Friends can enter the
 public address directly, or you can build it into the iPhone app (see its README).
 

@@ -50,7 +50,7 @@ included — use Streamulus in a browser for that.
 
 ## Sharing it with friends (no VPN)
 
-1. Give your server a public HTTPS address, e.g. with Tailscale Funnel: `tailscale funnel 8096`.
+1. Give your server a public HTTPS address, e.g. with Tailscale Funnel: `sudo tailscale funnel --bg 8096`.
 2. Put that address in **Admin › Settings › Remote Access** on the web.
 3. Either friends type the public address when the app asks, or build it into the app: open
    `Streamulus/Info.plist` and set **StreamulusServerURL** to it (e.g. `https://streamulus.your-tailnet.ts.net`).

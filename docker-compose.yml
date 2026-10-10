@@ -22,8 +22,10 @@ services:
       - NODE_ENV=production
       - PORT=8096
       - DATA_DIR=/data
-      # Change this to a strong random secret!
-      - JWT_SECRET=change-me-to-a-strong-random-secret
+      # Optional: your own sign-in secret (32+ random characters) as a JWT_SECRET
+      # environment variable in Portainer. Left empty, Streamulus makes a random
+      # one and keeps it in the data volume.
+      - JWT_SECRET=${JWT_SECRET:-}
 volumes:
   streamulus_data:
     driver: local

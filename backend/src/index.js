@@ -7,6 +7,11 @@ const { execSync } = require('child_process');
 const app = express();
 const PORT = process.env.PORT || 8096;
 
+// Behind Tailscale Funnel (or another proxy on this machine or the Docker
+// network), take each visitor's address from X-Forwarded-For so per-address
+// limits (sign-ups, Quick Login) apply per person rather than to everyone at once.
+app.set('trust proxy', 'loopback, uniquelocal');
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 

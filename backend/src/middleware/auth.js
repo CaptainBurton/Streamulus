@@ -1,8 +1,41 @@
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const jwt = require('jsonwebtoken');
 const db = require('../database/db');
 const { ensureMainProfile } = require('../services/profiles');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'streamulus-secret-change-in-production';
+// Example values from docker-compose.yml / the README and the old built-in
+// default. They're public, so anyone could sign their own admin token with them —
+// which matters as soon as the server is reachable from the internet.
+const PLACEHOLDER_SECRETS = new Set([
+  'streamulus-secret-change-in-production',
+  'change-me-to-a-strong-random-secret',
+  'your-strong-random-secret-here',
+]);
+
+// The JWT_SECRET setting when it's a real one; otherwise a random secret made
+// once and kept in the data folder, so sign-ins survive restarts and updates.
+function loadSecret() {
+  const configured = String(process.env.JWT_SECRET || '').trim();
+  if (configured && !PLACEHOLDER_SECRETS.has(configured) && configured.length >= 16) return configured;
+  if (configured) console.warn('[auth] JWT_SECRET is a placeholder or too short — using a random secret kept in the data folder instead.');
+  const file = path.join(process.env.DATA_DIR || '/data', 'jwt-secret');
+  try {
+    const saved = fs.readFileSync(file, 'utf8').trim();
+    if (saved.length >= 32) return saved;
+  } catch {}
+  const secret = crypto.randomBytes(48).toString('hex');
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, secret, { mode: 0o600 });
+  } catch (err) {
+    console.warn(`[auth] Couldn't save the sign-in secret (${err.message}) — everyone will need to sign in again after a restart.`);
+  }
+  return secret;
+}
+
+const JWT_SECRET = loadSecret();
 
 // Tokens carry the account (userId) and the active profile (profileId). A token
 // without a profileId — e.g. straight after login — acts as the main profile.
