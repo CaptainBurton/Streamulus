@@ -6,6 +6,8 @@ dist/
 .env.*
 *.log
 data/
+# …but not the Android app's Kotlin package of that name.
+!mobile/android/app/src/main/java/com/streamulus/android/data/
 streamulus.db
 .claude/
 
