@@ -43,7 +43,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RootScreen() {
     val session = LocalSession.current
-    LaunchedEffect(Unit) { session.start() }
+    LaunchedEffect(Unit) { if (!session.started) session.start() }
     BoxWithConstraints(Modifier.fillMaxSize().background(Brand.Background)) {
         CompositionLocalProvider(LocalMetrics provides Metrics(wide = maxWidth >= 600.dp)) {
             Crossfade(targetState = session.phase, label = "phase") { phase ->
