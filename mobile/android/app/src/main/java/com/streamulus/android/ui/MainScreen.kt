@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Icon
@@ -73,7 +74,7 @@ fun MainScreen() {
                         )
                     }
                 }
-                Box(Modifier.weight(1f).fillMaxHeight()) { PageHost(navigator) }
+                Box(Modifier.weight(1f).fillMaxHeight().navigationBarsPadding()) { PageHost(navigator) }
             }
         } else {
             Column(Modifier.fillMaxSize()) {

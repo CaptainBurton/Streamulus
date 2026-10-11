@@ -210,6 +210,7 @@ fun SearchScreen() {
         if (text.isEmpty()) {
             movies = emptyList()
             shows = emptyList()
+            searching = false
             return@LaunchedEffect
         }
         delay(300) // wait until typing pauses

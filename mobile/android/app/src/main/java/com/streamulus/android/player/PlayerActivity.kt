@@ -8,13 +8,13 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.media3.session.MediaSession
 import com.streamulus.android.StreamulusApplication
 import com.streamulus.android.ui.LocalSession
@@ -25,7 +25,7 @@ import com.streamulus.android.ui.theme.StreamulusTheme
  * Picture (automatically on Android 12+); the media session gives the PiP window,
  * headphones and Bluetooth controls play / pause.
  */
-class PlayerActivity : ComponentActivity() {
+class PlayerActivity : FragmentActivity() { // the Cast button's device list needs a FragmentActivity
     private var controller: PlaybackController? = null
     private var mediaSession: MediaSession? = null
     private val inPip = mutableStateOf(false)
@@ -122,10 +122,10 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        controller?.stop()
-        controller = null
         mediaSession?.release()
         mediaSession = null
+        controller?.stop()
+        controller = null
         super.onDestroy()
     }
 }
