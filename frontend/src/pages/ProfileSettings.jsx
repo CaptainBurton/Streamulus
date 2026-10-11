@@ -85,6 +85,10 @@ export default function ProfileSettings() {
 
         <LanguageSection profile={profile} onChanged={refresh} say={say} errText={errText} />
 
+        <Card title="Feedback" subtitle="Send feedback or an app suggestion to your Streamulus admin, and read their replies.">
+          <Btn primary onClick={() => navigate('/feedback')}>Feedback &amp; Suggestions</Btn>
+        </Card>
+
         {!isKids && (
           <Card title="Quick Login" subtitle="Sign in your Apple TV or another device without typing your password: choose Quick Login on that device, then enter the code it shows here.">
             <Btn primary onClick={() => navigate('/quick-login')}>Enter a Quick Login code</Btn>

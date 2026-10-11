@@ -34,7 +34,9 @@ router.get('/stats', requireAdmin, (req, res) => {
   const userCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE status = 'active'").get().count;
   const pendingCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE status = 'pending'").get().count;
   const libraries = db.prepare('SELECT * FROM libraries').all();
-  res.json({ movieCount, showCount, episodeCount, userCount, pendingCount, libraries });
+  // Feedback with something new from the person (Admin › Feedback).
+  const feedbackUnread = require('./feedback').countUnreadForAdmin();
+  res.json({ movieCount, showCount, episodeCount, userCount, pendingCount, feedbackUnread, libraries });
 });
 
 // SSE endpoint — streams scan progress events in real time

@@ -17,6 +17,7 @@ import Admin from './pages/Admin';
 import ProfilePicker from './pages/ProfilePicker';
 import ProfileSettings from './pages/ProfileSettings';
 import QuickLogin from './pages/QuickLogin';
+import Feedback from './pages/Feedback';
 
 function AppRoutes() {
   const { user, profile, loading, needsProfilePick } = useAuth();
@@ -56,6 +57,7 @@ function AppRoutes() {
       <Route path="/profiles" element={<ProfilePicker />} />
       <Route path="/profile" element={<ProfileSettings />} />
       <Route path="/quick-login" element={<QuickLogin />} />
+      <Route path="/feedback" element={<Feedback />} />
       <Route path="/admin" element={user.role === 'admin' && !profile?.is_kids ? <Admin /> : <Navigate to="/" />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

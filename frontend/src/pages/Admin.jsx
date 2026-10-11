@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
-import Navbar, { notePendingRequests } from '../components/Navbar';
+import Navbar, { noteAdminCounts } from '../components/Navbar';
 import RefreshIcon from '../components/RefreshIcon';
 import ProfileAvatar from '../components/ProfileAvatar';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
 import AccountRequests from '../components/AccountRequests';
 import AvatarLibraryAdmin from '../components/AvatarLibraryAdmin';
+import FeedbackAdmin from '../components/FeedbackAdmin';
 import GenresAdmin from '../components/GenresAdmin';
 import BrandingAdmin from '../components/BrandingAdmin';
 
@@ -302,6 +303,7 @@ export default function Admin() {
   const [users, setUsers] = useState([]);
   const [config, setConfig] = useState({});
   const [activeTab, setActiveTab] = useState('overview');
+  const [feedbackCount, setFeedbackCount] = useState(null);
   const [tmdbKey, setTmdbKey] = useState('');
   const [tmdbVisible, setTmdbVisible] = useState(false);
   const [tvdbKey, setTvdbKey] = useState('');
@@ -349,7 +351,10 @@ export default function Admin() {
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data.users || []);
-      notePendingRequests((usersRes.data.users || []).filter(u => u.status === 'pending').length);
+      noteAdminCounts({
+        pending: (usersRes.data.users || []).filter(u => u.status === 'pending').length,
+        feedback: statsRes.data.feedbackUnread || 0,
+      });
       setConfig(configRes.data);
       setTmdbKey(configRes.data.tmdbApiKey || '');
       setTvdbKey(configRes.data.tvdbApiKey || '');
@@ -542,8 +547,10 @@ export default function Admin() {
 
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
-  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'settings'];
+  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'feedback', 'settings'];
   const TAB_LABELS = { pictures: 'Profile Pictures' };
+  // Feedback with something new from the person (kept current by the Feedback tab).
+  const feedbackUnread = feedbackCount ?? stats?.feedbackUnread ?? 0;
   // Accounts people created themselves, waiting for an Admin Passphrase.
   const pendingUsers = users.filter(u => u.status === 'pending');
   const activeUsers = users.filter(u => u.status !== 'pending');
@@ -568,6 +575,9 @@ export default function Admin() {
               {tab === 'users' && pendingUsers.length > 0 && (
                 <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{pendingUsers.length}</span>
               )}
+              {tab === 'feedback' && feedbackUnread > 0 && (
+                <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{feedbackUnread}</span>
+              )}
             </button>
           ))}
         </div>
@@ -582,6 +592,15 @@ export default function Admin() {
                   <strong style={{ color: '#fff' }}>{pendingUsers.length} account request{pendingUsers.length === 1 ? '' : 's'}</strong> waiting for an Admin Passphrase
                 </span>
                 <span style={{ color: '#00c2ff', fontWeight: 700 }}>Review →</span>
+              </button>
+            )}
+            {feedbackUnread > 0 && (
+              <button onClick={() => setActiveTab('feedback')} style={{ display: 'flex', alignItems: 'center', gap: '12px', textAlign: 'left', padding: '14px 18px', background: 'rgba(0,194,255,0.08)', border: '1px solid rgba(0,194,255,0.25)', borderRadius: '10px', color: '#cfefff', fontSize: '14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <span style={{ fontSize: '18px' }}>💬</span>
+                <span style={{ flex: 1 }}>
+                  <strong style={{ color: '#fff' }}>{feedbackUnread} feedback message{feedbackUnread === 1 ? '' : 's'}</strong> to read
+                </span>
+                <span style={{ color: '#00c2ff', fontWeight: 700 }}>Open →</span>
               </button>
             )}
             {stats && (
@@ -781,6 +800,8 @@ export default function Admin() {
         {activeTab === 'pictures' && <AvatarLibraryAdmin flash={flash} />}
 
         {activeTab === 'genres' && <GenresAdmin flash={flash} />}
+
+        {activeTab === 'feedback' && <FeedbackAdmin flash={flash} onCountsChanged={setFeedbackCount} />}
 
         {/* Settings */}
         {activeTab === 'settings' && (

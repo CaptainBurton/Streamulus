@@ -142,32 +142,37 @@ const styles = {
   },
 };
 
-// Admins get a dot on their picture while accounts wait for an Admin Passphrase.
-// Checked at most once a minute across page changes; the admin panel reports
-// changes straight away (notePendingRequests).
-let pendingCache = { at: 0, count: 0 };
-const PENDING_EVENT = 'streamulus:pending-requests';
-
-export function notePendingRequests(count) {
-  pendingCache = { at: Date.now(), count };
-  window.dispatchEvent(new CustomEvent(PENDING_EVENT, { detail: count }));
+// Small counts shown as badges: for admins, account requests waiting for an Admin
+// Passphrase and feedback with something new; for everyone, replies to their own
+// feedback. Fetched at most once a minute across page changes; pages that change
+// them report the new numbers straight away (noteAdminCounts / noteFeedbackRead).
+function makeCounter(event, url, pick, initial) {
+  let cache = { at: 0, value: initial };
+  const note = (value) => {
+    cache = { at: Date.now(), value: typeof value === 'object' ? { ...cache.value, ...value } : value };
+    window.dispatchEvent(new CustomEvent(event, { detail: cache.value }));
+  };
+  function useCounter(enabled) {
+    const [value, setValue] = useState(cache.value);
+    useEffect(() => {
+      if (!enabled) return undefined;
+      const onChange = (e) => setValue(e.detail);
+      window.addEventListener(event, onChange);
+      if (Date.now() - cache.at > 60000) axios.get(url).then(r => note(pick(r.data))).catch(() => {});
+      else setValue(cache.value);
+      return () => window.removeEventListener(event, onChange);
+    }, [enabled]);
+    return enabled ? value : initial;
+  }
+  return { note, useCounter };
 }
 
-function usePendingRequests(enabled) {
-  const [count, setCount] = useState(pendingCache.count);
-  useEffect(() => {
-    if (!enabled) return undefined;
-    const onChange = (e) => setCount(e.detail);
-    window.addEventListener(PENDING_EVENT, onChange);
-    if (Date.now() - pendingCache.at > 60000) {
-      axios.get('/api/admin/stats')
-        .then(r => notePendingRequests(r.data.pendingCount || 0))
-        .catch(() => {});
-    }
-    return () => window.removeEventListener(PENDING_EVENT, onChange);
-  }, [enabled]);
-  return enabled ? count : 0;
-}
+const adminCounts = makeCounter('streamulus:admin-counts', '/api/admin/stats',
+  d => ({ pending: d.pendingCount || 0, feedback: d.feedbackUnread || 0 }), { pending: 0, feedback: 0 });
+const feedbackReplies = makeCounter('streamulus:feedback-replies', '/api/feedback/unread', d => d.count || 0, 0);
+
+export const noteAdminCounts = adminCounts.note;
+export const noteFeedbackRead = feedbackReplies.note;
 
 export default function Navbar() {
   const { user, profile, logout } = useAuth();
@@ -177,7 +182,10 @@ export default function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const pendingRequests = usePendingRequests(user?.role === 'admin' && !profile?.is_kids);
+  const isAdmin = user?.role === 'admin' && !profile?.is_kids;
+  const admin = adminCounts.useCounter(isAdmin);
+  const adminAttention = admin.pending + admin.feedback;
+  const newReplies = feedbackReplies.useCounter(!!user);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -269,8 +277,12 @@ export default function Navbar() {
               title={profile?.name}
             >
               <ProfileAvatar profile={profile} size={34} />
-              {pendingRequests > 0 && (
-                <span title={`${pendingRequests} account request${pendingRequests === 1 ? '' : 's'} waiting`}
+              {adminAttention + newReplies > 0 && (
+                <span title={[
+                  admin.pending ? `${admin.pending} account request${admin.pending === 1 ? '' : 's'} waiting` : null,
+                  admin.feedback ? `${admin.feedback} feedback to read` : null,
+                  newReplies ? `${newReplies} new feedback repl${newReplies === 1 ? 'y' : 'ies'}` : null,
+                ].filter(Boolean).join(' · ')}
                   style={{ position: 'absolute', top: '-2px', right: '-2px', width: '12px', height: '12px', borderRadius: '50%', background: '#00c2ff', border: '2px solid #0f0f0f' }} />
               )}
             </div>
@@ -301,6 +313,7 @@ export default function Navbar() {
                   { to: '/profiles', label: 'Switch Profile' },
                   { to: '/profile', label: profile?.is_kids ? 'My Profile' : 'Profile & Account' },
                   ...(profile?.is_kids ? [] : [{ to: '/quick-login', label: 'Quick Login' }]),
+                  { to: '/feedback', label: 'Feedback', badge: newReplies },
                 ].map(item => (
                   <Link
                     key={item.to}
@@ -311,6 +324,9 @@ export default function Navbar() {
                     onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.color = '#b3b3b3'; }}
                   >
                     {item.label}
+                    {item.badge > 0 && (
+                      <span style={{ marginLeft: '8px', padding: '1px 7px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{item.badge}</span>
+                    )}
                   </Link>
                 ))}
                 {user?.role === 'admin' && !profile?.is_kids && (
@@ -328,8 +344,8 @@ export default function Navbar() {
                     }}
                   >
                     Admin Dashboard
-                    {pendingRequests > 0 && (
-                      <span style={{ marginLeft: '8px', padding: '1px 7px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{pendingRequests}</span>
+                    {adminAttention > 0 && (
+                      <span style={{ marginLeft: '8px', padding: '1px 7px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{adminAttention}</span>
                     )}
                   </Link>
                 )}

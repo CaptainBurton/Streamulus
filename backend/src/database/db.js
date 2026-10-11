@@ -180,6 +180,33 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_avatar_images_category ON avatar_images(category_id);
 
+  -- Feedback and app suggestions from Profile & Settings, each a conversation
+  -- with the admin. Times are milliseconds. status: 'open' | 'answered' | 'closed'.
+  CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    profile_id INTEGER,
+    profile_name TEXT,
+    kind TEXT NOT NULL DEFAULT 'feedback',
+    status TEXT NOT NULL DEFAULT 'open',
+    platform TEXT,
+    app_version TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    user_seen_at INTEGER,
+    admin_seen_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_feedback_profile ON feedback(user_id, profile_id);
+  CREATE TABLE IF NOT EXISTS feedback_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feedback_id INTEGER NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
+    from_admin INTEGER NOT NULL DEFAULT 0,
+    author_name TEXT,
+    body TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_feedback_messages ON feedback_messages(feedback_id);
+
   -- Admin's per-title choices for Streamlings; overrides the age-rating rule.
   CREATE TABLE IF NOT EXISTS kids_overrides (
     media_type TEXT NOT NULL,   -- 'movie' | 'show'
