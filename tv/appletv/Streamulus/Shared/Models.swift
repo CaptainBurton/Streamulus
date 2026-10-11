@@ -662,6 +662,83 @@ enum WebVTT {
     }
 }
 
+// MARK: - Feedback
+
+/// Feedback or an app suggestion sent from Profile & Settings: a conversation
+/// with the server's admin. Times are milliseconds since 1970.
+struct FeedbackItem: Decodable, Identifiable, Hashable {
+    let id: Int
+    let kind: String          // "feedback" | "suggestion"
+    let status: String        // "open" | "answered" | "closed"
+    let createdAt: Double
+    let updatedAt: Double
+    let preview: String
+    let unread: Bool
+    let messages: [FeedbackMessage]
+
+    enum CodingKeys: String, CodingKey { case id, kind, status, createdAt, updatedAt, preview, unread, messages }
+
+    var kindLabel: String { kind == "suggestion" ? "App Suggestion" : "Feedback" }
+    var statusLabel: String {
+        switch status {
+        case "answered": return "Answered"
+        case "closed": return "Closed"
+        default: return "Waiting for reply"
+        }
+    }
+    var updated: Date { Date(timeIntervalSince1970: updatedAt / 1000) }
+}
+
+extension FeedbackItem {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lossyInt(.id) ?? 0
+        kind = c.lossyString(.kind) ?? "feedback"
+        status = c.lossyString(.status) ?? "open"
+        createdAt = c.lossyDouble(.createdAt) ?? 0
+        updatedAt = c.lossyDouble(.updatedAt) ?? 0
+        preview = c.lossyString(.preview) ?? ""
+        unread = c.lossyBool(.unread)
+        messages = (try? c.decode([FeedbackMessage].self, forKey: .messages)) ?? []
+    }
+}
+
+struct FeedbackMessage: Decodable, Identifiable, Hashable {
+    let id: Int
+    let fromAdmin: Bool
+    let author: String?
+    let body: String
+    let createdAt: Double
+
+    enum CodingKeys: String, CodingKey { case id, fromAdmin, author, body, createdAt }
+
+    var date: Date { Date(timeIntervalSince1970: createdAt / 1000) }
+}
+
+extension FeedbackMessage {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lossyInt(.id) ?? 0
+        fromAdmin = c.lossyBool(.fromAdmin)
+        author = c.lossyString(.author)
+        body = c.lossyString(.body) ?? ""
+        createdAt = c.lossyDouble(.createdAt) ?? 0
+    }
+}
+
+struct FeedbackListResponse: Decodable {
+    let items: [FeedbackItem]
+    let unreadCount: Int
+}
+
+struct FeedbackItemResponse: Decodable {
+    let item: FeedbackItem
+}
+
+struct CountResponse: Decodable {
+    let count: Int
+}
+
 // MARK: - Branding
 
 /// Admin › Settings › Branding and Remote Access (GET /api/branding).

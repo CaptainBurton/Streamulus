@@ -27,7 +27,8 @@ included — use Streamulus in a browser for that.
   (shows what's buffered), subtitles, **AirPlay**, **Picture in Picture** (also starts automatically when you
   leave the app), Up Next for episodes. Progress is saved as you watch.
 - **Profile & Settings** (your picture, top-right): **choose a picture** from the ones your admin provides
-  (Streamlings too), switch profile, Titles in English, server details, change server, sign out.
+  (Streamlings too), switch profile, Titles in English, **Feedback** (send feedback or app suggestions and read
+  the admin's replies), server details, change server, sign out.
 - **iPad**: every orientation, Split View / Stage Manager, larger layouts, and a tab bar that can turn into a
   sidebar.
 - Follows **Admin › Settings › Branding** (logo and/or STREAMULUS text, custom logo).

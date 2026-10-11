@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Optional: a server address built into the app, so it connects without asking —
+         e.g. your public Tailscale Funnel address for friends' phones:
+         https://streamulus.your-tailnet.ts.net
+         Leave empty to have the app ask on first launch. -->
+    <string name="streamulus_server_url" translatable="false"></string>
+</resources>

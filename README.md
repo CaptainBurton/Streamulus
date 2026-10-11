@@ -8,7 +8,7 @@
 <h1 align="center">Streamulus</h1>
 
 <p align="center">
-  A self-hosted media server with a Netflix-style interface — in the browser, on Apple TV, iPhone and iPad.
+  A self-hosted media server with a Netflix-style interface — in the browser, on Apple TV, iPhone, iPad and Android.
 </p>
 
 <p align="center">
@@ -22,6 +22,8 @@
   <img alt="tvOS 26+" src="https://img.shields.io/badge/tvOS-26%2B-000000?logo=apple&logoColor=white">
   <img alt="iOS and iPadOS 26+" src="https://img.shields.io/badge/iOS%20%26%20iPadOS-26%2B-000000?logo=apple&logoColor=white">
   <img alt="SwiftUI Liquid Glass" src="https://img.shields.io/badge/SwiftUI-Liquid%20Glass-F05138?logo=swift&logoColor=white">
+  <img alt="Android 16" src="https://img.shields.io/badge/Android-8%2B%20%C2%B7%20targets%2016-3DDC84?logo=android&logoColor=white">
+  <img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white">
   <img alt="Tailscale Funnel friendly" src="https://img.shields.io/badge/Remote%20access-Tailscale%20Funnel-242424?logo=tailscale&logoColor=white">
 </p>
 
@@ -33,6 +35,7 @@
 - **Profile pictures** — Upload a photo, or choose from picture categories the admin provides (e.g. "The Simpsons"), each set for Streamers, Streamlings or both
 - **Quick Login** — Sign a TV or phone in by approving a code from a device that's already signed in
 - **Create an account** — On the web or in the iPhone / iPad app (display name + password); an admin approves it with a single-use **Admin Passphrase** that works for 1 hour
+- **Feedback** — Send feedback or app suggestions from Profile & Settings (apps) or Profile & Account (web); admins read and reply in **Admin › Feedback**
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
 - **Streaming** — HLS with smart copy/transcode, buffered progress, Up Next, subtitles (embedded and sidecar files)
 - **Metadata** — TMDB / TVDB / IMDb, Fix Match, custom artwork, English titles for foreign-language titles
@@ -159,6 +162,7 @@ Access at `/admin` (admin users only):
 - **Users** — Create and manage user accounts and their profiles; **Account Requests** from people who signed up, with a *Generate Passphrase* button (single use, valid 1 hour)
 - **Streamlings** — What kids profiles can watch
 - **Profile Pictures** — Categories of pictures profiles can choose from, and who each category / picture is for (Streamers, Streamlings or both)
+- **Feedback** — Feedback and app suggestions from everyone, as conversations you can reply to, close or delete
 - **Genres** — Custom artwork for each genre
 - **Settings** — Metadata sources and keys, encoding, Up Next, featured movie interval, branding (logo and/or
   STREAMULUS text, custom logo), remote access (public URL), regional settings
@@ -169,12 +173,13 @@ Access at `/admin` (admin users only):
 
 - **Apple TV** — [`tv/appletv`](tv/appletv/README.md) (tvOS 26+)
 - **iPhone & iPad** — [`mobile/ios/xcode-project`](mobile/ios/xcode-project/README.md) (iOS / iPadOS 26+)
+- **Android phones & tablets** — [`mobile/android`](mobile/android/README.md) (Android 8+, built for Android 16)
 
-Both connect to your server's address. To use them away from home without a VPN, give the server a public
+They all connect to your server's address. To use them away from home without a VPN, give the server a public
 HTTPS address — for example with [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)
 (`sudo tailscale funnel --bg 8096`) — and enter it in **Admin › Settings › Remote Access**. The apps learn it when they
 connect at home and switch to it automatically when the home address doesn't answer. Friends can enter the
-public address directly, or you can build it into the iPhone app (see its README).
+public address directly, or you can build it into the iPhone or Android app (see their READMEs).
 
 The logo files live in [`branding/`](branding): the original artwork (`streamulus-logo.png`), light and dark SVGs
 and the app icon.
@@ -199,6 +204,7 @@ streamulus/
 ├── tv/appletv/       # Apple TV app (Xcode project)
 ├── mobile/ios/xcode-project/  # iPhone & iPad app (Xcode project, self-contained;
 │                              #   Streamulus/Shared is also used by the Apple TV app)
+├── mobile/android/   # Android phone & tablet app (Kotlin, Jetpack Compose; open in Android Studio)
 ├── branding/         # Logo (PNG, light/dark SVG) and app icon
 ├── Dockerfile        # Multi-stage build
 └── docker-compose.yml

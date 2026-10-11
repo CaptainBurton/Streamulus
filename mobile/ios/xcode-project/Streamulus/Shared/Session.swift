@@ -267,6 +267,53 @@ final class Session: ObservableObject {
         profile = response.profile
     }
 
+    // MARK: Feedback
+
+    /// This profile's feedback conversations, newest first.
+    func feedback() async throws -> FeedbackListResponse {
+        try await get("/api/feedback")
+    }
+
+    /// How many conversations have a reply you haven't read (for badges).
+    func unreadFeedbackCount() async -> Int {
+        (try? await get("/api/feedback/unread", as: CountResponse.self).count) ?? 0
+    }
+
+    /// Send feedback ("feedback") or an app suggestion ("suggestion") to the admin.
+    func sendFeedback(kind: String, message: String) async throws -> FeedbackItem {
+        let response: FeedbackItemResponse = try await post("/api/feedback", body: [
+            "kind": kind,
+            "message": message,
+            "platform": Self.platformName,
+            "appVersion": Self.appVersion,
+        ])
+        return response.item
+    }
+
+    func replyToFeedback(_ id: Int, message: String) async throws -> FeedbackItem {
+        let response: FeedbackItemResponse = try await post("/api/feedback/\(id)/messages", body: ["message": message])
+        return response.item
+    }
+
+    func markFeedbackRead(_ id: Int) async {
+        _ = try? await post("/api/feedback/\(id)/read", as: Empty.self)
+    }
+
+    /// "iphone", "ipad" or "appletv" — shown to the admin with the feedback.
+    static var platformName: String {
+        switch UIDevice.current.userInterfaceIdiom {
+        case .pad: return "ipad"
+        case .tv: return "appletv"
+        default: return "iphone"
+        }
+    }
+
+    /// e.g. "1.3 (4)".
+    static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        return "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+    }
+
     // MARK: Requests (signed in)
 
     func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type = T.self) async throws -> T {

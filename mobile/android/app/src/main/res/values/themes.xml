@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The app draws itself with Jetpack Compose (Material 3); this only sets the
+         window background and transparent system bars for edge-to-edge. -->
+    <style name="Theme.Streamulus" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="Theme.Streamulus.Player">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

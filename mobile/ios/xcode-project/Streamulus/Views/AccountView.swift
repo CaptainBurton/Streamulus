@@ -6,6 +6,7 @@ struct AccountView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var savingEnglish = false
     @State private var confirmChangeServer = false
+    @State private var unreadFeedback = 0
 
     static var appVersion: String {
         let info = Bundle.main.infoDictionary
@@ -76,6 +77,17 @@ struct AccountView: View {
                 }
             }
 
+            Section {
+                NavigationLink {
+                    FeedbackView()
+                } label: {
+                    Label("Feedback", systemImage: "bubble.left.and.text.bubble.right")
+                }
+                .badge(unreadFeedback)
+            } footer: {
+                Text("Send feedback or an app suggestion to your Streamulus admin, and read their replies.")
+            }
+
             Section("Server") {
                 LabeledContent("Address", value: session.serverURL?.absoluteString ?? "—")
                 if session.usingPublicAddress {
@@ -102,6 +114,8 @@ struct AccountView: View {
         }
         .navigationTitle("Profile & Settings")
         .navigationBarTitleDisplayMode(.inline)
+        // Also runs again when coming back from Feedback, so the badge stays current.
+        .onAppear { Task { unreadFeedback = await session.unreadFeedbackCount() } }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
