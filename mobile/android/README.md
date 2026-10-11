@@ -57,14 +57,25 @@ The same as the iPhone & iPad app:
 2. Optionally build that address into the app so it connects straight away: open
    `app/src/main/res/values/config.xml` and set **streamulus_server_url**, e.g.
    `https://streamulus.your-tailnet.ts.net`.
-3. Build an installable file: **Build › Generate App Bundles or APKs › Generate APKs** (in older versions:
-   **Build › Build Bundle(s) / APK(s) › Build APK(s)**). Android Studio shows a link to `app-debug.apk`
-   (in `app/build/outputs/apk/debug/`).
+3. Get an APK. Every change to `mobile/android` builds one on GitHub (**Actions › Android APK**, or start it there
+   with **Run workflow**); it's under **Artifacts** at the bottom of the run's page (open it in a browser — the
+   GitHub app doesn't show artifacts). The APK is never committed to the repo.
 4. Send them the APK. On their phone they open it and allow **Install unknown apps** for the app they opened it
    with (Files, Chrome, …).
 
-For a version you'd keep updating, use **Build › Generate Signed App Bundle or APK** with your own signing key
-(keep the key safe — updates must be signed with the same one).
+### Updates install over the old version
+
+Android only installs a new APK over an old one when both are signed with **the same key** and the new one has a
+**higher version code**. The GitHub build numbers each APK (1.0.*run number*) and signs it with your release key,
+taken from two repository secrets (**Settings › Secrets and variables › Actions › New repository secret**):
+
+- `ANDROID_KEYSTORE_BASE64` — the key file (`.jks`), base64-encoded
+- `ANDROID_KEYSTORE_PASSWORD` — its password
+
+Without them the build still works but uses a throwaway key, so each APK has to be uninstalled before the next.
+To build signed APKs in Android Studio too, put the `.jks` file and `keystore.properties` (storeFile, storePassword,
+keyAlias, keyPassword) in `mobile/android/` — both are git-ignored. **Keep a backup of the key**: without it, an
+update can't be installed over the old app.
 
 ## Notes
 

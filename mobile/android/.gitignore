@@ -8,3 +8,8 @@ local.properties
 captures/
 .cxx/
 .kotlin/
+
+# Signing key and its passwords — keep these private, never commit them.
+keystore.properties
+*.jks
+*.keystore
