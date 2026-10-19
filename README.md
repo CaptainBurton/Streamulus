@@ -30,7 +30,7 @@
 ## Features
 
 - **Netflix-style UI** — Dark theme, rotating featured banner with title logos, horizontal rows, hover effects
-- **Apps** — Native [Apple TV](tv/appletv/README.md) and [iPhone & iPad](mobile/ios/xcode-project/README.md) apps (SwiftUI, Liquid Glass)
+- **Apps** — Native [Apple TV](tv/appletv/README.md) and [iPhone & iPad](mobile/ios/xcode-project/README.md) apps (SwiftUI, Liquid Glass), and an [Android](mobile/android/README.md) app
 - **Profiles** — Netflix-style "Who's watching?", Streamlings (kids profiles) with admin-picked titles, PIN or password lock
 - **Profile pictures** — Upload a photo, or choose from picture categories the admin provides (e.g. "The Simpsons"), each set for Streamers, Streamlings or both
 - **Quick Login** — Sign a TV or phone in by approving a code from a device that's already signed in
@@ -38,8 +38,10 @@
 - **Feedback** — Send feedback or app suggestions from Profile & Settings (apps) or Profile & Account (web); admins read and reply in **Admin › Feedback**
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
 - **Streaming** — HLS with smart copy/transcode, buffered progress, Up Next, subtitles (embedded and sidecar files)
+- **Dual audio** — Pick the audio track in any player (e.g. Japanese or English on dual-audio anime); the choice is remembered per show. Each profile can prefer a language (or the original language) and turn on English subtitles automatically for other languages
 - **Metadata** — TMDB / TVDB / IMDb, Fix Match, custom artwork, English titles for foreign-language titles
 - **Watch progress** — Resume where you left off, Continue Watching with stills, mark as watched
+- **Library management** — One show per series folder (Season 00 / Specials / Extras stay with their show), Sonarr / Radarr-style naming formats, gone files cleaned up after scans, and Edit Details, season posters and Remove (from Streamulus only, or with the files) on every title
 - **Admin dashboard** — Libraries, users, Streamlings, genres, branding (logo / text), remote access
 - **Docker-ready** — Single container, deployable via Portainer
 
@@ -108,7 +110,11 @@ On first launch, you'll be guided through a 5-step wizard:
 
 ## Media Naming Conventions
 
-For best metadata matching:
+Streamulus reads libraries laid out the way Plex, Sonarr and Radarr lay them out. Everything inside a
+series folder is one show — `Season 00`, `Specials` and `Extras` folders included — and IDs in folder
+names such as `{tvdb-81189}`, `[tvdbid-81189]`, `{tmdb-1396}` or `{imdb-tt0903747}` give an exact match.
+If you use Sonarr or Radarr, copy their naming formats into **Admin › Libraries › Naming** (there's a
+box to test a path). For best metadata matching:
 
 **Movies:**
 ```
@@ -119,6 +125,8 @@ Inception.2010.mkv
 
 **TV Shows:**
 ```
+Breaking Bad (2008)/Season 01/Breaking Bad - S01E01 - Pilot.mkv
+Breaking Bad (2008)/Specials/Breaking Bad - S00E01 - Minisode.mkv
 Show Name/Show Name S01E01.mkv
 Breaking Bad/Breaking.Bad.S05E14.mkv
 Game of Thrones/Game of Thrones - 1x01 - Winter Is Coming.mkv
@@ -158,7 +166,9 @@ Game of Thrones/Game of Thrones - 1x01 - Winter Is Coming.mkv
 Access at `/admin` (admin users only):
 
 - **Overview** — Stats and media scan trigger
-- **Libraries** — Add/remove media library paths
+- **Libraries** — Add/remove media library paths; **Naming** formats (Sonarr / Radarr style) and whether to remove
+  gone files after scans; **Library Maintenance** — fix duplicate shows, remove missing files, and restore titles
+  you removed from Streamulus but kept on disk
 - **Users** — Create and manage user accounts and their profiles; **Account Requests** from people who signed up, with a *Generate Passphrase* button (single use, valid 1 hour)
 - **Streamlings** — What kids profiles can watch
 - **Profile Pictures** — Categories of pictures profiles can choose from, and who each category / picture is for (Streamers, Streamlings or both)

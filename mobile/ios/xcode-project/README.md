@@ -24,7 +24,7 @@ included — use Streamulus in a browser for that.
 - **Movie / show pages**: Resume, Play from Beginning, Mark as Watched, "Ends at", cast, More Like This;
   season picker and episode list (long-press an episode to play from the beginning or mark it watched).
 - **Player**: tap to show / hide the controls, double-tap left / right to skip 10 s, drag the progress bar
-  (shows what's buffered), subtitles, **AirPlay**, **Picture in Picture** (also starts automatically when you
+  (shows what's buffered), subtitles, an **Audio** menu for files with several audio tracks, **AirPlay**, **Picture in Picture** (also starts automatically when you
   leave the app), Up Next for episodes. Progress is saved as you watch.
 - **Profile & Settings** (your picture, top-right): **choose a picture** from the ones your admin provides
   (Streamlings too), switch profile, Titles in English, **Feedback** (send feedback or app suggestions and read

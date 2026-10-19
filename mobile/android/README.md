@@ -25,11 +25,11 @@ The same as the iPhone & iPad app:
 - **Movie / show pages**: Resume, Play from Beginning, Mark as Watched, "Ends at", cast, More Like This; season
   chips and episode list (long-press an episode to play from the beginning or mark it watched).
 - **Player**: tap to show / hide the controls, double-tap left / right to skip 10 s, drag the progress bar (shows
-  what's buffered), subtitles, **Google Cast** (Chromecast / Google TV — the Android counterpart of AirPlay),
+  what's buffered), subtitles, an **Audio** menu for files with several audio tracks (e.g. Japanese / English), **Google Cast** (Chromecast / Google TV — the Android counterpart of AirPlay),
   **Picture in Picture** (also starts automatically when you leave the app while a video plays), Up Next for
   episodes, play / pause from headphones. Progress is saved as you watch.
 - **Profile & Settings** (your picture, top-right): **choose a picture** from the ones your admin provides
-  (Streamlings too), switch profile, Titles in English, **Approve a Sign-In** (scan the QR code another device
+  (Streamlings too), switch profile, Titles in English, Audio Language, English Subtitles for Other Languages, **Approve a Sign-In** (scan the QR code another device
   shows, or type its code), **Feedback** (send feedback or app suggestions and read the admin's replies), server
   details, change server, sign out.
 - **Tablets and foldables**: a navigation rail instead of the bottom bar, larger layouts, any orientation.

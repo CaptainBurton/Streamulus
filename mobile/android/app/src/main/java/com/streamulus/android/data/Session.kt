@@ -277,6 +277,20 @@ class Session(private val app: Application) {
         memory.clear()
     }
 
+    /** Preferred audio language for files with several audio tracks ("default", "original", "en", "ja"…). */
+    suspend fun setAudioLanguage(code: String) {
+        val current = profile ?: return
+        val response = put("/api/profiles/${current.id}", buildJsonObject { put("audio_language", code) })
+        response.obj("profile")?.let { profile = Profile.from(it) }
+    }
+
+    /** Turn on English subtitles whenever the audio is in another language. */
+    suspend fun setAutoSubtitles(on: Boolean) {
+        val current = profile ?: return
+        val response = put("/api/profiles/${current.id}", buildJsonObject { put("auto_subtitles", on) })
+        response.obj("profile")?.let { profile = Profile.from(it) }
+    }
+
     /** The admin's provided pictures this profile may pick, and which it uses now. */
     suspend fun avatarChoices(): Pair<List<AvatarCategory>, Int?> {
         val current = profile ?: return emptyList<AvatarCategory>() to null
@@ -375,14 +389,18 @@ class Session(private val app: Application) {
         return client.url("/api/stream/still/$type/$id", mapOf("t" to seconds.toString(), "token" to token)).toString()
     }
 
-    /** HLS stream starting `start` seconds in. `compat` asks the server to re-encode everything. */
-    fun streamUrl(type: MediaType, id: Int, start: Int, compat: Boolean = false): String? {
+    /**
+     * HLS stream starting `start` seconds in. `compat` asks the server to re-encode
+     * everything; `audio` picks one of the file's audio tracks (null = this profile's choice).
+     */
+    fun streamUrl(type: MediaType, id: Int, start: Int, compat: Boolean = false, audio: Int? = null): String? {
         val client = api ?: return null
         val token = client.token ?: return null
         val query = buildMap {
             put("token", token)
             if (start > 0) put("start", start.toString())
             if (compat) put("compat", "1")
+            if (audio != null) put("audio", audio.toString())
         }
         return client.url("/api/stream/hls/${type.key}/$id/manifest.m3u8", query).toString()
     }

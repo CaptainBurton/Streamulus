@@ -18,12 +18,14 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.google.android.gms.cast.framework.CastContext
+import com.streamulus.android.data.AudioTrack
 import com.streamulus.android.data.MediaType
 import com.streamulus.android.data.NextEpisode
 import com.streamulus.android.data.Session
 import com.streamulus.android.data.SubtitleCue
 import com.streamulus.android.data.SubtitleTrack
 import com.streamulus.android.data.WebVTT
+import com.streamulus.android.data.bool
 import com.streamulus.android.data.int
 import com.streamulus.android.data.obj
 import com.streamulus.android.data.objects
@@ -139,6 +141,12 @@ class PlaybackController(
     var subtitleLoading by mutableStateOf(false)
         private set
 
+    /** The file's audio tracks (Japanese and English on dual-audio anime…) and the one playing. */
+    var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
+        private set
+    var selectedAudio by mutableStateOf<Int?>(null)
+        private set
+
     val remaining: Double get() = max(0.0, duration - position)
 
     /** The Up Next card: the last `upNextSeconds` of an episode that has a next one. */
@@ -153,6 +161,13 @@ class PlaybackController(
     private var cues: List<SubtitleCue> = emptyList()
     private var subtitleMedia: String? = null
     private var subtitleJob: Job? = null
+    /** The viewer's pick for this title; until then the server plays the profile's choice. */
+    private var requestedAudio: Int? = null
+    private var audioJob: Job? = null
+    /** The profile wants English subtitles while the audio is in another language. */
+    private var autoSubtitles = false
+    /** Subtitles were turned on for that, not by the viewer. */
+    private var autoSubtitleOn = false
 
     private fun listenerFor(source: Player) = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -211,11 +226,14 @@ class PlaybackController(
     private fun load(request: PlayRequest, compat: Boolean = false) {
         current = request
         this.compat = compat
-        // A different title (not a seek or retry of this one): fetch its subtitle tracks.
+        // A different title (not a seek or retry of this one): fetch its subtitle and audio tracks.
         val mediaKey = "${request.type.key}-${request.mediaId}"
         if (mediaKey != subtitleMedia) {
             subtitleMedia = mediaKey
+            requestedAudio = null
+            autoSubtitleOn = false
             loadSubtitleTracks(request.type, request.mediaId)
+            loadAudioTracks(request.type, request.mediaId)
         }
         title = request.title
         subtitle = request.subtitle
@@ -229,7 +247,7 @@ class PlaybackController(
         advancing = false
         isBuffering = true
 
-        val url = session.streamUrl(request.type, request.mediaId, request.start, compat)
+        val url = session.streamUrl(request.type, request.mediaId, request.start, compat, requestedAudio)
         if (url == null) {
             errorText = "You're signed out — sign in again to play."
             return
@@ -289,13 +307,18 @@ class PlaybackController(
             val language = prefs.getString(LANGUAGE, null)
             if (language != null && language != "off") {
                 val track = tracks.firstOrNull { it.language == language && !it.forced } ?: tracks.firstOrNull { it.language == language }
-                if (track != null) loadCues(track)
+                if (track != null) {
+                    loadCues(track)
+                    return@launch
+                }
             }
+            syncAutoSubtitles()
         }
     }
 
     /** null turns subtitles off. Remembers the language for next time. */
     fun selectSubtitle(track: SubtitleTrack?) {
+        autoSubtitleOn = false
         prefs.edit().putString(LANGUAGE, track?.language ?: "off").apply()
         subtitleJob?.cancel()
         if (track == null) {
@@ -342,6 +365,53 @@ class PlaybackController(
         if (pendingSeek != null) return
         val lines = WebVTT.linesAt(cues, current.start + player.currentPosition / 1000.0)
         if (lines != subtitleLines) subtitleLines = lines
+    }
+
+    // ── Audio ────────────────────────────────────────────────────────────────
+
+    private fun loadAudioTracks(type: MediaType, id: Int) {
+        audioJob?.cancel()
+        audioTracks = emptyList()
+        selectedAudio = null
+        val media = "${type.key}-$id"
+        audioJob = scope.launch {
+            val response = runCatching { session.getObject("/api/stream/audio/${type.key}/$id") }.getOrNull() ?: return@launch
+            if (subtitleMedia != media) return@launch
+            audioTracks = response.objects("tracks").map(AudioTrack::from)
+            selectedAudio = requestedAudio ?: response.int("selected")
+            autoSubtitles = response.bool("autoSubtitles")
+            syncAutoSubtitles()
+        }
+    }
+
+    /** Play another of the file's audio tracks: reopens the stream where you are. The server remembers it for the title. */
+    fun selectAudio(track: AudioTrack) {
+        if (track.index == selectedAudio) return
+        requestedAudio = track.index
+        selectedAudio = track.index
+        syncAutoSubtitles()
+        load(current.copy(start = max(0, (pendingSeek ?: position).toInt())), compat)
+    }
+
+    /** English subtitles on while the audio is in another language, off again for English (unless the viewer chose them). */
+    private fun syncAutoSubtitles() {
+        if (!autoSubtitles || subtitleTracks.isEmpty()) return
+        val language = audioTracks.firstOrNull { it.index == selectedAudio }?.language ?: return
+        val foreign = language.substringBefore('-') != "en"
+        if (foreign && selectedSubtitle == null) {
+            val english = subtitleTracks.filter { (it.language ?: "").substringBefore('-') == "en" }
+            val track = english.firstOrNull { !it.forced } ?: english.firstOrNull() ?: return
+            autoSubtitleOn = true
+            subtitleJob?.cancel()
+            subtitleJob = scope.launch { loadCues(track) }
+        } else if (!foreign && autoSubtitleOn) {
+            autoSubtitleOn = false
+            subtitleJob?.cancel()
+            selectedSubtitle = null
+            cues = emptyList()
+            subtitleLines = emptyList()
+            subtitleLoading = false
+        }
     }
 
     private suspend fun loadUpNext(episodeId: Int) {
@@ -479,6 +549,7 @@ class PlaybackController(
         stopped = true
         seekJob?.cancel()
         subtitleJob?.cancel()
+        audioJob?.cancel()
         runCatching { player.pause() }
         // Save where you got to, then let the screens behind reload Continue Watching.
         MainScope().launch {

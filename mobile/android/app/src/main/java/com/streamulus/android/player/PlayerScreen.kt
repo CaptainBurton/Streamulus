@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
@@ -245,6 +246,7 @@ private fun Controls(
                     Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+            if (controller.audioTracks.size > 1) AudioMenu(controller, onTouch)
             if (controller.subtitleTracks.isNotEmpty()) SubtitlesMenu(controller, onTouch)
             if (controller.castAvailable) CastButton()
             if (canPictureInPicture && !controller.casting) {
@@ -347,6 +349,26 @@ private fun Scrubber(controller: PlaybackController, onScrubbing: (Boolean) -> U
             drawRoundRect(Brand.Accent, Offset(0f, top), Size(size.width * played, bar), radius)
             val knobRadius = if (dragging) 11.dp.toPx() else 7.dp.toPx()
             drawCircle(Color.White, knobRadius, Offset(size.width * knob, size.height / 2))
+        }
+    }
+}
+
+/** Files with more than one audio track, e.g. Japanese and English. */
+@Composable
+private fun AudioMenu(controller: PlaybackController, onTouch: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true; onTouch() }) {
+            Icon(Icons.Filled.GraphicEq, contentDescription = "Audio", tint = Color.White)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            controller.audioTracks.forEach { track ->
+                DropdownMenuItem(
+                    text = { Text(track.label) },
+                    leadingIcon = { if (controller.selectedAudio == track.index) Icon(Icons.Filled.Check, null) else Spacer(Modifier.width(24.dp)) },
+                    onClick = { controller.selectAudio(track); open = false },
+                )
+            }
         }
     }
 }

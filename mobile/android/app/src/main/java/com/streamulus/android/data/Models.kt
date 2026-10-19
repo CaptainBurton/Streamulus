@@ -60,6 +60,10 @@ data class Profile(
     val requires: String?,
     /** Show titles and descriptions in English where available. */
     val englishTitles: Boolean,
+    /** Preferred audio for files with several tracks: "default", "original" or a language code. */
+    val audioLanguage: String = "default",
+    /** Turn on English subtitles when the audio is in another language. */
+    val autoSubtitles: Boolean = false,
 ) {
     companion object {
         fun from(o: JsonObject) = Profile(
@@ -71,6 +75,8 @@ data class Profile(
             hasPin = o.bool("has_pin"),
             requires = o.str("requires"),
             englishTitles = o.bool("english_titles"),
+            audioLanguage = o.str("audio_language") ?: "default",
+            autoSubtitles = o.bool("auto_subtitles"),
         )
     }
 }
@@ -319,6 +325,30 @@ data class SubtitleTrack(val id: String, val label: String, val language: String
     companion object {
         fun from(o: JsonObject) = SubtitleTrack(o.str("id") ?: "", o.str("label") ?: "Subtitles", o.str("language"), o.bool("forced"))
     }
+}
+
+// ── Audio tracks ─────────────────────────────────────────────────────────────
+
+/** One of a file's audio tracks (e.g. Japanese and English on dual-audio anime); `index` is what the stream's `audio` takes. */
+data class AudioTrack(val index: Int, val label: String, val language: String?, val codec: String?, val commentary: Boolean) {
+    companion object {
+        fun from(o: JsonObject): AudioTrack {
+            val index = o.int("index") ?: 0
+            return AudioTrack(index, o.str("label") ?: "Track ${index + 1}", o.str("language"), o.str("codec"), o.bool("commentary"))
+        }
+    }
+}
+
+/** Choices for a profile's Audio language setting. */
+object AudioLanguage {
+    val options = listOf(
+        "default" to "File's default",
+        "original" to "Original language",
+        "en" to "English", "ja" to "Japanese", "es" to "Spanish", "fr" to "French", "de" to "German",
+        "it" to "Italian", "pt" to "Portuguese", "ko" to "Korean", "zh" to "Chinese", "hi" to "Hindi", "ru" to "Russian",
+    )
+
+    fun name(code: String): String = options.firstOrNull { it.first == code }?.second ?: code.uppercase()
 }
 
 // ── Branding ─────────────────────────────────────────────────────────────────

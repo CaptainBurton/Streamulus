@@ -2,6 +2,7 @@ package com.streamulus.android.ui.account
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,14 +21,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.streamulus.android.data.AudioLanguage
 import com.streamulus.android.ui.LocalNavigator
 import com.streamulus.android.ui.LocalSession
 import com.streamulus.android.ui.Screen
@@ -97,7 +105,10 @@ fun AccountScreen() {
                     LinkRow(Icons.Filled.People, "Switch Profile") { session.switchProfile() }
                 }
 
-                Group(footer = "Shows English titles and descriptions for movies and shows stored in another language, where available. For this profile, here and on the web, iPhone and Apple TV.") {
+                Group(
+                    title = "Language",
+                    footer = "Titles in English shows English titles and descriptions where available. Audio Language picks the track for files with more than one, like dual-audio anime: Original language for Japanese (sub), English for the dub. You can still switch in the player — the choice is remembered for that show. For this profile, here and on the web, iPhone and Apple TV.",
+                ) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Translate, contentDescription = null, tint = Brand.Accent)
                         Text("Titles in English", modifier = Modifier.weight(1f).padding(start = 16.dp))
@@ -108,6 +119,50 @@ fun AccountScreen() {
                                 scope.launch {
                                     savingEnglish = true
                                     runCatching { session.setEnglishTitles(on) }
+                                    savingEnglish = false
+                                }
+                            },
+                        )
+                    }
+                    Divider()
+                    Box {
+                        var choosing by remember { mutableStateOf(false) }
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = !savingEnglish) { choosing = true }.padding(horizontal = 16.dp, vertical = 15.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = Brand.Accent)
+                            Text("Audio Language", modifier = Modifier.weight(1f).padding(start = 16.dp))
+                            Text(AudioLanguage.name(profile.audioLanguage), color = Brand.Secondary)
+                        }
+                        DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
+                            AudioLanguage.options.forEach { (code, name) ->
+                                DropdownMenuItem(
+                                    text = { Text(name) },
+                                    leadingIcon = { if (profile.audioLanguage == code) Icon(Icons.Filled.Check, null) else Spacer(Modifier.width(24.dp)) },
+                                    onClick = {
+                                        choosing = false
+                                        scope.launch {
+                                            savingEnglish = true
+                                            runCatching { session.setAudioLanguage(code) }
+                                            savingEnglish = false
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Divider()
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.ClosedCaption, contentDescription = null, tint = Brand.Accent)
+                        Text("English Subtitles for Other Languages", modifier = Modifier.weight(1f).padding(start = 16.dp))
+                        Switch(
+                            checked = profile.autoSubtitles,
+                            enabled = !savingEnglish,
+                            onCheckedChange = { on ->
+                                scope.launch {
+                                    savingEnglish = true
+                                    runCatching { session.setAutoSubtitles(on) }
                                     savingEnglish = false
                                 }
                             },
