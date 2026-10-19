@@ -189,6 +189,18 @@ async function getTVImages(tmdbId) {
   } catch { return null; }
 }
 
+// Posters for one season (Admin › Edit Season Poster).
+async function getSeasonImages(tmdbId, season) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/season/${season}/images`, {
+      params: { api_key: apiKey, include_image_language: 'en,null' },
+    });
+    return res.data;
+  } catch { return null; }
+}
+
 function posterUrl(path, size = 'w500') {
   if (!path) return null;
   return `${IMAGE_BASE}/${size}${path}`;
@@ -210,6 +222,6 @@ module.exports = {
   getApiKey, searchMovieList, searchTVList, getEnglish,
   searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating,
   getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
-  getMovieImages, getTVImages,
+  getMovieImages, getTVImages, getSeasonImages,
   posterUrl, backdropUrl, resolveGenreNames
 };

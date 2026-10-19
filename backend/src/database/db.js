@@ -234,6 +234,21 @@ for (const table of ['movies', 'tv_shows', 'episodes']) {
 }
 // Per profile: show titles and descriptions in English where available.
 try { db.exec('ALTER TABLE profiles ADD COLUMN english_titles INTEGER NOT NULL DEFAULT 0'); } catch {}
+// A show is the files under one series folder (services/naming.js); remembering the
+// folder keeps one show from splitting into duplicates.
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN folder_path TEXT'); } catch {}
+db.exec('CREATE INDEX IF NOT EXISTS idx_tv_shows_folder ON tv_shows(folder_path)');
+// Details the admin edited by hand: metadata refreshes leave them alone.
+try { db.exec('ALTER TABLE movies ADD COLUMN metadata_locked INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN metadata_locked INTEGER NOT NULL DEFAULT 0'); } catch {}
+// Files and folders the admin removed from Streamulus but kept on disk — scans skip them.
+db.exec(`CREATE TABLE IF NOT EXISTS excluded_media (
+  path TEXT PRIMARY KEY,
+  library_id INTEGER,
+  kind TEXT,
+  title TEXT,
+  created_at INTEGER
+)`);
 // The provided picture (avatar_images.id) a profile picked, if its photo is one;
 // the profile keeps its own copy of the file, so removing the picture is harmless.
 try { db.exec('ALTER TABLE profiles ADD COLUMN avatar_library_id INTEGER'); } catch {}

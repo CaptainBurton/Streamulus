@@ -289,27 +289,10 @@ router.put('/config', requireAdmin, (req, res) => {
 
 // Merge TV show rows that share the same tmdb_id or tvdb_id into the oldest record.
 // Fixes duplicates created before the ID-based dedup logic was introduced.
+// Also groups every episode under the show for its series folder (services/library.js).
 router.post('/tv/deduplicate', requireAdmin, (req, res) => {
-  let merged = 0;
-  db.transaction(() => {
-    for (const col of ['tmdb_id', 'tvdb_id']) {
-      const dupes = db.prepare(`
-        SELECT ${col} as match_id, MIN(id) as keep_id
-        FROM tv_shows WHERE ${col} IS NOT NULL
-        GROUP BY ${col} HAVING COUNT(*) > 1
-      `).all();
-      for (const { match_id, keep_id } of dupes) {
-        const dupIds = db.prepare(`SELECT id FROM tv_shows WHERE ${col} = ? AND id != ?`)
-          .all(match_id, keep_id).map(r => r.id);
-        for (const dupId of dupIds) {
-          db.prepare('UPDATE episodes SET show_id = ? WHERE show_id = ?').run(keep_id, dupId);
-          db.prepare('DELETE FROM tv_shows WHERE id = ?').run(dupId);
-          merged++;
-        }
-      }
-    }
-  })();
-  res.json({ success: true, merged });
+  const { merged, moved } = require('../services/library').regroupShows();
+  res.json({ success: true, merged, moved });
 });
 
 // Refresh metadata for every movie (TMDB) and TV show (TVDB then TMDB) — SSE
@@ -333,8 +316,9 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
   const movieSourceOrder = parseArr('movie_source_order', '["tmdb","imdb"]');
   const tvSourceOrder    = parseArr('tv_source_order',    '["tvdb","tmdb","imdb"]');
 
-  const movies = db.prepare('SELECT * FROM movies').all();
-  const shows = db.prepare('SELECT * FROM tv_shows').all();
+  // Titles the admin edited by hand (metadata_locked) are left as they are.
+  const movies = db.prepare('SELECT * FROM movies WHERE metadata_locked = 0').all();
+  const shows = db.prepare('SELECT * FROM tv_shows WHERE metadata_locked = 0').all();
   const total = movies.length + shows.length;
   let moviesUpdated = 0;
   let showsUpdated = 0;
@@ -571,6 +555,52 @@ router.post('/artwork/tv/:id/upload', requireAdmin, upload.single('file'), (req,
   const url = `/uploads/${req.file.filename}`;
   const col = type === 'poster' ? 'poster_path' : 'backdrop_path';
   db.prepare(`UPDATE tv_shows SET ${col} = ? WHERE id = ?`).run(url, req.params.id);
+  res.json({ success: true, url });
+});
+
+// ── Season posters ───────────────────────────────────────────────────────────
+
+function seasonUpsert(showId, season, url) {
+  db.prepare(`INSERT INTO seasons (show_id, season_number, poster_path) VALUES (?, ?, ?)
+              ON CONFLICT(show_id, season_number) DO UPDATE SET poster_path = excluded.poster_path`).run(showId, season, url);
+}
+
+// Choices for one season's poster: TMDB's season posters plus TVDB's, if any.
+router.get('/artwork/season/:showId/:season', requireAdmin, async (req, res) => {
+  const show = db.prepare('SELECT id, tmdb_id, tvdb_id FROM tv_shows WHERE id = ?').get(req.params.showId);
+  if (!show) return res.status(404).json({ error: 'Not found' });
+  const season = parseInt(req.params.season, 10);
+  const posters = [];
+  if (show.tmdb_id) {
+    const images = await require('../services/tmdb').getSeasonImages(show.tmdb_id, season);
+    for (const img of (images?.posters || []).sort((a, b) => b.vote_average - a.vote_average).slice(0, 40)) posters.push(mapImg(img));
+  }
+  if (show.tvdb_id) {
+    const tvdb = require('../services/tvdb');
+    if (tvdb.isConfigured()) {
+      const url = (await tvdb.getSeasonPosters(show.tvdb_id).catch(() => new Map())).get(season);
+      if (url && !posters.some(p => p.url === url)) posters.push({ url, thumb: url, language: null });
+    }
+  }
+  const current = db.prepare('SELECT poster_path FROM seasons WHERE show_id = ? AND season_number = ?').get(show.id, season)?.poster_path || null;
+  res.json({ posters, backdrops: [], current });
+});
+
+router.post('/artwork/season/:showId/:season', requireAdmin, (req, res) => {
+  const show = db.prepare('SELECT id FROM tv_shows WHERE id = ?').get(req.params.showId);
+  if (!show) return res.status(404).json({ error: 'Not found' });
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url required' });
+  seasonUpsert(show.id, parseInt(req.params.season, 10), url);
+  res.json({ success: true });
+});
+
+router.post('/artwork/season/:showId/:season/upload', requireAdmin, upload.single('file'), (req, res) => {
+  const show = db.prepare('SELECT id FROM tv_shows WHERE id = ?').get(req.params.showId);
+  if (!show) return res.status(404).json({ error: 'Not found' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const url = `/uploads/${req.file.filename}`;
+  seasonUpsert(show.id, parseInt(req.params.season, 10), url);
   res.json({ success: true, url });
 });
 

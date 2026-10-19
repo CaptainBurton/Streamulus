@@ -37,6 +37,7 @@ app.use('/api/branding', require('./routes/branding'));
 app.use('/api/stream', require('./routes/stream'));
 app.use('/api/feedback', require('./routes/feedback').user);
 app.use('/api/admin/feedback', require('./routes/feedback').admin);
+app.use('/api/admin/library', require('./routes/adminLibrary'));
 app.use('/api/admin/avatars', require('./routes/avatarLibrary'));
 app.use('/api/admin', require('./routes/admin'));
 
@@ -85,6 +86,12 @@ app.listen(PORT, '0.0.0.0', () => {
   // then read any missing runtimes (used for "Ends at" times and progress bars).
   require('./services/path-repair').repairAllPaths()
     .catch(err => console.error('[paths] Repair failed:', err.message))
+    .then(() => {
+      // One show per series folder: merge shows older scans split into duplicates.
+      const { moved, merged } = require('./services/library').regroupShows();
+      if (moved || merged) console.log(`[library] Merged ${merged} duplicate show(s), regrouped ${moved} episode(s)`);
+    })
+    .catch(err => console.error('[library] Regrouping failed:', err.message))
     .then(() => require('./services/durations').fillMissingDurations())
     .catch(err => console.error('[durations] Failed:', err.message))
     .then(() => require('./services/languages').fillMissingLanguages())
