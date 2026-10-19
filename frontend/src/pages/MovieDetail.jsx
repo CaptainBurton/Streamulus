@@ -106,7 +106,7 @@ export default function MovieDetail() {
 
       {/* Main content */}
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 32px 60px', marginTop: '-200px', position: 'relative', zIndex: 10 }}>
-        <div style={{ display: 'flex', gap: '40px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div className="detail-layout" style={{ display: 'flex', gap: '40px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
 
           {/* Poster */}
           <div style={{ flexShrink: 0 }}>
@@ -123,7 +123,7 @@ export default function MovieDetail() {
           </div>
 
           {/* Info */}
-          <div style={{ flex: 1, minWidth: '280px', paddingTop: '120px' }}>
+          <div className="detail-info" style={{ flex: 1, minWidth: '280px' }}>
             <TitleLogo logoUrl={movie.logo_url} title={movie.title} style={{ marginBottom: '20px' }}
               textStyle={{ fontSize: '42px', fontWeight: '800', lineHeight: 1.1, marginBottom: '16px', letterSpacing: '-0.5px' }} />
 

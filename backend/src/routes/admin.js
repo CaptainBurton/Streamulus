@@ -275,16 +275,23 @@ router.put('/config', requireAdmin, (req, res) => {
   if (upNextSeconds !== undefined) upsert.run('up_next_seconds', String(parseInt(upNextSeconds)));
   if (featuredRotateSeconds !== undefined) upsert.run('featured_rotate_seconds', String(Number(String(featuredRotateSeconds).trim())));
   if (preferredLanguage !== undefined) upsert.run('preferred_language', preferredLanguage);
+  let ratingsQueued = 0;
   if (preferredCountry  !== undefined) {
+    const ratings = require('../services/ratings');
+    const code = String(preferredCountry).toUpperCase();
+    if (!ratings.SYSTEMS[code]) return res.status(400).json({ error: 'Unknown country' });
     const current = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value ?? 'US';
-    upsert.run('preferred_country', preferredCountry);
-    if (preferredCountry !== current) {
-      // Clear cached ratings so they are re-fetched from TMDB using the new country.
-      db.prepare('UPDATE movies SET content_rating = NULL').run();
-      db.prepare('UPDATE tv_shows SET content_rating = NULL').run();
+    upsert.run('preferred_country', code);
+    if (code !== current) {
+      // Look every title's age rating up again for the new country, in the
+      // background (titles keep their current rating until then; hand-edited
+      // ones are left alone). Streamlings' age limits follow straight away.
+      require('../services/kids').clearKidsCache?.();
+      ratingsQueued = ratings.pendingCount();
+      ratings.refreshRatings().then(() => require('../services/kids').clearKidsCache?.()).catch(err => console.error('[ratings] Failed:', err.message));
     }
   }
-  res.json({ success: true });
+  res.json({ success: true, ratingsQueued });
 });
 
 // Merge TV show rows that share the same tmdb_id or tvdb_id into the oldest record.
@@ -337,7 +344,7 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
       if (src === 'imdb' && imdb.isConfigured()) {
         const result = await imdb.searchMovie(movie.title, movie.year);
         if (result) {
-          db.prepare('UPDATE movies SET imdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=?, imdb_rating=?, content_rating=? WHERE id=?')
+          db.prepare('UPDATE movies SET imdb_id=?, overview=?, poster_path=?, backdrop_path=?, rating=?, genres=?, imdb_rating=?, content_rating=?, rating_checked=NULL WHERE id=?')
             .run(result.imdb_id, result.overview, result.poster_path, result.backdrop_path, result.rating, result.genres, result.imdb_rating, result.content_rating, movie.id);
           updated = true;
         }
@@ -354,7 +361,7 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
     // OMDb always supplements with IMDb rating/content-rating data
     if (omdb.isConfigured()) {
       const od = await omdb.searchMovie(movie.title, movie.year);
-      if (od) db.prepare('UPDATE movies SET imdb_id=?, imdb_rating=?, content_rating=? WHERE id=?')
+      if (od) db.prepare('UPDATE movies SET imdb_id=?, imdb_rating=?, content_rating=?, rating_checked=NULL WHERE id=?')
         .run(od.imdb_id, od.imdb_rating, od.content_rating, movie.id);
     }
   }
@@ -422,7 +429,7 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
       } else if (src === 'imdb' && imdb.isConfigured()) {
         const result = await imdb.searchSeries(show.title);
         if (result) {
-          db.prepare('UPDATE tv_shows SET imdb_id=?, overview=?, poster_path=?, rating=?, genres=?, imdb_rating=?, content_rating=? WHERE id=?')
+          db.prepare('UPDATE tv_shows SET imdb_id=?, overview=?, poster_path=?, rating=?, genres=?, imdb_rating=?, content_rating=?, rating_checked=NULL WHERE id=?')
             .run(result.imdb_id, result.overview, result.poster_path, result.rating, result.genres, result.imdb_rating, result.content_rating, show.id);
           showsUpdated++;
           refreshed = true;
@@ -432,13 +439,15 @@ router.get('/refresh-metadata/stream', requireAdmin, async (req, res) => {
 
     if (omdb.isConfigured()) {
       const od = await omdb.searchSeries(show.title);
-      if (od) db.prepare('UPDATE tv_shows SET imdb_id=?, imdb_rating=?, content_rating=? WHERE id=?')
+      if (od) db.prepare('UPDATE tv_shows SET imdb_id=?, imdb_rating=?, content_rating=?, rating_checked=NULL WHERE id=?')
         .run(od.imdb_id, od.imdb_rating, od.content_rating, show.id);
     }
   }
 
   send({ type: 'complete', moviesUpdated, showsUpdated, updated: moviesUpdated + showsUpdated, total });
   res.end();
+  // OMDb / IMDb give US ratings: look them up again for the chosen country.
+  require('../services/ratings').refreshRatings().catch(err => console.error('[ratings] Failed:', err.message));
 });
 
 router.post('/movies/:id/refresh', requireAdmin, async (req, res) => {
@@ -623,8 +632,11 @@ router.get('/kids', requireAdmin, (req, res) => {
                  poster_url: img(r.poster_path), allowed: d.allowed, byRating: d.byRating, override: d.override };
       });
   };
+  const ratings = require('../services/ratings');
   res.json({
     config: cfg,
+    country: ratings.systemFor().name,
+    ageOptions: ratings.ageOptions(),
     movies: list('movie', 'movies', 'year'),
     shows: list('show', 'tv_shows', "substr(first_air_date, 1, 4)"),
   });

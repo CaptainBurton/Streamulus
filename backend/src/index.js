@@ -97,5 +97,7 @@ app.listen(PORT, '0.0.0.0', () => {
     .then(() => require('./services/languages').fillMissingLanguages())
     .catch(err => console.error('[languages] Failed:', err.message))
     .then(() => require('./services/english').fillMissingEnglish())
-    .catch(err => console.error('[english] Failed:', err.message));
+    .catch(err => console.error('[english] Failed:', err.message))
+    .then(() => require('./services/ratings').refreshRatings()) // age ratings for the chosen country
+    .catch(err => console.error('[ratings] Failed:', err.message));
 });

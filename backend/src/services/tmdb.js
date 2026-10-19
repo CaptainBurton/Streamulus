@@ -100,35 +100,44 @@ async function getSimilarMovies(tmdbId) {
   } catch { return null; }
 }
 
-async function getMovieContentRating(tmdbId) {
+// Age rating for the country chosen in Admin › Settings (then the US one, then
+// any). The *Certification versions throw when TMDB can't be reached, so a
+// background refresh can tell "no rating" from "try again later".
+const ratingCountry = () => require('./ratings').country();
+
+async function getMovieCertification(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
-  try {
-    const country = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value || 'US';
-    const res = await axios.get(`${TMDB_BASE}/movie/${tmdbId}/release_dates`, { params: { api_key: apiKey } });
-    const results = res.data.results || [];
-    const preferred = results.find(r => r.iso_3166_1 === country);
-    const us = results.find(r => r.iso_3166_1 === 'US');
-    const getCert = (entry) => {
-      if (!entry) return null;
-      const theatrical = entry.release_dates?.find(d => d.type === 3 && d.certification);
-      return theatrical?.certification || entry.release_dates?.find(d => d.certification)?.certification || null;
-    };
-    return getCert(preferred) || getCert(us) || getCert(results[0]) || null;
-  } catch { return null; }
+  const country = ratingCountry();
+  const res = await axios.get(`${TMDB_BASE}/movie/${tmdbId}/release_dates`, { params: { api_key: apiKey } });
+  const results = res.data.results || [];
+  const preferred = results.find(r => r.iso_3166_1 === country);
+  const us = results.find(r => r.iso_3166_1 === 'US');
+  const getCert = (entry) => {
+    if (!entry) return null;
+    const theatrical = entry.release_dates?.find(d => d.type === 3 && d.certification);
+    return theatrical?.certification || entry.release_dates?.find(d => d.certification)?.certification || null;
+  };
+  return getCert(preferred) || getCert(us) || results.map(getCert).find(Boolean) || null;
+}
+
+async function getTVCertification(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  const country = ratingCountry();
+  const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/content_ratings`, { params: { api_key: apiKey } });
+  const results = (res.data.results || []).filter(r => r.rating);
+  const preferred = results.find(r => r.iso_3166_1 === country);
+  const us = results.find(r => r.iso_3166_1 === 'US');
+  return preferred?.rating || us?.rating || results[0]?.rating || null;
+}
+
+async function getMovieContentRating(tmdbId) {
+  try { return await getMovieCertification(tmdbId); } catch { return null; }
 }
 
 async function getTVContentRating(tmdbId) {
-  const apiKey = getApiKey();
-  if (!apiKey) return null;
-  try {
-    const country = db.prepare('SELECT value FROM config WHERE key = ?').get('preferred_country')?.value || 'US';
-    const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/content_ratings`, { params: { api_key: apiKey } });
-    const results = res.data.results || [];
-    const preferred = results.find(r => r.iso_3166_1 === country);
-    const us = results.find(r => r.iso_3166_1 === 'US');
-    return preferred?.rating || us?.rating || results[0]?.rating || null;
-  } catch { return null; }
+  try { return await getTVCertification(tmdbId); } catch { return null; }
 }
 
 async function getTVCredits(tmdbId) {
@@ -220,7 +229,7 @@ function resolveGenreNames(genreIds, isTV = false) {
 
 module.exports = {
   getApiKey, searchMovieList, searchTVList, getEnglish,
-  searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating,
+  searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating, getMovieCertification, getTVCertification,
   getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
   getMovieImages, getTVImages, getSeasonImages,
   posterUrl, backdropUrl, resolveGenreNames

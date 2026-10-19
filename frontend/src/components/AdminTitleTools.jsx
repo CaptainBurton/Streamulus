@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
 // Admin tools for a movie, show, season or episode: edit its details, and
@@ -49,7 +49,15 @@ export function EditDetailsModal({ kind, item, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [ratings, setRatings] = useState(null); // the country's rating system (Admin › Settings › Regional)
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+
+  useEffect(() => {
+    axios.get('/api/admin/library/ratings').then(r => setRatings(r.data)).catch(() => setRatings({ movie: [], tv: [] }));
+  }, []);
+  const ratingOptions = ratings ? (kind === 'movie' ? ratings.movie : ratings.tv) : [];
+  const current = form.contentRating;
+  const currentListed = !current || ratingOptions.some(o => o.code === current);
 
   const save = async (e) => {
     e.preventDefault();
@@ -84,8 +92,12 @@ export function EditDetailsModal({ kind, item, onClose, onSaved }) {
             <input id="ed-year" style={INPUT} value={form.year} inputMode="numeric" maxLength={4} onChange={set('year')} />
           </div>
           <div style={{ flex: '1 1 120px' }}>
-            <label style={LABEL} htmlFor="ed-rating">Age rating</label>
-            <input id="ed-rating" style={INPUT} value={form.contentRating} maxLength={20} placeholder="e.g. PG-13, TV-14" onChange={set('contentRating')} />
+            <label style={LABEL} htmlFor="ed-rating">Age rating{ratings?.name ? <span style={{ fontWeight: 500, color: '#555' }}> ({ratings.name})</span> : null}</label>
+            <select id="ed-rating" style={{ ...INPUT, cursor: 'pointer', colorScheme: 'dark' }} value={current} onChange={set('contentRating')} disabled={!ratings}>
+              <option value="">Not rated</option>
+              {ratingOptions.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+              {!currentListed && <option value={current}>{current} — from another country</option>}
+            </select>
           </div>
         </div>
         <div>
@@ -98,7 +110,7 @@ export function EditDetailsModal({ kind, item, onClose, onSaved }) {
         </div>
         <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '13px', color: '#bbb', cursor: 'pointer' }}>
           <input type="checkbox" checked={form.locked} onChange={set('locked')} style={{ marginTop: '2px', accentColor: '#00c2ff' }} />
-          <span>Lock these details — <span style={{ color: '#777' }}>Refresh Metadata and new matches won't overwrite them.</span></span>
+          <span>Lock these details — <span style={{ color: '#777' }}>Refresh Metadata and age-rating updates won't overwrite them (Fix Match still replaces them).</span></span>
         </label>
         {error && <div style={{ color: '#ff6b6b', fontSize: '13px' }}>⚠ {error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>

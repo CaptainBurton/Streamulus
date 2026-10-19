@@ -211,7 +211,7 @@ router.get('/:id/details', authenticate, async (req, res) => {
     logoUrl = logo;
 
     if (contentRating) {
-      db.prepare('UPDATE tv_shows SET content_rating = ? WHERE id = ?').run(contentRating, show.id);
+      db.prepare('UPDATE tv_shows SET content_rating = ?, rating_checked = ? WHERE id = ?').run(contentRating, require('../services/ratings').country(), show.id);
       show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(req.params.id);
     }
 

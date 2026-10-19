@@ -266,3 +266,26 @@ function Tool({ title, hint, button, disabled, onClick }) {
     </div>
   );
 }
+
+// ── Country (Admin › Settings › Regional) ────────────────────────────────────
+// The country whose age ratings Streamulus uses, with its ratings shown below.
+export function CountryPicker({ value, onChange, style }) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    axios.get('/api/admin/library/ratings', { params: { country: value } }).then(r => setInfo(r.data)).catch(() => {});
+  }, [value]);
+  const list = (items) => items.filter(o => o.age != null).map(o => o.code).join(' · ');
+  return (
+    <div>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ ...style, cursor: 'pointer', width: '100%', colorScheme: 'dark' }} aria-label="Country">
+        {(info?.countries || [{ code: value, name: value }]).map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+      </select>
+      {info && (
+        <div style={{ marginTop: '10px', fontSize: '12px', color: '#777', lineHeight: 1.7 }}>
+          <div><span style={{ color: '#999', fontWeight: 600 }}>Movies:</span> {list(info.movie)}</div>
+          <div><span style={{ color: '#999', fontWeight: 600 }}>TV:</span> {list(info.tv)}</div>
+        </div>
+      )}
+    </div>
+  );
+}

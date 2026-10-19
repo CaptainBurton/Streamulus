@@ -123,7 +123,7 @@ router.get('/:id/details', authenticate, async (req, res) => {
     ]);
 
     if (contentRating) {
-      db.prepare('UPDATE movies SET content_rating = ? WHERE id = ?').run(contentRating, movie.id);
+      db.prepare('UPDATE movies SET content_rating = ?, rating_checked = ? WHERE id = ?').run(contentRating, require('../services/ratings').country(), movie.id);
       movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(movie.id);
       formatted = formatMovie(movie);
     }

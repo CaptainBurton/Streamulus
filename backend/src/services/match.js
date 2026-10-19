@@ -98,7 +98,7 @@ async function applyMovie(movie, source, id) {
   // logo_path NULL: fetch the new title's logo next time it's shown.
   db.prepare(`UPDATE movies SET title=?, year=?, tmdb_id=?, imdb_id=?, overview=?, poster_path=?, backdrop_path=?,
               rating=?, genres=?, imdb_rating=?, content_rating=?, original_language=?, logo_path=NULL,
-              title_en=NULL, overview_en=NULL WHERE id=?`)
+              title_en=NULL, overview_en=NULL, rating_checked=NULL, metadata_locked=0 WHERE id=?`)
     .run(row.title || movie.title, row.year || null, row.tmdb_id, row.imdb_id, row.overview, row.poster_path,
          row.backdrop_path, row.rating, row.genres, row.imdb_rating, row.content_rating, row.original_language, movie.id);
 }
@@ -180,7 +180,7 @@ async function applyShow(show, source, id) {
   }
   db.prepare(`UPDATE tv_shows SET title=?, tmdb_id=?, tvdb_id=?, imdb_id=?, overview=?, poster_path=?, backdrop_path=?,
               rating=?, genres=?, status=?, first_air_date=?, imdb_rating=?, content_rating=?, original_language=?, logo_path=NULL,
-              title_en=NULL, overview_en=NULL WHERE id=?`)
+              title_en=NULL, overview_en=NULL, rating_checked=NULL, metadata_locked=0 WHERE id=?`)
     .run(row.title || show.title, row.tmdb_id, row.tvdb_id, row.imdb_id, row.overview, row.poster_path, row.backdrop_path,
          row.rating, row.genres, row.status, row.first_air_date, row.imdb_rating, row.content_rating, row.original_language, show.id);
   return episodeLookup ? refreshEpisodes(show.id, episodeLookup) : 0;
@@ -191,11 +191,19 @@ async function apply(type, mediaId, source, id) {
     const movie = db.prepare('SELECT * FROM movies WHERE id = ?').get(mediaId);
     if (!movie) throw Object.assign(new Error('Movie not found'), { status: 404 });
     await applyMovie(movie, source, id);
+    refreshRatings();
     return { episodes: 0 };
   }
   const show = db.prepare('SELECT * FROM tv_shows WHERE id = ?').get(mediaId);
   if (!show) throw Object.assign(new Error('Show not found'), { status: 404 });
-  return { episodes: await applyShow(show, source, id) };
+  const episodes = await applyShow(show, source, id);
+  refreshRatings();
+  return { episodes };
+}
+
+// The new match's age rating, for the country chosen in Settings (background).
+function refreshRatings() {
+  require('./ratings').refreshRatings().catch(err => console.error('[ratings] Failed:', err.message));
 }
 
 module.exports = { search, apply };

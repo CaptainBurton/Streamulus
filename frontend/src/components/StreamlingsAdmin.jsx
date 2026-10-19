@@ -94,6 +94,8 @@ export default function StreamlingsAdmin({ flash }) {
 
   if (!data || !cfg) return <div style={{ color: '#555', padding: '40px', textAlign: 'center' }}>Loading…</div>;
 
+  // The chosen country's ratings at each age (from the server); the built-in list if it's older.
+  const ageOptions = data.ageOptions?.length ? data.ageOptions : AGE_OPTIONS;
   const count = (list) => `${list.filter(i => i.allowed).length} of ${list.length}`;
   const manualCount = [...data.movies, ...data.shows].filter(i => i.override !== null).length;
 
@@ -111,10 +113,10 @@ export default function StreamlingsAdmin({ flash }) {
         <Row label="Use age ratings" hint="Tick titles automatically by their content rating">
           <Toggle on={cfg.useRatings} onChange={v => saveConfig({ ...cfg, useRatings: v })} />
         </Row>
-        <Row label="Maximum age rating" hint="Highest rating a Streamling can watch" dim={!cfg.useRatings}>
+        <Row label="Maximum age rating" hint={`Highest rating a Streamling can watch${data.country ? ` — ${data.country} ratings (Admin › Settings › Regional)` : ''}`} dim={!cfg.useRatings}>
           <select value={cfg.maxAge} disabled={!cfg.useRatings} onChange={e => saveConfig({ ...cfg, maxAge: Number(e.target.value) })} style={SELECT}>
-            {AGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            {!AGE_OPTIONS.some(o => o.value === cfg.maxAge) && <option value={cfg.maxAge}>Up to {cfg.maxAge}</option>}
+            {ageOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {!ageOptions.some(o => o.value === cfg.maxAge) && <option value={cfg.maxAge}>Up to {cfg.maxAge}</option>}
           </select>
         </Row>
         <Row label="Allow unrated titles" hint="Titles with no rating (home videos, some imports)" dim={!cfg.useRatings} last>

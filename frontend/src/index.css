@@ -203,8 +203,16 @@ video::-webkit-media-controls-overlay-play-button {
 .badge-green { background: rgba(0, 200, 100, 0.15); color: #00c864; }
 .badge-red { background: rgba(229, 9, 20, 0.15); color: #e50914; }
 
+/* Movie / show pages: the title sits level with the lower part of the poster
+   beside it; on phones it wraps under the poster and its buttons instead. */
+.detail-info { padding-top: 120px; }
+
 /* ── Mobile responsive ─────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
+  /* Title right under the poster and admin buttons, not 160 px further down */
+  .detail-info { padding-top: 0; }
+  .detail-layout { row-gap: 24px !important; }
+
   /* Content pages: tighter side padding */
   .content-page {
     padding-left: 16px !important;

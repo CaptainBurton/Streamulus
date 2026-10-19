@@ -97,6 +97,16 @@ router.post('/excluded/restore', requireAdmin, (req, res) => {
 
 // ── Edit details ─────────────────────────────────────────────────────────────
 
+// The chosen country's age ratings (Edit Details) and every country there is
+// (Settings, which can preview another one with ?country=GB).
+router.get('/ratings', requireAdmin, (req, res) => {
+  const ratings = require('../services/ratings');
+  const preview = String(req.query.country || '').toUpperCase(); // Settings: a country not saved yet
+  const system = ratings.SYSTEMS[preview] ? ratings.systemFor(preview) : ratings.systemFor();
+  res.json({ ...system, countries: ratings.countries(), pending: ratings.pendingCount() });
+});
+
+
 function cleanGenres(genres) {
   if (!Array.isArray(genres)) return undefined;
   const list = [...new Set(genres.map(g => String(g).trim()).filter(Boolean))].slice(0, 12);

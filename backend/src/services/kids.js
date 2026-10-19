@@ -6,31 +6,9 @@
 // "allow unrated" is on. Episodes follow their show.
 const db = require('../database/db');
 
-// Ratings that contain no age number. Ambiguous ones lean strict, because a
-// wrongly blocked title is safer for kids than a wrongly allowed one.
-const LETTER_RATINGS = {
-  // All ages
-  G: 0, U: 0, UC: 0, 'TV-Y': 0, 'TV-G': 0, L: 0, AL: 0, ALL: 0, TP: 0, BTL: 0, S: 0, P: 0, AA: 0,
-  // Parental guidance
-  PG: 8, 'TV-PG': 8,
-  // Teens / adults
-  M: 15, MA: 15, B: 12,
-  R: 17, 'TV-MA': 17,
-  A: 18, C: 18, D: 18, X: 18, XXX: 18, 'NC-17': 18, R18: 18,
-};
-const UNRATED = new Set(['NR', 'UNRATED', 'NOT RATED', 'N/A', 'NA', 'APPROVED', 'PASSED', 'E', 'EXEMPT', '']);
-
-// Minimum suitable age for a rating string, or null if unknown/unrated.
-// Covers US (G, PG-13, TV-Y7…), UK (U, 12A, 15…), AU (MA15+…), DE (FSK 12),
-// NZ (R13), CA (14A), FR, NL, Nordics, BR, JP and similar systems.
-function ratingAge(rating) {
-  if (rating == null) return null;
-  const r = String(rating).trim().toUpperCase().replace(/^FSK\s*/, '');
-  if (UNRATED.has(r)) return null;
-  if (r in LETTER_RATINGS) return LETTER_RATINGS[r];
-  const n = r.match(/(\d{1,2})/); // TV-14 → 14, 12A → 12, MA15+ → 15, K-7 → 7
-  return n ? parseInt(n[1], 10) : null;
-}
+// How old a viewer should be for a rating, read with the rating system of the
+// country chosen in Admin › Settings (services/ratings.js).
+const { ratingAge } = require('./ratings');
 
 function getKidsConfig() {
   const get = (k, d) => db.prepare('SELECT value FROM config WHERE key = ?').get(k)?.value ?? d;

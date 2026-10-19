@@ -175,7 +175,9 @@ Access at `/admin` (admin users only):
 - **Feedback** — Feedback and app suggestions from everyone, as conversations you can reply to, close or delete
 - **Genres** — Custom artwork for each genre
 - **Settings** — Metadata sources and keys, encoding, Up Next, featured movie interval, branding (logo and/or
-  STREAMULUS text, custom logo), remote access (public URL), regional settings
+  STREAMULUS text, custom logo), remote access (public URL), regional settings — metadata language, and the
+  **country** whose age ratings Streamulus uses (shown on every title, offered in Edit Details, and read by
+  Streamlings' maximum age)
 
 ---
 

@@ -241,6 +241,9 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_tv_shows_folder ON tv_shows(folder_path)
 // Details the admin edited by hand: metadata refreshes leave them alone.
 try { db.exec('ALTER TABLE movies ADD COLUMN metadata_locked INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN metadata_locked INTEGER NOT NULL DEFAULT 0'); } catch {}
+// The country each title's age rating was last looked up for (services/ratings.js).
+try { db.exec('ALTER TABLE movies ADD COLUMN rating_checked TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN rating_checked TEXT'); } catch {}
 // Files and folders the admin removed from Streamulus but kept on disk — scans skip them.
 db.exec(`CREATE TABLE IF NOT EXISTS excluded_media (
   path TEXT PRIMARY KEY,
