@@ -75,10 +75,16 @@ struct Profile: Decodable, Identifiable, Hashable {
     let requires: String?
     /// Show titles and descriptions in English where available.
     let englishTitles: Bool
+    /// Preferred audio for files with several tracks: "default", "original" or a language code.
+    let audioLanguage: String
+    /// Turn on English subtitles when the audio is in another language.
+    let autoSubtitles: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, requires
         case englishTitles = "english_titles"
+        case audioLanguage = "audio_language"
+        case autoSubtitles = "auto_subtitles"
         case avatarPath = "avatar_url"
         case isMain = "is_main"
         case isKids = "is_kids"
@@ -97,6 +103,8 @@ extension Profile {
         hasPin = c.lossyBool(.hasPin)
         requires = c.lossyString(.requires)
         englishTitles = c.lossyBool(.englishTitles)
+        audioLanguage = c.lossyString(.audioLanguage) ?? "default"
+        autoSubtitles = c.lossyBool(.autoSubtitles)
     }
 }
 
@@ -599,6 +607,65 @@ extension SubtitleTrack {
 
 struct SubtitleTracksResponse: Decodable {
     let tracks: [SubtitleTrack]
+}
+
+// MARK: - Audio tracks
+
+/// One of a file's audio tracks (e.g. Japanese and English on dual-audio anime).
+/// `index` is what the stream URL's `audio` takes.
+struct AudioTrack: Decodable, Identifiable, Hashable {
+    let index: Int
+    let label: String
+    let language: String?
+    let codec: String?
+    let commentary: Bool
+
+    var id: Int { index }
+
+    enum CodingKeys: String, CodingKey { case index, label, language, codec, commentary }
+}
+
+extension AudioTrack {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        index = c.lossyInt(.index) ?? 0
+        label = c.lossyString(.label) ?? "Track \(index + 1)"
+        language = c.lossyString(.language)
+        codec = c.lossyString(.codec)
+        commentary = c.lossyBool(.commentary)
+    }
+}
+
+/// GET /api/stream/audio/:type/:id — the tracks, the one the stream plays by
+/// default for this profile, and whether to turn on English subtitles with
+/// audio in other languages.
+struct AudioTracksResponse: Decodable {
+    let tracks: [AudioTrack]
+    let selected: Int?
+    let autoSubtitles: Bool
+
+    enum CodingKeys: String, CodingKey { case tracks, selected, autoSubtitles }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tracks = (try? c.decode([AudioTrack].self, forKey: .tracks)) ?? []
+        selected = c.lossyInt(.selected)
+        autoSubtitles = c.lossyBool(.autoSubtitles)
+    }
+}
+
+/// Choices for a profile's Audio language setting.
+enum AudioLanguage {
+    static let options: [(code: String, name: String)] = [
+        ("default", "File's default"),
+        ("original", "Original language"),
+        ("en", "English"), ("ja", "Japanese"), ("es", "Spanish"), ("fr", "French"), ("de", "German"),
+        ("it", "Italian"), ("pt", "Portuguese"), ("ko", "Korean"), ("zh", "Chinese"), ("hi", "Hindi"), ("ru", "Russian"),
+    ]
+
+    static func name(_ code: String) -> String {
+        options.first { $0.code == code }?.name ?? code.uppercased()
+    }
 }
 
 struct SubtitleCue {

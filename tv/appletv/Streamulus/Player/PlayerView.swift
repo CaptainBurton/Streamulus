@@ -16,6 +16,7 @@ struct PlayerView: View {
     private enum Focus: Hashable {
         case surface, playNext, hideUpNext, closeError
         case subtitle(String) // a row in the subtitles menu ("off" = Off)
+        case audio(Int)       // a row in the audio part of that menu
     }
     @State private var showSubtitleMenu = false
 
@@ -131,8 +132,8 @@ struct PlayerView: View {
                     Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
                     Text(Fmt.clock(Int(controller.pendingSeek ?? controller.position)))
                     Spacer()
-                    if !controller.subtitleTracks.isEmpty {
-                        // Where the subtitles menu is.
+                    if hasTrackMenu {
+                        // Where the audio & subtitles menu is.
                         Label(subtitleSummary, systemImage: "captions.bubble")
                             .foregroundStyle(.secondary)
                             .padding(.trailing, 20)
@@ -228,7 +229,7 @@ struct PlayerView: View {
             controller.skip(10)
         case .down where controller.showUpNext:
             focus = .playNext
-        case .down where !controller.subtitleTracks.isEmpty:
+        case .down where hasTrackMenu:
             openSubtitleMenu()
         default:
             break
@@ -238,10 +239,25 @@ struct PlayerView: View {
 
     // MARK: Subtitles
 
+    /// Down opens one menu for audio tracks (when there's a choice) and subtitles.
+    private var hasTrackMenu: Bool {
+        controller.audioTracks.count > 1 || !controller.subtitleTracks.isEmpty
+    }
+
     private var subtitleSummary: String {
-        if controller.subtitleLoading { return "Loading subtitles…" }
-        let current = controller.subtitleTracks.first { $0.id == controller.selectedSubtitle }
-        return "Subtitles: \(current?.label ?? "Off")  ▾"
+        var parts: [String] = []
+        if controller.audioTracks.count > 1,
+           let audio = controller.audioTracks.first(where: { $0.index == controller.selectedAudio }) {
+            // "Japanese · Stereo" → "Japanese"
+            parts.append("Audio: \(audio.label.components(separatedBy: " · ").first ?? audio.label)")
+        }
+        if controller.subtitleLoading {
+            parts.append("Loading subtitles…")
+        } else if !controller.subtitleTracks.isEmpty {
+            let current = controller.subtitleTracks.first { $0.id == controller.selectedSubtitle }
+            parts.append("Subtitles: \(current?.label ?? "Off")")
+        }
+        return parts.joined(separator: "  ·  ") + "  ▾"
     }
 
     private var subtitleOverlay: some View {
@@ -268,17 +284,30 @@ struct PlayerView: View {
 
     private var subtitleMenu: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("SUBTITLES").font(.caption.weight(.heavy)).foregroundStyle(Theme.accent).padding(.bottom, 6)
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 8) {
-                    subtitleRow(id: "off", label: "Off", selected: controller.selectedSubtitle == nil) {
-                        controller.selectSubtitle(nil)
-                        closeSubtitleMenu()
+                    if controller.audioTracks.count > 1 {
+                        Text("AUDIO").font(.caption.weight(.heavy)).foregroundStyle(Theme.accent).padding(.bottom, 6)
+                        ForEach(controller.audioTracks) { track in
+                            trackRow(label: track.label, selected: controller.selectedAudio == track.index, focusAs: .audio(track.index)) {
+                                controller.selectAudio(track)
+                                closeSubtitleMenu()
+                            }
+                        }
                     }
-                    ForEach(controller.subtitleTracks) { track in
-                        subtitleRow(id: track.id, label: track.label, selected: controller.selectedSubtitle == track.id) {
-                            controller.selectSubtitle(track)
+                    if !controller.subtitleTracks.isEmpty {
+                        Text("SUBTITLES").font(.caption.weight(.heavy)).foregroundStyle(Theme.accent)
+                            .padding(.bottom, 6)
+                            .padding(.top, controller.audioTracks.count > 1 ? 18 : 0)
+                        subtitleRow(id: "off", label: "Off", selected: controller.selectedSubtitle == nil) {
+                            controller.selectSubtitle(nil)
                             closeSubtitleMenu()
+                        }
+                        ForEach(controller.subtitleTracks) { track in
+                            subtitleRow(id: track.id, label: track.label, selected: controller.selectedSubtitle == track.id) {
+                                controller.selectSubtitle(track)
+                                closeSubtitleMenu()
+                            }
                         }
                     }
                 }
@@ -296,6 +325,10 @@ struct PlayerView: View {
     }
 
     private func subtitleRow(id: String, label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        trackRow(label: label, selected: selected, focusAs: .subtitle(id), action: action)
+    }
+
+    private func trackRow(label: String, selected: Bool, focusAs: Focus, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
                 Image(systemName: "checkmark").opacity(selected ? 1 : 0)
@@ -304,12 +337,16 @@ struct PlayerView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(SubtitleRowStyle(isSelected: selected))
-        .focused($focus, equals: .subtitle(id))
+        .focused($focus, equals: focusAs)
     }
 
     private func openSubtitleMenu() {
         showSubtitleMenu = true
-        focus = .subtitle(controller.selectedSubtitle ?? "off")
+        if controller.audioTracks.count > 1, let audio = controller.selectedAudio {
+            focus = .audio(audio)
+        } else {
+            focus = .subtitle(controller.selectedSubtitle ?? "off")
+        }
     }
 
     private func closeSubtitleMenu() {

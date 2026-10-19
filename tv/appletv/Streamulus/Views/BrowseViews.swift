@@ -791,6 +791,38 @@ struct AccountView: View {
             .buttonStyle(ActionButtonStyle(prominent: session.profile?.englishTitles == true))
             .disabled(savingEnglish)
 
+            // Audio for files with several tracks (dual-audio anime): each press moves
+            // to the next choice; every language is on the web and phone apps.
+            HStack(spacing: 40) {
+                Button {
+                    let choices = ["default", "original", "en", "ja"]
+                    let current = session.profile?.audioLanguage ?? "default"
+                    let next = choices[((choices.firstIndex(of: current) ?? -1) + 1) % choices.count]
+                    Task {
+                        savingEnglish = true
+                        try? await session.setAudioLanguage(next)
+                        savingEnglish = false
+                    }
+                } label: {
+                    Label("Audio: \(AudioLanguage.name(session.profile?.audioLanguage ?? "default"))", systemImage: "waveform")
+                }
+                .buttonStyle(ActionButtonStyle())
+                .disabled(savingEnglish)
+
+                Button {
+                    Task {
+                        savingEnglish = true
+                        try? await session.setAutoSubtitles(!(session.profile?.autoSubtitles ?? false))
+                        savingEnglish = false
+                    }
+                } label: {
+                    Label(session.profile?.autoSubtitles == true ? "English Subtitles for Other Languages: On" : "English Subtitles for Other Languages: Off",
+                          systemImage: "captions.bubble")
+                }
+                .buttonStyle(ActionButtonStyle(prominent: session.profile?.autoSubtitles == true))
+                .disabled(savingEnglish)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Server: \(session.serverURL?.absoluteString ?? "")"
                      + (session.usingPublicAddress ? " — away from home, using the public address" : ""))

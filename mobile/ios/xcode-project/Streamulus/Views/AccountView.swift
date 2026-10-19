@@ -60,8 +60,42 @@ struct AccountView: View {
                         Label("Titles in English", systemImage: "character.bubble")
                     }
                     .disabled(savingEnglish)
+
+                    Picker(selection: Binding(
+                        get: { session.profile?.audioLanguage ?? "default" },
+                        set: { code in
+                            Task {
+                                savingEnglish = true
+                                try? await session.setAudioLanguage(code)
+                                savingEnglish = false
+                            }
+                        }
+                    )) {
+                        ForEach(AudioLanguage.options, id: \.code) { option in
+                            Text(option.name).tag(option.code)
+                        }
+                    } label: {
+                        Label("Audio Language", systemImage: "waveform")
+                    }
+                    .disabled(savingEnglish)
+
+                    Toggle(isOn: Binding(
+                        get: { session.profile?.autoSubtitles ?? false },
+                        set: { on in
+                            Task {
+                                savingEnglish = true
+                                try? await session.setAutoSubtitles(on)
+                                savingEnglish = false
+                            }
+                        }
+                    )) {
+                        Label("English Subtitles for Other Languages", systemImage: "captions.bubble")
+                    }
+                    .disabled(savingEnglish)
+                } header: {
+                    Text("Language")
                 } footer: {
-                    Text("Shows English titles and descriptions for movies and shows stored in another language, where available. For this profile, here and on the web and Apple TV.")
+                    Text("Titles in English shows English titles and descriptions where available. Audio Language picks the track for files with more than one, like dual-audio anime: Original language for Japanese (sub), English for the dub. You can still switch in the player — the choice is remembered for that show. For this profile, here and on the web, Android and Apple TV.")
                 }
 
                 if !profile.isKids {

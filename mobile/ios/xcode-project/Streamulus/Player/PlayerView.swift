@@ -118,6 +118,7 @@ struct PlayerView: View {
                 }
                 Spacer(minLength: 8)
 
+                if controller.audioTracks.count > 1 { audioMenu }
                 if !controller.subtitleTracks.isEmpty { subtitlesMenu }
                 if pip.isPossible {
                     Button { pip.toggle() } label: {
@@ -233,6 +234,28 @@ struct PlayerView: View {
         .accessibilityAdjustableAction { direction in
             controller.skip(direction == .increment ? 10 : -10)
         }
+    }
+
+    /// Files with more than one audio track, e.g. Japanese and English.
+    private var audioMenu: some View {
+        Menu {
+            Picker("Audio", selection: Binding(
+                get: { controller.selectedAudio ?? -1 },
+                set: { index in
+                    if let track = controller.audioTracks.first(where: { $0.index == index }) { controller.selectAudio(track) }
+                }
+            )) {
+                ForEach(controller.audioTracks) { track in
+                    Text(track.label).tag(track.index)
+                }
+            }
+        } label: {
+            Image(systemName: "waveform")
+                .font(.headline)
+                .frame(width: 46, height: 46)
+                .glassEffect(.regular, in: .circle)
+        }
+        .accessibilityLabel("Audio")
     }
 
     private var subtitlesMenu: some View {

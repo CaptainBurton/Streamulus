@@ -70,6 +70,18 @@ final class PlaybackController: ObservableObject {
     private var subtitleTask: Task<Void, Never>?
     private static let subtitleLanguageKey = "subtitleLanguage"
 
+    // Audio: the file's audio tracks (Japanese and English on dual-audio anime…)
+    // and the one playing. `requestedAudio` is the viewer's pick for this title;
+    // until they pick, the server plays the profile's choice.
+    @Published private(set) var audioTracks: [AudioTrack] = []
+    @Published private(set) var selectedAudio: Int?
+    private var requestedAudio: Int?
+    private var audioTask: Task<Void, Never>?
+    /// The profile wants English subtitles while the audio is in another language.
+    private var autoSubtitles = false
+    /// Subtitles were turned on for that, not by the viewer.
+    private var autoSubtitleOn = false
+
     var remaining: Double { max(0, duration - position) }
 
     /// The Up Next card: the last `upNextSeconds` of an episode that has a next one.
@@ -113,11 +125,15 @@ final class PlaybackController: ObservableObject {
     private func load(_ request: PlayRequest, compat: Bool = false) {
         current = request
         self.compat = compat
-        // A different title (not a seek or retry of this one): fetch its subtitle tracks.
+        // A different title (not a seek or retry of this one): fetch its subtitle
+        // and audio tracks.
         let mediaKey = "\(request.type.rawValue)-\(request.mediaId)"
         if mediaKey != subtitleMedia {
             subtitleMedia = mediaKey
+            requestedAudio = nil
+            autoSubtitleOn = false
             loadSubtitleTracks(type: request.type, id: request.mediaId)
+            loadAudioTracks(type: request.type, id: request.mediaId)
         }
         title = request.title
         subtitle = request.subtitle
@@ -131,7 +147,7 @@ final class PlaybackController: ObservableObject {
         advancing = false
         isBuffering = true
 
-        guard let url = session.streamURL(type: request.type, id: request.mediaId, start: request.start, compat: compat) else {
+        guard let url = session.streamURL(type: request.type, id: request.mediaId, start: request.start, compat: compat, audio: requestedAudio) else {
             errorText = "You're signed out — sign in again to play."
             return
         }
@@ -188,12 +204,15 @@ final class PlaybackController: ObservableObject {
             if let language = UserDefaults.standard.string(forKey: Self.subtitleLanguageKey), language != "off",
                let track = response.tracks.first(where: { $0.language == language && !$0.forced }) ?? response.tracks.first(where: { $0.language == language }) {
                 await self.loadCues(track)
+            } else {
+                self.syncAutoSubtitles()
             }
         }
     }
 
     /// nil turns subtitles off. Remembers the language for next time.
     func selectSubtitle(_ track: SubtitleTrack?) {
+        autoSubtitleOn = false
         UserDefaults.standard.set(track?.language ?? "off", forKey: Self.subtitleLanguageKey)
         subtitleTask?.cancel()
         guard let track else {
@@ -243,6 +262,57 @@ final class PlaybackController: ObservableObject {
         guard seconds.isFinite, pendingSeek == nil else { return }
         let lines = WebVTT.lines(in: cues, at: Double(current.start) + seconds)
         if lines != subtitleLines { subtitleLines = lines }
+    }
+
+    // MARK: Audio
+
+    private func loadAudioTracks(type: MediaType, id: Int) {
+        audioTask?.cancel()
+        audioTracks = []
+        selectedAudio = nil
+        audioTask = Task { [weak self] in
+            guard let self else { return }
+            let response = try? await self.session.get("/api/stream/audio/\(type.rawValue)/\(id)", as: AudioTracksResponse.self)
+            guard let response, !Task.isCancelled, self.subtitleMedia == "\(type.rawValue)-\(id)" else { return }
+            self.audioTracks = response.tracks
+            self.selectedAudio = self.requestedAudio ?? response.selected
+            self.autoSubtitles = response.autoSubtitles
+            self.syncAutoSubtitles()
+        }
+    }
+
+    /// Play another of the file's audio tracks: reopens the stream where you are.
+    /// The server remembers the choice for this title (a show: every episode).
+    func selectAudio(_ track: AudioTrack) {
+        guard track.index != selectedAudio else { return }
+        requestedAudio = track.index
+        selectedAudio = track.index
+        syncAutoSubtitles()
+        let r = current
+        let resumeAt = max(0, Int(pendingSeek ?? position))
+        load(PlayRequest(type: r.type, mediaId: r.mediaId, start: resumeAt, title: r.title, subtitle: r.subtitle), compat: compat)
+    }
+
+    /// "English subtitles when the audio isn't English": on with Japanese audio,
+    /// off again with English (unless the viewer turned them on themselves).
+    private func syncAutoSubtitles() {
+        guard autoSubtitles, !subtitleTracks.isEmpty,
+              let language = audioTracks.first(where: { $0.index == selectedAudio })?.language else { return }
+        let foreign = language.split(separator: "-").first.map(String.init) != "en"
+        if foreign, selectedSubtitle == nil {
+            let english = subtitleTracks.filter { ($0.language ?? "").split(separator: "-").first.map(String.init) == "en" }
+            guard let track = english.first(where: { !$0.forced }) ?? english.first else { return }
+            autoSubtitleOn = true
+            subtitleTask?.cancel()
+            subtitleTask = Task { [weak self] in await self?.loadCues(track) }
+        } else if !foreign, autoSubtitleOn {
+            autoSubtitleOn = false
+            subtitleTask?.cancel()
+            selectedSubtitle = nil
+            cues = []
+            subtitleLines = []
+            subtitleLoading = false
+        }
     }
 
     private func loadUpNext(for episodeId: Int) async {
@@ -395,6 +465,7 @@ final class PlaybackController: ObservableObject {
         if let subtitleObserver { player.removeTimeObserver(subtitleObserver) }
         subtitleObserver = nil
         subtitleTask?.cancel()
+        audioTask?.cancel()
         timeObserver = nil
         cancellables.removeAll()
         itemCancellables.removeAll()

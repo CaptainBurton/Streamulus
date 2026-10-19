@@ -252,6 +252,21 @@ final class Session: ObservableObject {
         profile = response.profile
     }
 
+    /// Preferred audio language for files with several audio tracks
+    /// ("default", "original" or a language code like "en", "ja").
+    func setAudioLanguage(_ code: String) async throws {
+        guard let current = profile else { return }
+        let response: UpdateProfileResponse = try await signedIn { try await $0.put("/api/profiles/\(current.id)", body: ["audio_language": code]) }
+        profile = response.profile
+    }
+
+    /// Turn on English subtitles whenever the audio is in another language.
+    func setAutoSubtitles(_ on: Bool) async throws {
+        guard let current = profile else { return }
+        let response: UpdateProfileResponse = try await signedIn { try await $0.put("/api/profiles/\(current.id)", body: ["auto_subtitles": on]) }
+        profile = response.profile
+    }
+
     /// The admin's provided pictures this profile may pick (Streamlings too).
     func avatarChoices() async throws -> AvatarChoices {
         guard let current = profile else { return AvatarChoices(categories: [], currentImageId: nil) }
@@ -422,12 +437,14 @@ final class Session: ObservableObject {
     }
 
     /// HLS stream for a movie/episode, starting `start` seconds in. `compat` asks
-    /// the server to re-encode everything instead of copying the source.
-    func streamURL(type: MediaType, id: Int, start: Int, compat: Bool = false) -> URL? {
+    /// the server to re-encode everything instead of copying the source; `audio`
+    /// picks one of the file's audio tracks (nil = this profile's choice).
+    func streamURL(type: MediaType, id: Int, start: Int, compat: Bool = false, audio: Int? = nil) -> URL? {
         guard let api, let token = api.token else { return nil }
         var query = [URLQueryItem(name: "token", value: token)]
         if start > 0 { query.append(URLQueryItem(name: "start", value: String(start))) }
         if compat { query.append(URLQueryItem(name: "compat", value: "1")) }
+        if let audio { query.append(URLQueryItem(name: "audio", value: String(audio))) }
         return api.url("/api/stream/hls/\(type.rawValue)/\(id)/manifest.m3u8", query: query)
     }
 }
