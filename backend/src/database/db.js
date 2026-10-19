@@ -249,6 +249,21 @@ db.exec(`CREATE TABLE IF NOT EXISTS excluded_media (
   title TEXT,
   created_at INTEGER
 )`);
+// Audio for files with more than one track (services/audio.js): the language a
+// profile prefers ('default' = the file's own default track, 'original' = the
+// title's original language), whether to turn on English subtitles when the
+// audio is in another language, and the track picked for each title.
+try { db.exec("ALTER TABLE profiles ADD COLUMN audio_language TEXT NOT NULL DEFAULT 'default'"); } catch {}
+try { db.exec('ALTER TABLE profiles ADD COLUMN auto_subtitles INTEGER NOT NULL DEFAULT 0'); } catch {}
+db.exec(`CREATE TABLE IF NOT EXISTS audio_preferences (
+  profile_id INTEGER NOT NULL,
+  media_type TEXT NOT NULL,
+  media_id INTEGER NOT NULL,
+  language TEXT,
+  track INTEGER,
+  updated_at INTEGER,
+  PRIMARY KEY (profile_id, media_type, media_id)
+)`);
 // The provided picture (avatar_images.id) a profile picked, if its photo is one;
 // the profile keeps its own copy of the file, so removing the picture is harmless.
 try { db.exec('ALTER TABLE profiles ADD COLUMN avatar_library_id INTEGER'); } catch {}

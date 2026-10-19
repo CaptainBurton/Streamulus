@@ -60,7 +60,7 @@ function runProbe(args) {
   });
 }
 
-const EMPTY_PROBE = { duration: 0, vCodec: null, aCodec: null, video: null, audio: null };
+const EMPTY_PROBE = { duration: 0, vCodec: null, aCodec: null, video: null, audio: null, audios: [] };
 
 async function probeFile(filePath) {
   const out = await runProbe(['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filePath]);
@@ -73,8 +73,9 @@ async function probeFile(filePath) {
     const IMAGE_CODECS = ['mjpeg', 'png', 'bmp', 'gif', 'webp'];
     const videos = streams.filter(s => s.codec_type === 'video' && !s.disposition?.attached_pic);
     const video = videos.find(s => !IMAGE_CODECS.includes(s.codec_name)) || videos[0] || null;
-    const audio = streams.find(s => s.codec_type === 'audio') || null;
-    return { duration, vCodec: video?.codec_name || null, aCodec: audio?.codec_name || null, video, audio };
+    const audios = streams.filter(s => s.codec_type === 'audio');
+    const audio = audios[0] || null;
+    return { duration, vCodec: video?.codec_name || null, aCodec: audio?.codec_name || null, video, audio, audios };
   } catch { return EMPTY_PROBE; }
 }
 
@@ -232,8 +233,11 @@ const INITIAL_SEGMENT_BUFFER = 1;
 
 // compat: always re-encode (H.264 + AAC) — the Apple TV app asks for this when
 // a stream fails to play, in case copying the source was the problem.
-async function getHLSSession(filePath, startTime = 0, { compat = false } = {}) {
-  const key = makeKey(compat ? `${filePath}#compat` : filePath, startTime);
+// audio: which of the file's audio tracks to play (0 = the first; see
+// services/audio.js), for files with more than one, e.g. Japanese and English.
+async function getHLSSession(filePath, startTime = 0, { compat = false, audio: audioTrack = null } = {}) {
+  const variant = (compat ? '#compat' : '') + (audioTrack != null ? `#a${audioTrack}` : '');
+  const key = makeKey(filePath + variant, startTime);
 
   // A new stream of this file (the player seeked somewhere outside its current
   // stream, or reopened it) — stop transcoding for its other streams.
@@ -258,7 +262,9 @@ async function getHLSSession(filePath, startTime = 0, { compat = false } = {}) {
   }
 
   const settings = getSettings();
-  const { duration: totalDuration, vCodec, aCodec, video, audio } = await probeFile(filePath);
+  const { duration: totalDuration, vCodec, video, audios } = await probeFile(filePath);
+  const audio = (audioTrack != null && audios[audioTrack]) || audios[0] || null;
+  const aCodec = audio?.codec_name || null;
   require('./durations').recordDuration(filePath, totalDuration); // for "Ends at" times
   // Copy mode: if the source is H.264 the player can take as-is, skip video
   // re-encoding (10-50x faster segment generation).
@@ -274,7 +280,7 @@ async function getHLSSession(filePath, startTime = 0, { compat = false } = {}) {
     deinterlace: ['tt', 'bb', 'tb', 'bt'].includes(video?.field_order),
     audioMaxChannels: audio?.channels || 0,
   };
-  console.log(`[transcode] ${copyMode ? 'Copy' : 'Transcode'} mode (${copyCheck.reason}): ${path.basename(filePath)} video=${vCodec} audio=${aCodec} audioCopy=${audioCopy}`);
+  console.log(`[transcode] ${copyMode ? 'Copy' : 'Transcode'} mode (${copyCheck.reason}): ${path.basename(filePath)} video=${vCodec} audio=${aCodec}${audios.length > 1 ? ` (track ${audios.indexOf(audio) + 1} of ${audios.length})` : ''} audioCopy=${audioCopy}`);
 
   const dir = path.join(HLS_BASE, key);
   fs.mkdirSync(dir, { recursive: true });
@@ -595,4 +601,4 @@ function getSessionTotalDuration(key) {
   return sessions.get(key)?.totalDuration ?? 0;
 }
 
-module.exports = { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay, getSessionTotalDuration, pauseIdleSessions };
+module.exports = { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay, getSessionTotalDuration, pauseIdleSessions, probeFile };

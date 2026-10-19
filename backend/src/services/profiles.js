@@ -22,12 +22,15 @@ function publicProfile(p) {
     is_kids: !!p.is_kids,
     has_pin: !!p.pin_hash,
     english_titles: !!p.english_titles,
+    audio_language: p.audio_language || 'default',
+    auto_subtitles: !!p.auto_subtitles,
   };
 }
 
 // Remove a profile and everything that belongs to it (not the main profile).
 function deleteProfileData(profileId) {
   db.prepare('DELETE FROM watch_history WHERE profile_id = ?').run(profileId);
+  db.prepare('DELETE FROM audio_preferences WHERE profile_id = ?').run(profileId);
   db.prepare('DELETE FROM profiles WHERE id = ?').run(profileId);
 }
 

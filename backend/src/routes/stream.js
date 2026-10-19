@@ -10,6 +10,7 @@ const { posterUrl, backdropUrl } = require('../services/tmdb');
 const { resolveFilePath } = require('../services/path-repair');
 const { kidsScope, canAccess } = require('../services/kids');
 const { pick } = require('../services/locale');
+const audio = require('../services/audio');
 
 const router = express.Router();
 
@@ -543,6 +544,21 @@ router.get('/diagnose/:type/:id', authenticate, guardKids, (req, res) => {
 // Safari requires HLS for adaptive/live streams. Chrome/Firefox use /video
 // (fragmented MP4). These routes use the existing transcoder.js HLS service.
 
+// ─── audio tracks ─────────────────────────────────────────────────────────────
+//
+// GET /audio/:type/:id → { tracks, selected, subtitles } for the player's Audio
+// menu: the file's audio tracks, the one the stream plays when no ?audio= is
+// given (this profile's earlier pick for the title, else its Audio language,
+// else the file's default), and a subtitle language to turn on with it, if any.
+
+router.get('/audio/:type/:id', authenticate, guardKids, async (req, res) => {
+  const { type, id } = req.params;
+  const filePath = getFilePath(type, id);
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  const { tracks, selected, subtitles } = await audio.resolve(req, type, id, filePath);
+  res.json({ tracks, selected: selected ? selected.index : null, subtitles });
+});
+
 router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
@@ -552,10 +568,13 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, 
 
   const start = Math.max(0, parseFloat(req.query.start || '0') || 0);
   const compat = req.query.compat === '1'; // always re-encode (Apple TV retry after a failed stream)
-  console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s${compat ? ' (compat)' : ''}`);
-
+  // ?audio=N plays the file's Nth audio track (and remembers it for the title);
+  // without it, the profile's choice for this title or its preferred language.
   try {
-    const key = await getHLSSession(filePath, start, { compat });
+    const { tracks, selected } = await audio.resolve(req, type, id, filePath, req.query.audio);
+    const audioTrack = tracks.length > 1 && selected ? selected.index : null;
+    console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s${compat ? ' (compat)' : ''}${audioTrack != null ? ` audio=${selected.label}` : ''}`);
+    const key = await getHLSSession(filePath, start, { compat, audio: audioTrack });
     if (res.writableEnded) return; // client disconnected while transcoding
     const segBase = `/api/stream/hls/${type}/${id}/segment?token=${req.query.token}&key=${key}`;
     const manifest = getManifestContent(key, segBase);
@@ -563,8 +582,9 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, 
     const totalDur = getSessionTotalDuration(key);
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Access-Control-Expose-Headers', 'X-Total-Duration');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Total-Duration, X-Audio-Track');
     if (totalDur > 0) res.setHeader('X-Total-Duration', String(Math.round(totalDur)));
+    if (audioTrack != null) res.setHeader('X-Audio-Track', String(audioTrack));
     res.send(manifest);
   } catch (err) {
     console.error(`[stream] HLS error: ${err.message}`);

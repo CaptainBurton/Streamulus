@@ -50,6 +50,10 @@ function relocateMissing(table, filePath) {
 
 // Metadata for a movie: straight from an id in its folder / file name when there
 // is one ({tmdb-123}, {imdb-tt123}), otherwise searched by title and year.
+// "ja", "jpn", "Japanese" → "ja" (NULL when the source doesn't say, so the
+// languages.js look-up still runs for it).
+const langCode = (raw) => (raw ? (require('./subtitles').language(raw)?.code || String(raw).toLowerCase()) : null);
+
 async function lookupMovie(parsed) {
   const { title, year, ids } = parsed;
   if (ids.tmdb) {
@@ -59,6 +63,7 @@ async function lookupMovie(parsed) {
       tmdb_id: d.id, overview: d.overview, poster_path: d.poster_path, backdrop_path: d.backdrop_path,
       rating: d.vote_average, genres: d.genres ? JSON.stringify(d.genres.map(g => g.id)) : null,
       imdb_id: d.imdb_id || null, imdb_rating: null, content_rating: null,
+      original_language: langCode(d.original_language),
     };
   }
   if (ids.imdb && imdb.isConfigured()) {
@@ -88,6 +93,7 @@ async function lookupMovie(parsed) {
         poster_path: d.poster_path, backdrop_path: d.backdrop_path,
         rating: d.vote_average, genres: d.genre_ids ? JSON.stringify(d.genre_ids) : null,
         imdb_id: null, imdb_rating: null, content_rating: null,
+        original_language: langCode(d.original_language),
       };
     }
   }
@@ -127,14 +133,15 @@ async function processMovieFile(filePath, lib, ctx) {
   const r = db.prepare(`
     INSERT OR IGNORE INTO movies
       (library_id, file_path, title, year, tmdb_id, overview, poster_path, backdrop_path,
-       rating, genres, imdb_id, imdb_rating, content_rating)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       rating, genres, imdb_id, imdb_rating, content_rating, original_language)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     libraryId, filePath, resolvedTitle, meta?.year || year,
     meta?.tmdb_id || null, meta?.overview || null,
     meta?.poster_path || null, meta?.backdrop_path || null,
     meta?.rating || null, meta?.genres || null,
     meta?.imdb_id || null, meta?.imdb_rating || null, meta?.content_rating || null,
+    meta?.original_language || null,
   );
   return { status: r.changes > 0 ? 'added' : 'skipped', title: resolvedTitle };
 }
@@ -150,6 +157,7 @@ async function lookupShow(parsed) {
       source: 'tvdb', tvdb_id: d.tvdb_id, tmdb_id: ids.tmdb || null, name: d.name || showTitle, overview: d.overview,
       poster_path: d.image, backdrop_path: null, rating: null,
       genres: d.genres?.length ? JSON.stringify(d.genres) : null, status: d.status, first_air_date: d.first_air_date,
+      original_language: langCode(d.original_language),
     };
   }
   if (ids.tmdb) {
@@ -158,6 +166,7 @@ async function lookupShow(parsed) {
       source: 'tmdb', tvdb_id: ids.tvdb || null, tmdb_id: d.id, name: d.name || showTitle, overview: d.overview,
       poster_path: d.poster_path, backdrop_path: d.backdrop_path, rating: d.vote_average,
       genres: d.genres ? JSON.stringify(d.genres.map(g => g.id)) : null, status: d.status, first_air_date: d.first_air_date,
+      original_language: langCode(d.original_language),
     };
   }
   const tvSourceOrder = JSON.parse(getSource('tv_source_order', '["tvdb","tmdb","imdb"]'));
@@ -179,6 +188,7 @@ async function lookupShow(parsed) {
         backdrop_path: tmdbData.backdrop_path, rating: tmdbData.vote_average,
         genres: tmdbData.genre_ids ? JSON.stringify(tmdbData.genre_ids) : null,
         status: tmdbData.status, first_air_date: tmdbData.first_air_date,
+        original_language: langCode(tmdbData.original_language),
       };
     } else if (src === 'imdb' && imdb.isConfigured()) {
       const d = await imdb.searchSeries(showTitle);
@@ -207,14 +217,15 @@ async function resolveShow(parsed, libraryId, ctx) {
     if (!show) {
       const result = db.prepare(`
         INSERT INTO tv_shows
-          (library_id, title, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, rating, genres, status, first_air_date, folder_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (library_id, title, tmdb_id, tvdb_id, overview, poster_path, backdrop_path, rating, genres, status, first_air_date, folder_path, original_language)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         libraryId, meta?.name || parsed.showTitle, meta?.tmdb_id || null, meta?.tvdb_id || null,
         meta?.overview || null, meta?.poster_path || null, meta?.backdrop_path || null, meta?.rating || null,
         meta?.genres || null, meta?.status || null,
         meta?.first_air_date || (parsed.year ? `${parsed.year}-01-01` : null),
         isFolder ? parsed.showKey : null,
+        meta?.original_language || null,
       );
       show = { id: result.lastInsertRowid, title: meta?.name || parsed.showTitle, tmdb_id: meta?.tmdb_id || null, tvdb_id: meta?.tvdb_id || null };
     }

@@ -16,6 +16,7 @@ const multer = require('multer');
 const db = require('../database/db');
 const { authenticate, signToken } = require('../middleware/auth');
 const { MAX_PROFILES, publicProfile, deleteProfileData } = require('../services/profiles');
+const { VALID_LANGUAGE } = require('../services/audio');
 const library = require('../services/avatarLibrary');
 
 const router = express.Router();
@@ -89,13 +90,20 @@ router.post('/', authenticate, (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   const target = getOwnProfile(req, req.params.id);
   if (!target) return res.status(404).json({ error: 'Profile not found' });
-  // Anyone (Streamlings too) can switch English titles for themselves.
-  const onlyEnglish = Object.keys(req.body || {}).every(k => k === 'english_titles');
+  // Anyone (Streamlings too) can change their own language settings.
+  const SELF_SETTINGS = ['english_titles', 'audio_language', 'auto_subtitles'];
+  const onlySelfSettings = Object.keys(req.body || {}).every(k => SELF_SETTINGS.includes(k));
   const ownProfile = target.id === req.profile.id;
-  if (!canEdit(req, target) && !(onlyEnglish && ownProfile)) return res.status(403).json({ error: "You can't edit this profile" });
+  if (!canEdit(req, target) && !(onlySelfSettings && ownProfile)) return res.status(403).json({ error: "You can't edit this profile" });
 
   const updates = {};
   if (req.body.english_titles !== undefined) updates.english_titles = req.body.english_titles ? 1 : 0;
+  if (req.body.auto_subtitles !== undefined) updates.auto_subtitles = req.body.auto_subtitles ? 1 : 0;
+  if (req.body.audio_language !== undefined) {
+    const lang = String(req.body.audio_language || 'default').trim().toLowerCase();
+    if (!VALID_LANGUAGE.test(lang)) return res.status(400).json({ error: 'Unknown audio language' });
+    updates.audio_language = lang;
+  }
   if (req.body.name !== undefined) {
     const name = cleanName(req.body.name);
     if (!name) return res.status(400).json({ error: 'Profile name must be 1–20 characters' });
