@@ -1,8 +1,10 @@
 package com.streamulus.android.ui.theme
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
@@ -47,5 +49,9 @@ private val Colors = darkColorScheme(
 
 @Composable
 fun StreamulusTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = Colors, content = content)
+    MaterialTheme(colorScheme = Colors) {
+        // Text and icons default to white: screens sit straight on the dark background
+        // rather than inside a Material Surface, which would otherwise leave them black.
+        CompositionLocalProvider(LocalContentColor provides Colors.onBackground, content = content)
+    }
 }
