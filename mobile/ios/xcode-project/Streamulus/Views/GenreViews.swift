@@ -77,6 +77,7 @@ struct GenreTile: View {
                 .padding(12)
             }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

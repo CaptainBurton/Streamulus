@@ -34,23 +34,40 @@ struct RemoteImage: View {
     var placeholder: String? = nil
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().scaledToFill()
-            default:
-                ZStack {
-                    Color(white: 0.14)
-                    if let placeholder {
-                        Text(placeholder)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(8)
+        FilledFrame {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                default:
+                    ZStack {
+                        Color(white: 0.14)
+                        if let placeholder {
+                            Text(placeholder)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(8)
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/// Crops a filled image to the space it was given — for taps too. Clipping only
+/// changes what's drawn: the hidden part of a picture that was taller or wider
+/// than its tile still caught taps, so tapping one genre tile (Mini-Series)
+/// could open the one next to it (Horror). Here only the frame itself is tappable.
+private struct FilledFrame<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Color.clear
+            .overlay { content.allowsHitTesting(false) }
+            .clipped()
+            .contentShape(Rectangle())
     }
 }
 
@@ -62,17 +79,19 @@ struct FallbackImage: View {
 
     var body: some View {
         if index < urls.count {
-            AsyncImage(url: urls[index]) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                case .failure:
-                    Color(white: 0.14).onAppear { index += 1 }
-                default:
-                    Color(white: 0.14)
+            FilledFrame {
+                AsyncImage(url: urls[index]) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    case .failure:
+                        Color(white: 0.14).onAppear { index += 1 }
+                    default:
+                        Color(white: 0.14)
+                    }
                 }
+                .id(index)
             }
-            .id(index)
         } else {
             RemoteImage(url: nil, placeholder: placeholder)
         }
