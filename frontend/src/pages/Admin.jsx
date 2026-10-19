@@ -9,6 +9,7 @@ import AvatarLibraryAdmin from '../components/AvatarLibraryAdmin';
 import FeedbackAdmin from '../components/FeedbackAdmin';
 import GenresAdmin from '../components/GenresAdmin';
 import BrandingAdmin from '../components/BrandingAdmin';
+import { NamingFormats, LibraryMaintenance } from '../components/LibraryAdmin';
 
 function StatCard({ label, value, icon }) {
   return (
@@ -49,7 +50,7 @@ function ScanProgress({ events, scanning, onClose }) {
   const fileResults = events.filter(e => e.type === 'file_done' || e.type === 'file_error');
 
   // Library-level messages
-  const libMessages = events.filter(e => ['library_start', 'library_error', 'found', 'library_done', 'error'].includes(e.type));
+  const libMessages = events.filter(e => ['library_start', 'library_error', 'found', 'library_done', 'cleanup', 'error'].includes(e.type));
 
   useEffect(() => {
     if (fileLogRef.current) fileLogRef.current.scrollTop = fileLogRef.current.scrollHeight;
@@ -118,6 +119,7 @@ function ScanProgress({ events, scanning, onClose }) {
               ✓ {e.library} done — {e.added} added, {e.skipped} skipped{e.errors > 0 ? `, ${e.errors} errors` : ''}
             </div>
           );
+          if (e.type === 'cleanup') return <div key={`lib-${i}`} style={{ color: '#ffb703' }}>  ⟳ {e.message}</div>;
           if (e.type === 'error') return <div key={`lib-${i}`} style={{ color: '#ff4444' }}>✕ {e.message}</div>;
           return null;
         })}
@@ -253,44 +255,6 @@ function RefreshMetadata() {
         style={{ padding: '10px 24px', background: running ? '#333' : 'rgba(0,194,255,0.15)', color: running ? '#555' : '#00c2ff', border: '1px solid', borderColor: running ? '#333' : 'rgba(0,194,255,0.3)', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: running ? 'not-allowed' : 'pointer' }}
       >
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><RefreshIcon spin={running} /> {running ? 'Refreshing…' : 'Refresh All Metadata'}</span>
-      </button>
-    </div>
-  );
-}
-
-function FixDuplicates() {
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState(null);
-
-  const run = async () => {
-    setRunning(true);
-    setResult(null);
-    try {
-      const r = await axios.post('/api/admin/tv/deduplicate');
-      setResult(r.data);
-    } catch (e) {
-      setResult({ error: e.response?.data?.error || e.message });
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  return (
-    <div>
-      {result && !result.error && (
-        <div style={{ marginBottom: '12px', fontSize: '14px', color: result.merged > 0 ? '#00c864' : '#888' }}>
-          {result.merged > 0 ? `✓ Merged ${result.merged} duplicate show${result.merged !== 1 ? 's' : ''}` : '✓ No duplicates found'}
-        </div>
-      )}
-      {result?.error && (
-        <div style={{ marginBottom: '12px', fontSize: '14px', color: '#ff4444' }}>⚠ {result.error}</div>
-      )}
-      <button
-        onClick={run}
-        disabled={running}
-        style={{ padding: '10px 24px', background: running ? '#333' : 'rgba(0,194,255,0.15)', color: running ? '#555' : '#00c2ff', border: '1px solid', borderColor: running ? '#333' : 'rgba(0,194,255,0.3)', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: running ? 'not-allowed' : 'pointer' }}
-      >
-        {running ? 'Scanning…' : 'Fix Duplicate Shows'}
       </button>
     </div>
   );
@@ -725,6 +689,9 @@ export default function Admin() {
                 <div style={{ textAlign: 'center', padding: '40px', color: '#444' }}>No libraries configured yet</div>
               )}
             </div>
+
+            <NamingFormats flash={flash} />
+            <LibraryMaintenance flash={flash} onChanged={loadData} />
           </div>
         )}
 
@@ -1041,15 +1008,6 @@ export default function Admin() {
               >
                 Save Priority
               </button>
-            </div>
-
-            {/* Fix Duplicate Shows */}
-            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '6px' }}>Fix Duplicate TV Shows</h3>
-              <p style={{ color: '#666', fontSize: '14px', marginBottom: '20px' }}>
-                Merge TV shows that were scanned as separate entries due to slight filename differences (e.g. "American Dad" vs "American Dad!"). All episodes will be moved to the oldest matching entry.
-              </p>
-              <FixDuplicates />
             </div>
 
             {/* Transcoding & Streaming */}

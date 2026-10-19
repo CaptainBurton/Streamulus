@@ -248,37 +248,74 @@ function AddProfile({ onAdded, say, errText }) {
   );
 }
 
-// ── Parental lock (main profile only) ────────────────────────────────────────
-// ── Titles in English (any profile, Streamlings too) ─────────────────────────
+// ── Language: titles, audio and subtitles (any profile, Streamlings too) ─────
+const AUDIO_LANGUAGES = [
+  ['default', "The file's default"],
+  ['original', 'Original language (e.g. Japanese for anime)'],
+  ['en', 'English'], ['ja', 'Japanese'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['it', 'Italian'],
+  ['pt', 'Portuguese'], ['ko', 'Korean'], ['zh', 'Chinese'], ['hi', 'Hindi'], ['ru', 'Russian'],
+];
+
 function LanguageSection({ profile, onChanged, say, errText }) {
   const [busy, setBusy] = useState(false);
-  const on = !!profile.english_titles;
-  const toggle = async () => {
+  const save = async (changes, ok) => {
     setBusy(true);
     try {
-      await axios.put(`/api/profiles/${profile.id}`, { english_titles: !on });
+      await axios.put(`/api/profiles/${profile.id}`, changes);
       await onChanged();
-      say(!on ? 'Titles and descriptions will show in English' : 'Titles and descriptions will show as stored');
+      say(ok);
     } catch (err) { say(errText(err, "Couldn't save that setting"), true); }
     setBusy(false);
   };
+  const english = !!profile.english_titles;
+  const autoSubs = !!profile.auto_subtitles;
+  const audio = profile.audio_language || 'default';
   return (
-    <Card title="Language" subtitle="For movies and shows whose title or description is in another language (often anime and foreign shows).">
-      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', cursor: 'pointer' }}>
-        <span>
-          <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#ccc' }}>Show titles and descriptions in English</span>
-          <span style={{ display: 'block', fontSize: '12px', color: '#666', marginTop: '2px' }}>Where an English version is available. Applies to this profile, on the web and the Apple TV.</span>
-        </span>
-        <button type="button" role="switch" aria-checked={on} aria-label="Show titles and descriptions in English" disabled={busy} onClick={toggle}
-          style={{ width: '46px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0,
-            background: on ? '#00c2ff' : 'rgba(255,255,255,0.15)', transition: 'background 0.2s' }}>
-          <span style={{ position: 'absolute', top: '3px', left: on ? '23px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
-        </button>
-      </label>
+    <Card title="Language" subtitle="Titles, audio and subtitles for movies and shows in other languages — often anime. Applies to this profile in every Streamulus app.">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <SwitchRow label="Show titles and descriptions in English" hint="Where an English version is available."
+          on={english} disabled={busy}
+          onToggle={() => save({ english_titles: !english }, !english ? 'Titles and descriptions will show in English' : 'Titles and descriptions will show as stored')} />
+
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+          <span style={{ flex: '1 1 260px' }}>
+            <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#ccc' }}>Audio language</span>
+            <span style={{ display: 'block', fontSize: '12px', color: '#666', marginTop: '2px' }}>
+              For files with more than one audio track, like dual-audio anime (Japanese and English). Choose Original language for subs, English for dubs. You can still switch in the player, and what you pick there is remembered for that title.
+            </span>
+          </span>
+          <select value={audio} disabled={busy} aria-label="Audio language"
+            onChange={e => save({ audio_language: e.target.value }, 'Audio language saved')}
+            style={{ ...INPUT, flex: '0 1 260px', cursor: 'pointer', colorScheme: 'dark' }}>
+            {AUDIO_LANGUAGES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+
+        <SwitchRow label="English subtitles when the audio isn't English" hint="Turns on English subtitles (where the title has them) when you watch in Japanese or another language."
+          on={autoSubs} disabled={busy}
+          onToggle={() => save({ auto_subtitles: !autoSubs }, !autoSubs ? 'English subtitles will turn on for other languages' : 'Subtitles will stay as you leave them')} />
+      </div>
     </Card>
   );
 }
 
+function SwitchRow({ label, hint, on, disabled, onToggle }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', cursor: 'pointer' }}>
+      <span>
+        <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#ccc' }}>{label}</span>
+        {hint && <span style={{ display: 'block', fontSize: '12px', color: '#666', marginTop: '2px' }}>{hint}</span>}
+      </span>
+      <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={onToggle}
+        style={{ width: '46px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0,
+          background: on ? '#00c2ff' : 'rgba(255,255,255,0.15)', transition: 'background 0.2s' }}>
+        <span style={{ position: 'absolute', top: '3px', left: on ? '23px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+      </button>
+    </label>
+  );
+}
+
+// ── Parental lock (main profile only) ────────────────────────────────────────
 function ParentalLockSection({ lock, onChanged, say, errText }) {
   const [busy, setBusy] = useState(false);
   const save = async (changes) => {

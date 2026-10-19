@@ -3,6 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 import { useNow, formatRuntime, endsAt } from '../components/endsAt';
+import ArtworkPicker from '../components/ArtworkPicker';
+import { PencilIcon } from '../components/AdminPosterActions';
+import { RemoveModal, removedMessage, IconButton, TrashIcon } from '../components/AdminTitleTools';
+import { useAuth } from '../context/AuthContext';
 
 export default function TVSeason() {
   const { id, season } = useParams();
@@ -11,6 +15,13 @@ export default function TVSeason() {
   const [episodes, setEpisodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [seasonPoster, setSeasonPoster] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [editPoster, setEditPoster] = useState(false);
+  const [removing, setRemoving] = useState(null); // { kind, id, season?, title }
+  const [notice, setNotice] = useState('');
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const now = useNow();
 
   useEffect(() => {
@@ -20,11 +31,12 @@ export default function TVSeason() {
     ])
       .then(([showRes, epsRes]) => {
         setShow(showRes.data.show);
+        setSeasonPoster((showRes.data.seasons || []).find(s => String(s.season) === String(season))?.season_poster || null);
         setEpisodes(epsRes.data.episodes || []);
       })
       .catch(() => setError('Season not found'))
       .finally(() => setLoading(false));
-  }, [id, season]);
+  }, [id, season, refreshKey]);
 
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>;
 
@@ -70,7 +82,7 @@ export default function TVSeason() {
         {/* Season header */}
         <div style={{ display: 'flex', gap: '32px', alignItems: 'flex-end', marginBottom: '48px', flexWrap: 'wrap' }}>
           <img
-            src={show.poster_url || PLACEHOLDER_POSTER}
+            src={seasonPoster || show.poster_url || PLACEHOLDER_POSTER}
             alt={show.title}
             onError={e => { e.target.src = PLACEHOLDER_POSTER; }}
             style={{ width: '160px', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.8)', display: 'block', flexShrink: 0 }}
@@ -83,6 +95,14 @@ export default function TVSeason() {
             <div style={{ color: '#666', fontSize: '15px' }}>
               {episodes.length} episode{episodes.length !== 1 ? 's' : ''}
             </div>
+            {isAdmin && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
+                <button onClick={() => setEditPoster(true)} style={ADMIN_BTN}><PencilIcon size={15} /> Season Poster</button>
+                <button onClick={() => setRemoving({ kind: 'season', id: show.id, season, title: `${show.title} – Season ${season}` })} style={{ ...ADMIN_BTN, color: '#c77' }}>
+                  <TrashIcon size={15} /> Remove Season…
+                </button>
+              </div>
+            )}
 
 
           </div>
@@ -91,6 +111,7 @@ export default function TVSeason() {
         {/* Episode list */}
         <div style={{ marginTop: '56px' }}>
           <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '20px', color: '#fff' }}>Episodes</h2>
+          {notice && <div style={{ marginBottom: '16px', fontSize: '14px', color: '#00c864' }}>✓ {notice}</div>}
           {episodes.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 0', color: '#444' }}>No episodes found for this season.</div>
           ) : (
@@ -157,6 +178,13 @@ export default function TVSeason() {
                     )}
                   </div>
 
+                  {isAdmin && (
+                    <IconButton label={`Remove episode ${ep.episode_number}`} danger
+                      onClick={() => setRemoving({ kind: 'episode', id: ep.id, title: `${show.title} S${season}E${ep.episode_number}${ep.title ? ` – ${ep.title}` : ''}` })}>
+                      <TrashIcon size={15} />
+                    </IconButton>
+                  )}
+
                   {/* Play / check indicator */}
                   <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: completed ? 'rgba(34,197,94,0.15)' : 'rgba(0,194,255,0.15)', border: `1px solid ${completed ? 'rgba(34,197,94,0.4)' : 'rgba(0,194,255,0.3)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: completed ? '#22c55e' : '#00c2ff', fontSize: '14px' }}>
                     {completed ? '✓' : '▶'}
@@ -169,6 +197,27 @@ export default function TVSeason() {
         </div>
       </div>
     </div>
+    {editPoster && (
+      <ArtworkPicker mediaType="tv" itemId={id} season={Number(season)}
+        onClose={() => setEditPoster(false)}
+        onSaved={() => { setEditPoster(false); setRefreshKey(k => k + 1); }} />
+    )}
+    {removing && (
+      <RemoveModal target={removing} onClose={() => setRemoving(null)}
+        onRemoved={(result, mode) => {
+          const wholeSeason = removing.kind === 'season';
+          setRemoving(null);
+          if (wholeSeason) {
+            if (result.errors?.length) window.alert(removedMessage(result, mode));
+            navigate(`/tv/${id}`, { replace: true });
+            return;
+          }
+          setNotice(removedMessage(result, mode));
+          setRefreshKey(k => k + 1);
+        }} />
+    )}
     </>
   );
 }
+
+const ADMIN_BTN = { display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 14px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#999', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' };

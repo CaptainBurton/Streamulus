@@ -4,8 +4,8 @@
 //   TV:     <library>/<Series folder>/<Season folder>/<episode file>
 //   Movies: <library>/<Movie folder>/<movie file>   (or loose files in <library>)
 //
-// The admin can give the naming formats their files use (Admin › Settings ›
-// Library Naming) in Sonarr / Radarr token syntax, e.g.
+// The admin can give the naming formats their files use (Admin › Libraries ›
+// Naming) in Sonarr / Radarr token syntax, e.g.
 //   "{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}"
 // Each format becomes a pattern that's tried first; common naming styles are
 // tried after it, so most libraries work without changing anything.
@@ -72,10 +72,14 @@ function literalPattern(text) {
 function compileFormat(format, { whole = false } = {}) {
   let out = '^';
   let lastWasToken = false;
-  const re = /\{([^{}]+)\}|([^{}]+)/g;
+  // Tokens, literal text, and lone braces such as the outer ones in "{tvdb-{TvdbId}}".
+  const re = /\{([^{}]+)\}|([^{}]+)|([{}])/g;
   let m;
   while ((m = re.exec(String(format || '')))) {
-    if (m[1] !== undefined) {
+    if (m[3] !== undefined) {
+      out += escapeRe(m[3]);
+      lastWasToken = false;
+    } else if (m[1] !== undefined) {
       out += tokenPattern(m[1]);
       lastWasToken = true;
     } else {

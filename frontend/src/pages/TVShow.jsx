@@ -4,7 +4,8 @@ import axios from 'axios';
 import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
 import FixMatch from '../components/FixMatch';
-import AdminPosterActions from '../components/AdminPosterActions';
+import AdminPosterActions, { PencilIcon } from '../components/AdminPosterActions';
+import { EditDetailsModal, RemoveModal, removedMessage, IconButton, TrashIcon } from '../components/AdminTitleTools';
 import SecondaryButton from '../components/SecondaryButton';
 import TitleLogo from '../components/TitleLogo';
 import RefreshIcon from '../components/RefreshIcon';
@@ -26,6 +27,10 @@ export default function TVShow() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [showArtwork, setShowArtwork] = useState(false);
   const [showFixMatch, setShowFixMatch] = useState(false);
+  const [showEditDetails, setShowEditDetails] = useState(false);
+  const [removing, setRemoving] = useState(null);       // { kind, id, season?, title }
+  const [seasonArtwork, setSeasonArtwork] = useState(null); // season number
+  const [notice, setNotice] = useState('');
   const [firstEpisodeId, setFirstEpisodeId] = useState(null);
   const [started, setStarted] = useState(false); // this user has watched any of it
   const [savingWatched, setSavingWatched] = useState(false);
@@ -114,7 +119,9 @@ export default function TVShow() {
               style={{ width: '220px', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.8)', display: 'block' }}
             />
             {user?.role === 'admin' && (
-              <AdminPosterActions onEditArtwork={() => setShowArtwork(true)} onFixMatch={() => setShowFixMatch(true)} />
+              <AdminPosterActions onEditArtwork={() => setShowArtwork(true)} onFixMatch={() => setShowFixMatch(true)}
+                onEditDetails={() => setShowEditDetails(true)}
+                onRemove={() => setRemoving({ kind: 'show', id: show.id, title: show.title })} />
             )}
           </div>
 
@@ -208,6 +215,7 @@ export default function TVShow() {
         {seasons.length > 0 && (
           <div style={{ marginTop: '56px' }}>
             <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '20px' }}>Seasons</h2>
+            {notice && <div style={{ marginBottom: '16px', fontSize: '14px', color: '#00c864' }}>✓ {notice}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '14px' }}>
               {seasons.map(s => {
                 const seasonDone = s.episode_count > 0 && s.watched_count >= s.episode_count;
@@ -231,6 +239,12 @@ export default function TVShow() {
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                         <div style={{ fontSize: '42px', fontWeight: '800', color: '#00c2ff', lineHeight: 1 }}>{s.season}</div>
                         <div style={{ fontSize: '11px', color: '#555', textTransform: 'uppercase', letterSpacing: '1px' }}>Season</div>
+                      </div>
+                    )}
+                    {user?.role === 'admin' && (
+                      <div style={{ position: 'absolute', top: '8px', left: '8px', display: 'flex', gap: '6px' }}>
+                        <IconButton label={`Season ${s.season} poster`} onClick={() => setSeasonArtwork(s.season)}><PencilIcon size={15} /></IconButton>
+                        <IconButton label={`Remove Season ${s.season}`} danger onClick={() => setRemoving({ kind: 'season', id: show.id, season: s.season, title: `${show.title} – Season ${s.season}` })}><TrashIcon size={15} /></IconButton>
                       </div>
                     )}
                     {seasonDone && (
@@ -322,6 +336,33 @@ export default function TVShow() {
         onClose={() => setShowFixMatch(false)}
         onMatched={() => { setShowFixMatch(false); setRefreshKey(k => k + 1); }}
       />
+    )}
+    {seasonArtwork !== null && (
+      <ArtworkPicker
+        mediaType="tv"
+        itemId={id}
+        season={seasonArtwork}
+        onClose={() => setSeasonArtwork(null)}
+        onSaved={() => { setSeasonArtwork(null); setRefreshKey(k => k + 1); }}
+      />
+    )}
+    {showEditDetails && (
+      <EditDetailsModal kind="show" item={show} onClose={() => setShowEditDetails(false)}
+        onSaved={() => { setShowEditDetails(false); setRefreshKey(k => k + 1); }} />
+    )}
+    {removing && (
+      <RemoveModal target={removing} onClose={() => setRemoving(null)}
+        onRemoved={(result, mode) => {
+          const whole = removing.kind === 'show';
+          setRemoving(null);
+          if (whole) {
+            if (result.errors?.length) window.alert(removedMessage(result, mode));
+            navigate('/tv', { replace: true });
+            return;
+          }
+          setNotice(removedMessage(result, mode));
+          setRefreshKey(k => k + 1);
+        }} />
     )}
     </>
   );

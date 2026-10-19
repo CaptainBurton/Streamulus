@@ -5,6 +5,7 @@ import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
 import FixMatch from '../components/FixMatch';
 import AdminPosterActions from '../components/AdminPosterActions';
+import { EditDetailsModal, RemoveModal, removedMessage } from '../components/AdminTitleTools';
 import SecondaryButton from '../components/SecondaryButton';
 import TitleLogo from '../components/TitleLogo';
 import RefreshIcon from '../components/RefreshIcon';
@@ -29,6 +30,8 @@ export default function MovieDetail() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [showArtwork, setShowArtwork] = useState(false);
   const [showFixMatch, setShowFixMatch] = useState(false);
+  const [showEditDetails, setShowEditDetails] = useState(false);
+  const [showRemove, setShowRemove] = useState(false);
   // This user's progress: { position, completed }
   const [progress, setProgress] = useState({ position: 0, completed: false });
   const [savingWatched, setSavingWatched] = useState(false);
@@ -114,7 +117,8 @@ export default function MovieDetail() {
               style={{ width: '220px', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.8)', display: 'block' }}
             />
             {user?.role === 'admin' && (
-              <AdminPosterActions onEditArtwork={() => setShowArtwork(true)} onFixMatch={() => setShowFixMatch(true)} />
+              <AdminPosterActions onEditArtwork={() => setShowArtwork(true)} onFixMatch={() => setShowFixMatch(true)}
+                onEditDetails={() => setShowEditDetails(true)} onRemove={() => setShowRemove(true)} />
             )}
           </div>
 
@@ -264,6 +268,17 @@ export default function MovieDetail() {
         onClose={() => setShowFixMatch(false)}
         onMatched={() => { setShowFixMatch(false); setRefreshKey(k => k + 1); }}
       />
+    )}
+    {showEditDetails && (
+      <EditDetailsModal kind="movie" item={movie} onClose={() => setShowEditDetails(false)}
+        onSaved={() => { setShowEditDetails(false); setRefreshKey(k => k + 1); }} />
+    )}
+    {showRemove && (
+      <RemoveModal target={{ kind: 'movie', id: movie.id, title: movie.title }} onClose={() => setShowRemove(false)}
+        onRemoved={(result, mode) => {
+          if (result.errors?.length) window.alert(removedMessage(result, mode));
+          navigate('/movies', { replace: true });
+        }} />
     )}
     </>
   );

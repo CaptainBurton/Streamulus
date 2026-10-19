@@ -546,17 +546,18 @@ router.get('/diagnose/:type/:id', authenticate, guardKids, (req, res) => {
 
 // ─── audio tracks ─────────────────────────────────────────────────────────────
 //
-// GET /audio/:type/:id → { tracks, selected, subtitles } for the player's Audio
+// GET /audio/:type/:id → { tracks, selected, subtitles, autoSubtitles } for the player's Audio
 // menu: the file's audio tracks, the one the stream plays when no ?audio= is
 // given (this profile's earlier pick for the title, else its Audio language,
-// else the file's default), and a subtitle language to turn on with it, if any.
+// else the file's default), a subtitle language to turn on with it, if any, and
+// whether the profile wants English subtitles whenever the audio isn't English.
 
 router.get('/audio/:type/:id', authenticate, guardKids, async (req, res) => {
   const { type, id } = req.params;
   const filePath = getFilePath(type, id);
   if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
   const { tracks, selected, subtitles } = await audio.resolve(req, type, id, filePath);
-  res.json({ tracks, selected: selected ? selected.index : null, subtitles });
+  res.json({ tracks, selected: selected ? selected.index : null, subtitles, autoSubtitles: !!req.profile?.auto_subtitles });
 });
 
 router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, res) => {

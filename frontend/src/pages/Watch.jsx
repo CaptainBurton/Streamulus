@@ -140,6 +140,17 @@ export default function Watch() {
   const [subError,    setSubError]    = useState('');
   const [showSubMenu, setShowSubMenu] = useState(false);
   const lastSubRef = useRef(null); // for the C key: turn the last track back on
+  const subTrackIdRef = useRef(null);
+
+  // Audio: the file's audio tracks (Japanese / English on dual-audio anime…) and
+  // the one playing. audioParamRef is added to the stream URL once the viewer
+  // picks a track; until then the server plays the profile's choice.
+  const [audioTracks,   setAudioTracks]   = useState([]);
+  const [audioIdx,      setAudioIdx]      = useState(null);
+  const [showAudioMenu, setShowAudioMenu] = useState(false);
+  const audioParamRef = useRef('');
+  const autoSubsRef = useRef(false);   // profile: English subtitles with other languages
+  const autoSubOnRef = useRef(false);  // subtitles were turned on for that, not by the viewer
 
   const [diagInfo,    setDiagInfo]    = useState(null);
   const [diagLoad,    setDiagLoad]    = useState(false);
@@ -270,7 +281,7 @@ export default function Watch() {
           try { video.currentTime = 0; } catch {}
           startPosRef.current = absPos;
           setCurTime(0);
-          const url = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${absPos > 0 ? `&start=${absPos}` : ''}`;
+          const url = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}${absPos > 0 ? `&start=${absPos}` : ''}${audioParamRef.current}`;
           addLog(`Manifest start=${absPos}s`);
 
           const hls = new Hls({
@@ -370,7 +381,7 @@ export default function Watch() {
       } else if (useNativeHLS) {
         addLog('Native HLS path (Safari — AirPlay enabled)');
         const base = `/api/stream/hls/${type}/${id}/manifest.m3u8?token=${token}`;
-        const url = startPos > 0 ? `${base}&start=${startPos}` : base;
+        const url = (startPos > 0 ? `${base}&start=${startPos}` : base) + audioParamRef.current;
 
         try {
           const probe = await fetch(url);
@@ -425,7 +436,7 @@ export default function Watch() {
           startPosRef.current = absPos;
           setCurTime(0);
           setBuffering(true);
-          loadNativeUrl(`${base}&start=${absPos}`);
+          loadNativeUrl(`${base}&start=${absPos}${audioParamRef.current}`);
         };
       } else {
         setError('Your browser does not support video streaming. Try Chrome, Firefox, or Safari.');
@@ -577,6 +588,7 @@ export default function Watch() {
   // ── Next episode: fetch, banner, auto-advance ────────────────────────────
   useEffect(() => {
     startPosRef.current = 0;
+    audioParamRef.current = '';
     setCurTime(0);
     setDuration(0);
     setTotalFileDur(0);
@@ -714,11 +726,60 @@ export default function Watch() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [subTrackId, type, id]);
 
+  useEffect(() => { subTrackIdRef.current = subTrackId; }, [subTrackId]);
+
   const chooseSubtitle = useCallback((track) => {
     setSubTrackId(track?.id ?? null);
+    autoSubOnRef.current = false;
     setShowSubMenu(false);
     try { localStorage.setItem('streamulus_subtitle_lang', track ? (track.language || 'off') : 'off'); } catch {}
   }, []);
+
+  // ── Audio tracks ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    setAudioTracks([]); setAudioIdx(null); setShowAudioMenu(false);
+    autoSubsRef.current = false; autoSubOnRef.current = false;
+    if (!['movie', 'episode'].includes(type)) return;
+    let cancelled = false;
+    axios.get(`/api/stream/audio/${type}/${id}`).then(res => {
+      if (cancelled) return;
+      setAudioTracks(res.data.tracks || []);
+      setAudioIdx(res.data.selected ?? null);
+      autoSubsRef.current = !!res.data.autoSubtitles;
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [type, id]);
+
+  // "Subtitles for other languages": English subtitles on while the audio is in
+  // another language, off again when it's back to English (unless the viewer
+  // turned them on themselves).
+  const syncAutoSubtitles = useCallback((track) => {
+    if (!autoSubsRef.current || !track?.language || !subTracks.length) return;
+    const foreign = track.language.split('-')[0] !== 'en';
+    if (foreign && !subTrackIdRef.current) {
+      const en = subTracks.filter(t => (t.language || '').split('-')[0] === 'en');
+      const pick = en.find(t => !t.forced) || en[0];
+      if (pick) { setSubTrackId(pick.id); autoSubOnRef.current = true; }
+    } else if (!foreign && autoSubOnRef.current) {
+      setSubTrackId(null);
+      autoSubOnRef.current = false;
+    }
+  }, [subTracks]);
+
+  useEffect(() => {
+    syncAutoSubtitles(audioTracks.find(t => t.index === audioIdx));
+  }, [audioTracks, subTracks]); // eslint-disable-line react-hooks/exhaustive-deps -- once both lists are in
+
+  // Switching track restarts the stream where you are, with the new audio.
+  const chooseAudio = useCallback((track) => {
+    setShowAudioMenu(false);
+    if (!track || track.index === audioIdx) return;
+    audioParamRef.current = `&audio=${track.index}`;
+    setAudioIdx(track.index);
+    syncAutoSubtitles(track);
+    const pos = startPosRef.current + Math.floor(videoRef.current?.currentTime || 0);
+    startHlsAtRef.current?.(Math.max(0, pos));
+  }, [audioIdx, syncAutoSubtitles]);
 
   // C toggles subtitles (back to the last track used, or the first one).
   useEffect(() => {
@@ -1130,7 +1191,7 @@ export default function Watch() {
               {subTracks.length > 0 && (
                 <div style={{ position: 'relative' }}>
                   <button
-                    onClick={() => setShowSubMenu(v => !v)}
+                    onClick={() => { setShowSubMenu(v => !v); setShowAudioMenu(false); }}
                     style={{ ...S.iBtn, color: subTrackId ? '#00c2ff' : '#fff' }}
                     className="pbtn"
                     title="Subtitles (C)"
@@ -1163,6 +1224,47 @@ export default function Watch() {
                         );
                       })}
                       {subError && <div style={{ padding: '8px 10px', fontSize: '12px', color: '#ff6b6b' }}>{subError}</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Audio (files with more than one track, e.g. Japanese + English) */}
+              {audioTracks.length > 1 && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => { setShowAudioMenu(v => !v); setShowSubMenu(false); }}
+                    style={S.iBtn}
+                    className="pbtn"
+                    title="Audio"
+                    aria-label="Audio"
+                    aria-expanded={showAudioMenu}
+                  >
+                    <svg viewBox="0 0 24 24" width={22} height={22} fill="currentColor" style={{ display: 'block' }}>
+                      <path d="M12 3a9 9 0 0 0-9 9v7a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5v-1a7 7 0 0 1 14 0v1h-1a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-7a9 9 0 0 0-9-9z"/>
+                    </svg>
+                  </button>
+                  {showAudioMenu && (
+                    <div role="menu" aria-label="Audio" style={{
+                      position: 'absolute', bottom: '48px', right: 0, minWidth: '260px', maxHeight: '50vh', overflowY: 'auto',
+                      background: 'rgba(16,16,16,0.97)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px',
+                      padding: '6px', boxShadow: '0 8px 40px rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', zIndex: 130,
+                    }}>
+                      <div style={{ fontSize: '10px', color: '#666', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', padding: '8px 10px 6px' }}>Audio</div>
+                      {audioTracks.map(t => {
+                        const active = t.index === audioIdx;
+                        return (
+                          <button key={t.index} role="menuitemradio" aria-checked={active} onClick={() => chooseAudio(t)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', textAlign: 'left', padding: '9px 10px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: active ? '700' : '500', background: active ? 'rgba(0,194,255,0.12)' : 'transparent', color: active ? '#00c2ff' : '#ddd' }}
+                            onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                            onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            <span style={{ width: '14px', flexShrink: 0 }}>{active ? '✓' : ''}</span>
+                            <span>{t.label}</span>
+                            {t.codec && <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#777', paddingLeft: '8px' }}>{t.codec}</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

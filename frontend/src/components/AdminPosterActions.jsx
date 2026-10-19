@@ -1,4 +1,5 @@
 import React from 'react';
+import { TrashIcon } from './AdminTitleTools';
 
 // Pencil (edit) and magnifying glass (search), from the supplied SVGs; they
 // take the button's text colour.
@@ -23,8 +24,13 @@ const base = {
 const hoverOn = e => { e.currentTarget.style.background = 'rgba(0,194,255,0.1)'; e.currentTarget.style.borderColor = 'rgba(0,194,255,0.3)'; e.currentTarget.style.color = '#00c2ff'; };
 const hoverOff = e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#999'; };
 
-// Admin buttons under a movie/show poster: Edit Artwork, then Fix Match below it.
-export default function AdminPosterActions({ onEditArtwork, onFixMatch, width = 220 }) {
+const danger = { ...base, color: '#c77' };
+const dangerOn = e => { e.currentTarget.style.background = 'rgba(255,77,77,0.1)'; e.currentTarget.style.borderColor = 'rgba(255,77,77,0.35)'; e.currentTarget.style.color = '#ff6b6b'; };
+const dangerOff = e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#c77'; };
+
+// Admin buttons under a movie/show poster: Edit Artwork, Fix Match, then (when
+// given) Edit Details and Remove.
+export default function AdminPosterActions({ onEditArtwork, onFixMatch, onEditDetails, onRemove, width = 220 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: `${width}px`, marginTop: '10px' }}>
       <button onClick={onEditArtwork} style={base} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
@@ -33,6 +39,16 @@ export default function AdminPosterActions({ onEditArtwork, onFixMatch, width = 
       <button onClick={onFixMatch} style={base} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
         <SearchIcon /> Fix Match
       </button>
+      {onEditDetails && (
+        <button onClick={onEditDetails} style={base} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
+          <PencilIcon size={16} /> Edit Details
+        </button>
+      )}
+      {onRemove && (
+        <button onClick={onRemove} style={danger} onMouseEnter={dangerOn} onMouseLeave={dangerOff}>
+          <TrashIcon /> Remove…
+        </button>
+      )}
     </div>
   );
 }

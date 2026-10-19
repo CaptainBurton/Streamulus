@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 
-export default function ArtworkPicker({ mediaType, itemId, onClose, onSaved }) {
+// season: edit that season's poster instead (TV shows only; posters, no backdrops).
+export default function ArtworkPicker({ mediaType, itemId, season = null, onClose, onSaved }) {
+  const isSeason = season !== null && season !== undefined;
+  const base = isSeason ? `/api/admin/artwork/season/${itemId}/${season}` : `/api/admin/artwork/${mediaType}/${itemId}`;
   const [tab, setTab] = useState('poster');
   const [images, setImages] = useState({ posters: [], backdrops: [] });
   const [loading, setLoading] = useState(true);
@@ -13,11 +16,11 @@ export default function ArtworkPicker({ mediaType, itemId, onClose, onSaved }) {
   useEffect(() => {
     setLoading(true);
     setError('');
-    axios.get(`/api/admin/artwork/${mediaType}/${itemId}`)
+    axios.get(base)
       .then(res => setImages(res.data))
       .catch(() => setError('Failed to load artwork. Check your TMDB API key.'))
       .finally(() => setLoading(false));
-  }, [mediaType, itemId]);
+  }, [base]);
 
   const currentList = tab === 'poster' ? images.posters : images.backdrops;
   const artworkType = tab === 'poster' ? 'poster' : 'backdrop';
@@ -30,7 +33,7 @@ export default function ArtworkPicker({ mediaType, itemId, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      await axios.post(`/api/admin/artwork/${mediaType}/${itemId}`, { type: artworkType, url: selected });
+      await axios.post(base, { type: artworkType, url: selected });
       onSaved();
     } catch {
       setError('Failed to save artwork.');
@@ -47,7 +50,7 @@ export default function ArtworkPicker({ mediaType, itemId, onClose, onSaved }) {
     form.append('file', file);
     form.append('type', artworkType);
     try {
-      await axios.post(`/api/admin/artwork/${mediaType}/${itemId}/upload`, form, {
+      await axios.post(`${base}/upload`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       onSaved();
@@ -68,7 +71,7 @@ export default function ArtworkPicker({ mediaType, itemId, onClose, onSaved }) {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
           <div>
-            <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#fff', margin: 0 }}>Edit Artwork</h2>
+            <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#fff', margin: 0 }}>{isSeason ? `Season ${season} Poster` : 'Edit Artwork'}</h2>
             <p style={{ fontSize: '12px', color: '#555', margin: '4px 0 0' }}>Select from TMDB or upload your own image</p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', fontSize: '26px', cursor: 'pointer', lineHeight: 1, padding: '4px 8px' }}>×</button>
@@ -77,7 +80,7 @@ export default function ArtworkPicker({ mediaType, itemId, onClose, onSaved }) {
         {/* Tab bar + upload button */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
           <div style={{ display: 'flex', gap: '8px' }}>
-            {['poster', 'backdrop'].map(t => (
+            {(isSeason ? ['poster'] : ['poster', 'backdrop']).map(t => (
               <button key={t} onClick={() => handleTabChange(t)} style={{ padding: '8px 20px', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', border: 'none', background: tab === t ? '#00c2ff' : 'rgba(255,255,255,0.07)', color: tab === t ? '#000' : '#888', transition: 'all 0.15s' }}>
                 {t === 'poster' ? 'Poster' : 'Backdrop / Banner'}
               </button>
