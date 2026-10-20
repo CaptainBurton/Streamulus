@@ -60,6 +60,9 @@ The same as the iPhone & iPad app:
 3. Get an APK. Every change to `mobile/android` builds one on GitHub (**Actions › Android APK**, or start it there
    with **Run workflow**); it's under **Artifacts** at the bottom of the run's page (open it in a browser — the
    GitHub app doesn't show artifacts). The APK is never committed to the repo.
+   To put it in a **GitHub release** instead (e.g. next to the iPhone build), run the workflow with a tag such as
+   `v1.4` in its *release* box: the APK is added to a draft release with that tag, ready for the other files and
+   **Publish release**.
 4. Send them the APK. On their phone they open it and allow **Install unknown apps** for the app they opened it
    with (Files, Chrome, …).
 
