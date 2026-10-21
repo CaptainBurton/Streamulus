@@ -351,6 +351,35 @@ object AudioLanguage {
     fun name(code: String): String = options.firstOrNull { it.first == code }?.second ?: code.uppercase()
 }
 
+// ── Streaming services ───────────────────────────────────────────────────────
+
+/** A streaming service (Netflix, Disney+…) on the Home row; Admin › Streaming Services decides its titles. */
+data class StreamingService(
+    val id: String,
+    val name: String,
+    /** The logo already coloured with the Streamulus gradient (transparent PNG). */
+    val logoPng: String?,
+    /** Width ÷ height of the logo. */
+    val logoAspect: Double,
+    val bannerUrl: String?,
+    val movieCount: Int,
+    val showCount: Int,
+) {
+    val titleCount: Int get() = movieCount + showCount
+
+    companion object {
+        fun from(o: JsonObject) = StreamingService(
+            id = o.str("id") ?: "",
+            name = o.str("name") ?: "",
+            logoPng = o.str("logo_png"),
+            logoAspect = o.double("logo_aspect") ?: 3.0,
+            bannerUrl = o.str("banner_url"),
+            movieCount = o.int("movie_count") ?: 0,
+            showCount = o.int("show_count") ?: 0,
+        )
+    }
+}
+
 // ── Branding ─────────────────────────────────────────────────────────────────
 
 /** Admin › Settings › Branding and Remote Access (GET /api/branding). */

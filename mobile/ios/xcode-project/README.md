@@ -18,7 +18,8 @@ included — use Streamulus in a browser for that.
   then **scan its QR code** with the camera or type the code it shows.
 - **Who's watching?** with Streamlings (kids profiles) in their own section, and the PIN / password lock.
 - **Home**: rotating featured banner (title logo, Play / More Info), Continue Watching with a frame from where
-  you stopped, recently added movies and shows. Pull to refresh.
+  you stopped, a **Streaming Services** row (Netflix, Disney+… — each opens a page of that service's titles under
+  its banner and logo), recently added movies and shows. Pull to refresh.
 - **Movies** and **TV Shows**: A–Z grids with an index down the right edge (tap or drag), plus a filter box.
 - **Genres** (incl. Anime) with an All / Movies / TV Shows switch, and a **Search** tab.
 - **Movie / show pages**: Resume, Play from Beginning, Mark as Watched, "Ends at", cast, More Like This;

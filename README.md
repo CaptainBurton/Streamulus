@@ -37,6 +37,7 @@
 - **Create an account** — On the web or in the iPhone / iPad app (display name + password); an admin approves it with a single-use **Admin Passphrase** that works for 1 hour
 - **Feedback** — Send feedback or app suggestions from Profile & Settings (apps) or Profile & Account (web); admins read and reply in **Admin › Feedback**
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
+- **Streaming services** — A Home row of Netflix, Disney+, Prime Video, Apple TV+, HBO Max, Paramount+, Hulu, Crunchyroll, Stan and Binge (logos in the Streamulus colours), each with its own page of titles; the admin picks which titles each service has, or fills them in from TMDB for their country
 - **Streaming** — HLS with smart copy/transcode, buffered progress, Up Next, subtitles (embedded and sidecar files)
 - **Dual audio** — Pick the audio track in any player (e.g. Japanese or English on dual-audio anime); the choice is remembered per show. Each profile can prefer a language (or the original language) and turn on English subtitles automatically for other languages
 - **Metadata** — TMDB / TVDB / IMDb, Fix Match, custom artwork, English titles for foreign-language titles
@@ -174,6 +175,8 @@ Access at `/admin` (admin users only):
 - **Profile Pictures** — Categories of pictures profiles can choose from, and who each category / picture is for (Streamers, Streamlings or both)
 - **Feedback** — Feedback and app suggestions from everyone, as conversations you can reply to, close or delete
 - **Genres** — Custom artwork for each genre
+- **Streaming Services** — Which services show on Home and in what order, a banner for each, which services each
+  movie / show is on (any number), and *Fill in from TMDB* (where each title streams in your country)
 - **Settings** — Metadata sources and keys, encoding, Up Next, featured movie interval, branding (logo and/or
   STREAMULUS text, custom logo), remote access (public URL), regional settings — metadata language, and the
   **country** whose age ratings Streamulus uses (shown on every title, offered in Edit Details, and read by

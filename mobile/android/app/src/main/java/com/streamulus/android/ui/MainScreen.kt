@@ -41,6 +41,7 @@ import com.streamulus.android.ui.detail.MovieDetailScreen
 import com.streamulus.android.ui.detail.ShowDetailScreen
 import com.streamulus.android.ui.genres.GenreDetailScreen
 import com.streamulus.android.ui.genres.GenresScreen
+import com.streamulus.android.ui.services.ServiceDetailScreen
 import com.streamulus.android.ui.genres.SearchScreen
 import com.streamulus.android.ui.home.HomeScreen
 import com.streamulus.android.ui.library.MoviesScreen
@@ -148,6 +149,7 @@ private fun Page(screen: Screen) {
         is Screen.MovieDetail -> MovieDetailScreen(screen.movie)
         is Screen.ShowDetail -> ShowDetailScreen(screen.show)
         is Screen.Genre -> GenreDetailScreen(screen.name)
+        is Screen.Service -> ServiceDetailScreen(screen.service)
         Screen.Account -> AccountScreen()
         Screen.ApproveSignIn -> ApproveSignInScreen()
         Screen.AvatarPicker -> AvatarPickerScreen()

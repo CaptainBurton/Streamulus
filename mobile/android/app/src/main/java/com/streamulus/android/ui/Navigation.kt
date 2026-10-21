@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.streamulus.android.data.Movie
 import com.streamulus.android.data.Session
 import com.streamulus.android.data.Show
+import com.streamulus.android.data.StreamingService
 
 /** The tabs: a bottom bar on phones, a navigation rail on tablets. */
 enum class Tab(val label: String, val icon: ImageVector) {
@@ -31,6 +32,7 @@ sealed interface Screen {
     data class MovieDetail(val movie: Movie) : Screen
     data class ShowDetail(val show: Show) : Screen
     data class Genre(val name: String) : Screen
+    data class Service(val service: StreamingService) : Screen
     data object Account : Screen
     data object ApproveSignIn : Screen
     data object AvatarPicker : Screen

@@ -377,7 +377,8 @@ class Session(private val app: Application) {
     fun imageUrl(path: String?): String? {
         if (path.isNullOrEmpty()) return null
         if (path.startsWith("http://") || path.startsWith("https://")) return path
-        if (path.startsWith("/uploads/")) return api?.url(path)?.toString()
+        // Our own server's files: uploads, and streaming service logos (/api/services/logos/…).
+        if (path.startsWith("/uploads/") || path.startsWith("/api/")) return api?.url(path)?.toString()
         if (path.startsWith("/")) return "https://image.tmdb.org/t/p/w780$path"
         return null
     }

@@ -72,6 +72,7 @@ struct HomeView: View {
     }
     private static let bannerArea = -1
     @State private var continueItems: [ContinueItem] = []
+    @State private var services: [StreamingService] = []
     @State private var movies: [Movie] = []
     @State private var shows: [Show] = []
     @State private var loaded = false
@@ -111,6 +112,19 @@ struct HomeView: View {
                             }
                             .buttonStyle(.card)
                             .focused($rowFocus, equals: AnyHashable(RowItem(row: 0, id: item.id)))
+                        }
+                    }
+                }
+
+                // Netflix, Disney+… (Admin › Streaming Services), just under Continue Watching.
+                if !services.isEmpty {
+                    Shelf("Streaming Services") {
+                        ForEach(services) { service in
+                            NavigationLink(value: service) {
+                                ServiceTile(service: service)
+                            }
+                            .buttonStyle(.card)
+                            .focused($rowFocus, equals: AnyHashable(RowItem(row: 3, id: service.id)))
                         }
                     }
                 }
@@ -157,6 +171,7 @@ struct HomeView: View {
         .ignoresSafeArea(edges: [.top, .horizontal])
         }
         .mediaDestinations()
+        .navigationDestination(for: StreamingService.self) { ServiceDetailView(service: $0) }
         // Reload when the player closes so Continue Watching is up to date.
         .task(id: ReloadKey(playerClosed: player.request == nil, profile: session.profile)) {
             guard player.request == nil else { return }
@@ -188,6 +203,7 @@ struct HomeView: View {
         case 0: return continueItems.first.map { RowItem(row: 0, id: $0.id) }
         case 1: return movies.first.map { RowItem(row: 1, id: String($0.id)) }
         case 2: return shows.first.map { RowItem(row: 2, id: String($0.id)) }
+        case 3: return services.first.map { RowItem(row: 3, id: $0.id) }
         default: return nil
         }
     }
@@ -212,7 +228,10 @@ struct HomeView: View {
         async let cont = Self.fetch { try await session.get("/api/stream/continue-watching", as: ContinueResponse.self).items }
         async let recentMovies = Self.fetch { try await session.get("/api/movies/recent", as: MoviesResponse.self).movies }
         async let recentShows = Self.fetch { try await session.get("/api/tv/recent", as: ShowsResponse.self).shows }
+        async let streaming = Self.fetch { try await session.get("/api/services", as: StreamingServicesResponse.self).services }
         let results = (await cont, await recentMovies, await recentShows)
+        let serviceResult = await streaming
+        if case .success(let items) = serviceResult { services = items }
         if case .success(let items) = results.0 { continueItems = items }
         if case .success(let items) = results.1 { movies = items }
         if case .success(let items) = results.2 { shows = items }

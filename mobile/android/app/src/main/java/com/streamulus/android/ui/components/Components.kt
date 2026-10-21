@@ -80,6 +80,7 @@ data class Metrics(val wide: Boolean) {
     val detailHeaderHeight: Dp get() = if (wide) 440.dp else 290.dp
     val posterWidth: Dp get() = if (wide) 150.dp else 112.dp
     val wideCardWidth: Dp get() = if (wide) 340.dp else 264.dp
+    val serviceTileWidth: Dp get() = if (wide) 260.dp else 200.dp
     val gridMinimum: Dp get() = if (wide) 140.dp else 104.dp
     val genreTileMinimum: Dp get() = if (wide) 230.dp else 160.dp
     val castSize: Dp get() = if (wide) 92.dp else 70.dp

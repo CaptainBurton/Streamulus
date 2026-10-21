@@ -422,7 +422,8 @@ final class Session: ObservableObject {
     func imageURL(_ path: String?) -> URL? {
         guard let path, !path.isEmpty else { return nil }
         if path.hasPrefix("http://") || path.hasPrefix("https://") { return URL(string: path) }
-        if path.hasPrefix("/uploads/") { return api?.url(path) }
+        // Our own server's files: uploads, and streaming service logos (/api/services/logos/…).
+        if path.hasPrefix("/uploads/") || path.hasPrefix("/api/") { return api?.url(path) }
         if path.hasPrefix("/") { return URL(string: "https://image.tmdb.org/t/p/w780" + path) }
         return nil
     }

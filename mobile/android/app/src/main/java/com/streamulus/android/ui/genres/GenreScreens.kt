@@ -119,7 +119,8 @@ private fun GenreTile(genre: GenreSummary, onClick: () -> Unit) {
     }
 }
 
-private enum class GenreFilter(val label: String) { All("All"), Movies("Movies"), Shows("TV Shows") }
+/** All / Movies / TV Shows above a genre's (or streaming service's) grid. */
+internal enum class GenreFilter(val label: String) { All("All"), Movies("Movies"), Shows("TV Shows") }
 
 /** A genre's titles with an All / Movies / TV Shows switch above the A–Z grid. */
 @OptIn(ExperimentalMaterial3Api::class)

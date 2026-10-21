@@ -11,6 +11,7 @@ struct Metrics {
     var detailHeaderHeight: CGFloat { regular ? 460 : 300 }
     var posterWidth: CGFloat { regular ? 160 : 118 }
     var wideCardWidth: CGFloat { regular ? 360 : 272 }
+    var serviceTileWidth: CGFloat { regular ? 260 : 200 }
     var gridMinimum: CGFloat { regular ? 150 : 104 }
     var genreTileMinimum: CGFloat { regular ? 240 : 160 }
     var castSize: CGFloat { regular ? 96 : 72 }

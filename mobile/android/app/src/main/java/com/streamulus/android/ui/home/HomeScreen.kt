@@ -52,6 +52,7 @@ import com.streamulus.android.data.MediaType
 import com.streamulus.android.data.Movie
 import com.streamulus.android.data.Session
 import com.streamulus.android.data.Show
+import com.streamulus.android.data.StreamingService
 import com.streamulus.android.data.WatchProgress
 import com.streamulus.android.data.int
 import com.streamulus.android.data.obj
@@ -69,11 +70,12 @@ import com.streamulus.android.ui.components.RemoteImage
 import com.streamulus.android.ui.components.Shelf
 import com.streamulus.android.ui.components.TitleLogo
 import com.streamulus.android.ui.components.WideCard
+import com.streamulus.android.ui.services.ServiceTile
 import com.streamulus.android.ui.theme.Brand
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private class HomeData(val featured: Movie?, val rotateSeconds: Int, val continueItems: List<ContinueItem>, val movies: List<Movie>, val shows: List<Show>)
+private class HomeData(val featured: Movie?, val rotateSeconds: Int, val continueItems: List<ContinueItem>, val services: List<StreamingService>, val movies: List<Movie>, val shows: List<Show>)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,6 +89,7 @@ fun HomeScreen() {
     var featured by remember { mutableStateOf(cached?.featured) }
     var rotateSeconds by remember { mutableIntStateOf(cached?.rotateSeconds ?: 120) }
     var continueItems by remember { mutableStateOf(cached?.continueItems ?: emptyList()) }
+    var services by remember { mutableStateOf(cached?.services ?: emptyList()) }
     var movies by remember { mutableStateOf(cached?.movies ?: emptyList()) }
     var shows by remember { mutableStateOf(cached?.shows ?: emptyList()) }
     var loaded by remember { mutableStateOf(cached != null) }
@@ -96,6 +99,7 @@ fun HomeScreen() {
     suspend fun load() {
         // Each row on its own, so one failed request doesn't empty the others.
         runCatching { session.getObject("/api/stream/continue-watching").objects("items").map(ContinueItem::from) }.onSuccess { continueItems = it }
+        runCatching { session.getObject("/api/services").objects("services").map(StreamingService::from) }.onSuccess { services = it }
         runCatching { session.getObject("/api/movies/recent").objects("movies").map(Movie::from) }.onSuccess { movies = it }
         runCatching { session.getObject("/api/tv/recent").objects("shows").map(Show::from) }.onSuccess { shows = it }
         if (featured == null) {
@@ -105,7 +109,7 @@ fun HomeScreen() {
             }
         }
         loaded = true
-        session.memory["home"] = HomeData(featured, rotateSeconds, continueItems, movies, shows)
+        session.memory["home"] = HomeData(featured, rotateSeconds, continueItems, services, movies, shows)
     }
 
     // Reload when the player closes (Continue Watching) or the profile changes.
@@ -163,6 +167,16 @@ fun HomeScreen() {
                                     width = m.wideCardWidth,
                                     onClick = { context.play(type, item.mediaId, item.position, item.title, item.subtitle) },
                                 )
+                            }
+                        }
+                    }
+                }
+                // Netflix, Disney+… (Admin › Streaming Services), just under Continue Watching.
+                if (services.isNotEmpty()) {
+                    item(key = "services") {
+                        Shelf("Streaming Services") {
+                            items(services, key = { it.id }) { service ->
+                                ServiceTile(service, m.serviceTileWidth) { navigator.push(Screen.Service(service)) }
                             }
                         }
                     }
