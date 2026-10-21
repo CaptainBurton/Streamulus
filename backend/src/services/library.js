@@ -39,6 +39,7 @@ function deleteMovieRows(ids) {
   if (!ids.length) return;
   db.prepare(`DELETE FROM watch_history WHERE media_type = 'movie' AND media_id IN (${inList(ids)})`).run(...ids);
   db.prepare(`DELETE FROM kids_overrides WHERE media_type = 'movie' AND media_id IN (${inList(ids)})`).run(...ids);
+  db.prepare(`DELETE FROM title_services WHERE media_type = 'movie' AND media_id IN (${inList(ids)})`).run(...ids);
   db.prepare(`DELETE FROM movies WHERE id IN (${inList(ids)})`).run(...ids);
 }
 
@@ -51,12 +52,18 @@ function deleteEpisodeRows(ids) {
   }
 }
 
+/** A merged show's streaming services (title_services) go to the show it merges into. */
+function moveServices(fromShowId, toShowId) {
+  db.prepare(`UPDATE OR IGNORE title_services SET media_id = ? WHERE media_type = 'show' AND media_id = ?`).run(toShowId, fromShowId);
+}
+
 /** Shows (and season artwork) left without any episodes. */
 function deleteEmptyShows() {
   const empty = db.prepare('SELECT id FROM tv_shows WHERE id NOT IN (SELECT DISTINCT show_id FROM episodes WHERE show_id IS NOT NULL)').all().map(r => r.id);
   for (const id of empty) {
     db.prepare('DELETE FROM seasons WHERE show_id = ?').run(id);
     db.prepare(`DELETE FROM kids_overrides WHERE media_type = 'show' AND media_id = ?`).run(id);
+    db.prepare(`DELETE FROM title_services WHERE media_type = 'show' AND media_id = ?`).run(id);
     db.prepare('DELETE FROM tv_shows WHERE id = ?').run(id);
   }
   // Season artwork for seasons that no longer have episodes.
@@ -284,6 +291,8 @@ function regroupShows() {
         const target = rows.find(r => r.folder_path === key)
           || rows.sort((a, b) => ((b.tvdb_id || b.tmdb_id) ? 1 : 0) - ((a.tvdb_id || a.tmdb_id) ? 1 : 0) || count(b.id) - count(a.id))[0];
         if (!target) continue;
+        // Streaming services set on a duplicate carry over to the show that stays.
+        for (const id of showIds) if (id !== target.id) moveServices(id, target.id);
         for (const ep of eps) {
           if (ep.show_id !== target.id) {
             db.prepare('UPDATE episodes SET show_id = ? WHERE id = ?').run(target.id, ep.id);
@@ -306,6 +315,7 @@ function regroupShows() {
         for (const { id } of others) {
           db.prepare('UPDATE episodes SET show_id = ? WHERE show_id = ?').run(keep_id, id);
           db.prepare('UPDATE OR IGNORE seasons SET show_id = ? WHERE show_id = ?').run(keep_id, id);
+          moveServices(id, keep_id);
           merged++;
         }
       }

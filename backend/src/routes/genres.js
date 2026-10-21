@@ -155,3 +155,7 @@ router.delete('/:name/image', requireAdmin, (req, res) => {
 });
 
 module.exports = router;
+// Shared with routes/services.js: the titles a profile can see, and card artwork.
+module.exports.library = library;
+module.exports.cardImage = genreImage;
+module.exports.byTitle = byTitle;

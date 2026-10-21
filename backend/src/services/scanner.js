@@ -388,7 +388,9 @@ async function scanAllWithProgress(onProgress, filterLibraryId = null) {
     .then(() => require('./english').fillMissingEnglish()) // English titles for foreign-language ones
     .catch(err => console.error('[english] Failed:', err.message))
     .then(() => require('./ratings').refreshRatings()) // age ratings for the country chosen in Settings
-    .catch(err => console.error('[ratings] Failed:', err.message));
+    .catch(err => console.error('[ratings] Failed:', err.message))
+    .then(() => require('./streaming').afterScan()) // new titles' streaming services, if the admin asked
+    .catch(err => console.error('[services] Failed:', err.message));
   // Read runtimes of newly added files in the background ("Ends at" times).
   require('./durations').fillMissingDurations().catch(() => {});
 }

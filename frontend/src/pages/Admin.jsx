@@ -8,6 +8,7 @@ import AccountRequests from '../components/AccountRequests';
 import AvatarLibraryAdmin from '../components/AvatarLibraryAdmin';
 import FeedbackAdmin from '../components/FeedbackAdmin';
 import GenresAdmin from '../components/GenresAdmin';
+import StreamingServicesAdmin from '../components/StreamingServicesAdmin';
 import BrandingAdmin from '../components/BrandingAdmin';
 import { NamingFormats, LibraryMaintenance, CountryPicker } from '../components/LibraryAdmin';
 
@@ -514,8 +515,8 @@ export default function Admin() {
 
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
-  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'feedback', 'settings'];
-  const TAB_LABELS = { pictures: 'Profile Pictures' };
+  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'services', 'feedback', 'settings'];
+  const TAB_LABELS = { pictures: 'Profile Pictures', services: 'Streaming Services' };
   // Feedback with something new from the person (kept current by the Feedback tab).
   const feedbackUnread = feedbackCount ?? stats?.feedbackUnread ?? 0;
   // Accounts people created themselves, waiting for an Admin Passphrase.
@@ -770,6 +771,8 @@ export default function Admin() {
         {activeTab === 'pictures' && <AvatarLibraryAdmin flash={flash} />}
 
         {activeTab === 'genres' && <GenresAdmin flash={flash} />}
+
+        {activeTab === 'services' && <StreamingServicesAdmin flash={flash} />}
 
         {activeTab === 'feedback' && <FeedbackAdmin flash={flash} onCountsChanged={setFeedbackCount} />}
 

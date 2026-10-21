@@ -140,6 +140,15 @@ async function getTVContentRating(tmdbId) {
   try { return await getTVCertification(tmdbId); } catch { return null; }
 }
 
+// Where a movie or show streams, per country: { AU: { flatrate: [{ provider_id, provider_name }], … } }.
+// Throws when TMDB can't be reached.
+async function getWatchProviders(kind, tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  const res = await axios.get(`${TMDB_BASE}/${kind === 'movie' ? 'movie' : 'tv'}/${tmdbId}/watch/providers`, { params: { api_key: apiKey } });
+  return res.data?.results || {};
+}
+
 async function getTVCredits(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
@@ -229,7 +238,7 @@ function resolveGenreNames(genreIds, isTV = false) {
 
 module.exports = {
   getApiKey, searchMovieList, searchTVList, getEnglish,
-  searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating, getMovieCertification, getTVCertification,
+  searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating, getMovieCertification, getTVCertification, getWatchProviders,
   getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
   getMovieImages, getTVImages, getSeasonImages,
   posterUrl, backdropUrl, resolveGenreNames

@@ -241,6 +241,26 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_tv_shows_folder ON tv_shows(folder_path)
 // Details the admin edited by hand: metadata refreshes leave them alone.
 try { db.exec('ALTER TABLE movies ADD COLUMN metadata_locked INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN metadata_locked INTEGER NOT NULL DEFAULT 0'); } catch {}
+// Streaming services (services/streaming.js): Netflix, Disney+… with their logos
+// in assets/services, and which movies / shows each one has (a title can be on several).
+db.exec(`CREATE TABLE IF NOT EXISTS streaming_services (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  banner_path TEXT
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS title_services (
+  media_type TEXT NOT NULL,
+  media_id INTEGER NOT NULL,
+  service_id TEXT NOT NULL,
+  source TEXT,
+  PRIMARY KEY (media_type, media_id, service_id)
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_title_services_service ON title_services(service_id)');
+// The country each title's streaming services were last looked up on TMDB for.
+try { db.exec('ALTER TABLE movies ADD COLUMN services_checked TEXT'); } catch {}
+try { db.exec('ALTER TABLE tv_shows ADD COLUMN services_checked TEXT'); } catch {}
 // The country each title's age rating was last looked up for (services/ratings.js).
 try { db.exec('ALTER TABLE movies ADD COLUMN rating_checked TEXT'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN rating_checked TEXT'); } catch {}
