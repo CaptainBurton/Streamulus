@@ -16,7 +16,12 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.google.android.gms.cast.framework.CastContext
 import com.streamulus.android.data.AudioTrack
 import com.streamulus.android.data.MediaType
@@ -89,6 +94,8 @@ class PlaybackController(
     val exo: ExoPlayer = ExoPlayer.Builder(context)
         .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
         .setHandleAudioBecomingNoisy(true)
+        .setLoadControl(streamLoadControl())
+        .setMediaSourceFactory(streamSourceFactory(context, session.clientName))
         .build()
 
     /** Google Cast, when Google Play services are there. */
@@ -566,4 +573,36 @@ class PlaybackController(
     private companion object {
         const val LANGUAGE = "subtitleLanguage"
     }
+}
+
+/**
+ * Buffering for streams the server converts as they play: keep up to two
+ * minutes in hand (ExoPlayer's default is 50 s; memory still caps it for very
+ * heavy films), and after running dry wait for 6 s of video rather than 5 so
+ * playback doesn't stop-start while the server catches up.
+ */
+private fun streamLoadControl(): DefaultLoadControl = DefaultLoadControl.Builder()
+    .setBufferDurationsMs(
+        50_000, // keep at least this much when there's room
+        120_000, // and fetch up to this much
+        2_500, // to start playing
+        6_000, // to start again after running out
+    )
+    .build()
+
+/**
+ * The server holds a segment request for up to 30 s while it converts that part
+ * of the film. ExoPlayer's default 8 s read timeout gave up first and asked
+ * again (and after a few tries stopped with an error), which showed up as
+ * buffering on films the server has to convert. Also says which app is asking,
+ * like the rest of the app's requests.
+ */
+private fun streamSourceFactory(context: Context, clientName: String?): DefaultMediaSourceFactory {
+    val http = DefaultHttpDataSource.Factory()
+        .setConnectTimeoutMs(15_000)
+        .setReadTimeoutMs(45_000)
+        .setAllowCrossProtocolRedirects(true)
+    if (clientName != null) http.setDefaultRequestProperties(mapOf("X-Streamulus-Client" to clientName))
+    return DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http))
+        .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
 }

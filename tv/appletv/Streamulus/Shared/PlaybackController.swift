@@ -152,6 +152,11 @@ final class PlaybackController: ObservableObject {
             return
         }
         let item = AVPlayerItem(url: url)
+        // Keep more video in hand than AVPlayer's default for streams the server
+        // converts as they play, so a busy moment on the server or the
+        // connection doesn't show up as buffering. (The server keeps converting
+        // a few minutes ahead of what's been fetched.)
+        item.preferredForwardBufferDuration = 90
         itemCancellables.removeAll()
         NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
             .receive(on: DispatchQueue.main)
