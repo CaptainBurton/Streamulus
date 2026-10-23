@@ -44,6 +44,7 @@ app.use('/api/admin/services', require('./routes/services').admin);
 app.use('/api/admin/users', require('./routes/adminUsers').users);
 app.use('/api/admin/activity', require('./routes/adminUsers').log);
 app.use('/api/admin/email', require('./routes/adminEmail'));
+app.use('/api/admin/emails', require('./routes/adminEmails'));
 app.use('/api/admin', require('./routes/admin'));
 
 // Serve user-uploaded artwork stored in /data/uploads/

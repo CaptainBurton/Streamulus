@@ -10,8 +10,8 @@ const CARD = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255
 const INPUT = { padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', fontFamily: 'inherit', minWidth: 0 };
 const SELECT = { ...INPUT, cursor: 'pointer', colorScheme: 'dark' };
 const BTN = { padding: '8px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: '#ccc' };
-const PRIMARY = { ...BTN, background: '#00c2ff', borderColor: '#00c2ff', color: '#000', fontWeight: 700 };
-const DANGER = { ...BTN, borderColor: 'rgba(255,77,77,0.35)', color: '#ff6b6b' };
+const PRIMARY = { ...BTN, background: '#00c2ff', border: '1px solid #00c2ff', color: '#000', fontWeight: 700 };
+const DANGER = { ...BTN, border: '1px solid rgba(255,77,77,0.35)', color: '#ff6b6b' };
 const TAG = (color) => ({ padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color, border: `1px solid ${color}55`, whiteSpace: 'nowrap' });
 
 export function ago(ms) {
@@ -26,7 +26,7 @@ export function ago(ms) {
 const when = (ms) => (ms ? new Date(ms).toLocaleString() : '');
 const sqlTime = (s) => (s ? Date.parse(String(s).replace(' ', 'T') + (String(s).includes('Z') ? '' : 'Z')) : null);
 
-export default function UsersAdmin({ flash, onChanged }) {
+export default function UsersAdmin({ flash, onChanged, onEmail }) {
   const [data, setData] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [query, setQuery] = useState('');
@@ -99,7 +99,7 @@ export default function UsersAdmin({ flash, onChanged }) {
                     </div>
                   </div>
                 </button>
-                {openId === u.id && <UserDetail id={u.id} me={data.me} flash={flash} onChanged={changed} onDeleted={() => { setOpenId(null); changed(); }} />}
+                {openId === u.id && <UserDetail id={u.id} me={data.me} flash={flash} onChanged={changed} onDeleted={() => { setOpenId(null); changed(); }} onEmail={onEmail} />}
               </div>
             ))}
             {accounts.length === 0 && <div style={{ color: '#555', padding: '20px', textAlign: 'center', fontSize: '14px' }}>No accounts match.</div>}
@@ -141,7 +141,7 @@ function AddUser({ flash, onAdded }) {
 
 const DETAIL_TABS = [['account', 'Account'], ['devices', 'Devices'], ['activity', 'Activity'], ['watching', 'Watching'], ['profiles', 'Profiles']];
 
-function UserDetail({ id, me, flash, onChanged, onDeleted }) {
+function UserDetail({ id, me, flash, onChanged, onDeleted, onEmail }) {
   const [detail, setDetail] = useState(null);
   const [tab, setTab] = useState('account');
   const load = () => axios.get(`/api/admin/users/${id}`).then(r => setDetail(r.data)).catch(() => flash('Failed to load the account', true));
@@ -155,12 +155,12 @@ function UserDetail({ id, me, flash, onChanged, onDeleted }) {
       <div role="tablist" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '16px' }}>
         {DETAIL_TABS.map(([key, label]) => (
           <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
-            style={{ ...BTN, padding: '6px 12px', borderRadius: '999px', ...(tab === key ? { background: '#00c2ff', color: '#000', borderColor: '#00c2ff' } : {}) }}>
+            style={{ ...BTN, padding: '6px 12px', borderRadius: '999px', ...(tab === key ? { background: '#00c2ff', color: '#000', border: '1px solid #00c2ff' } : {}) }}>
             {label}{counts[key] !== undefined ? ` · ${counts[key]}` : ''}
           </button>
         ))}
       </div>
-      {tab === 'account' && <AccountTab user={detail.user} self={detail.user.id === me} flash={flash} onChanged={reload} onDeleted={onDeleted} />}
+      {tab === 'account' && <AccountTab user={detail.user} self={detail.user.id === me} flash={flash} onChanged={reload} onDeleted={onDeleted} onEmail={onEmail} />}
       {tab === 'devices' && <DevicesTab user={detail.user} sessions={detail.sessions} self={detail.user.id === me} flash={flash} onChanged={reload} />}
       {tab === 'activity' && <EntryList items={detail.activity} empty="No activity recorded yet." />}
       {tab === 'watching' && (
@@ -194,7 +194,7 @@ function UserDetail({ id, me, flash, onChanged, onDeleted }) {
   );
 }
 
-function AccountTab({ user, self, flash, onChanged, onDeleted }) {
+function AccountTab({ user, self, flash, onChanged, onDeleted, onEmail }) {
   const [form, setForm] = useState({ username: user.username, email: user.email || '', role: user.role });
   const [password, setPassword] = useState('');
   const [signOut, setSignOut] = useState(true);
@@ -231,8 +231,13 @@ function AccountTab({ user, self, flash, onChanged, onDeleted }) {
           onChanged();
         })}>Save</button>
       </div>
-      <div style={{ fontSize: '12px', color: '#666' }}>
-        Created {when(sqlTime(user.created_at)) || 'a while ago'} · last signed in {user.last_login_at ? `${ago(user.last_login_at)} (${when(user.last_login_at)})` : 'never'}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', fontSize: '12px', color: '#666' }}>
+        <span style={{ flex: '1 1 260px' }}>
+          Created {when(sqlTime(user.created_at)) || 'a while ago'} · last signed in {user.last_login_at ? `${ago(user.last_login_at)} (${when(user.last_login_at)})` : 'never'}
+        </span>
+        {onEmail && user.email && (
+          <button style={BTN} onClick={() => onEmail(user.id)} data-action="email-user">✉ Email {user.username}</button>
+        )}
       </div>
 
       <div>
@@ -266,7 +271,7 @@ function AccountTab({ user, self, flash, onChanged, onDeleted }) {
             flash(next === 'disabled' ? `${user.username} is disabled and signed out` : `${user.username} can sign in again`);
             onChanged();
           })}>{confirm === 'status' ? 'Click again to confirm' : user.status === 'disabled' ? 'Enable Account' : 'Disable Account'}</button>
-          <button style={{ ...DANGER, ...(confirm === 'delete' ? { background: '#ff4444', color: '#fff', borderColor: '#ff4444' } : {}) }} disabled={busy} onClick={ask('delete', async () => {
+          <button style={{ ...DANGER, ...(confirm === 'delete' ? { background: '#ff4444', color: '#fff', border: '1px solid #ff4444' } : {}) }} disabled={busy} onClick={ask('delete', async () => {
             await axios.delete(`/api/admin/users/${user.id}`);
             flash(`${user.username} removed`);
             onDeleted();
@@ -337,6 +342,11 @@ const DESCRIBE = {
   user_updated: (e) => `changed ${e.detail}`,
   password_reset: (e) => (e.detail || '').replace(/^New password/, 'set a new password'),
   passphrase_created: (e) => `made an ${e.detail}`,
+  passphrase_emailed: (e) => (e.detail || 'emailed an Admin Passphrase').replace(/^Emailed/, 'emailed'),
+  email_sent: (e) => (e.detail || 'sent an email').replace(/^Emailed/, 'emailed'),
+  email_test: (e) => (e.detail || 'sent a test email').replace(/^Sent/, 'sent'),
+  email_template_changed: (e) => `reworded the ${e.detail}`,
+  email_template_reset: (e) => `put the ${e.detail} back to its default wording`,
   settings_changed: (e) => `changed ${(e.detail || 'settings').replace(/^Settings: /, 'settings: ')}`,
   season_moved: (e) => `moved ${e.detail}`,
   show_merged: (e) => `merged ${e.detail}`,
@@ -455,11 +465,11 @@ function ActivityLog({ users, flash }) {
           const on = !filters.failed && filters.category === key;
           return (
             <button key={key || 'all'} onClick={() => setFilters(f => ({ ...f, category: key, failed: false }))}
-              style={{ ...BTN, padding: '6px 12px', borderRadius: '999px', ...(on ? { background: '#00c2ff', color: '#000', borderColor: '#00c2ff' } : {}) }}>{label}</button>
+              style={{ ...BTN, padding: '6px 12px', borderRadius: '999px', ...(on ? { background: '#00c2ff', color: '#000', border: '1px solid #00c2ff' } : {}) }}>{label}</button>
           );
         })}
         <button onClick={() => setFilters(f => ({ ...f, failed: !f.failed }))}
-          style={{ ...BTN, padding: '6px 12px', borderRadius: '999px', ...(filters.failed ? { background: '#ff4d4d', color: '#fff', borderColor: '#ff4d4d' } : { color: '#ff8080', borderColor: 'rgba(255,77,77,0.35)' }) }}>Failed sign-ins</button>
+          style={{ ...BTN, padding: '6px 12px', borderRadius: '999px', ...(filters.failed ? { background: '#ff4d4d', color: '#fff', border: '1px solid #ff4d4d' } : { color: '#ff8080', border: '1px solid rgba(255,77,77,0.35)' }) }}>Failed sign-ins</button>
       </div>
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
         <input style={{ ...INPUT, flex: '1 1 200px' }} placeholder="Search names, titles, IPs, devices…" value={filters.q} onChange={set('q')} aria-label="Search activity" />

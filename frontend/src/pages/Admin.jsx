@@ -5,7 +5,7 @@ import RefreshIcon from '../components/RefreshIcon';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
 import AccountRequests from '../components/AccountRequests';
 import UsersAdmin from '../components/UsersAdmin';
-import EmailSettings from '../components/EmailSettings';
+import EmailsAdmin from '../components/EmailsAdmin';
 import AvatarLibraryAdmin from '../components/AvatarLibraryAdmin';
 import FeedbackAdmin from '../components/FeedbackAdmin';
 import GenresAdmin from '../components/GenresAdmin';
@@ -268,6 +268,7 @@ export default function Admin() {
   const [users, setUsers] = useState([]);
   const [config, setConfig] = useState({});
   const [activeTab, setActiveTab] = useState('overview');
+  const [composeTo, setComposeTo] = useState(null); // Users › Email someone → Emails tab
   const [feedbackCount, setFeedbackCount] = useState(null);
   const [tmdbKey, setTmdbKey] = useState('');
   const [tmdbVisible, setTmdbVisible] = useState(false);
@@ -495,7 +496,7 @@ export default function Admin() {
 
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
-  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'services', 'feedback', 'settings'];
+  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'services', 'feedback', 'emails', 'settings'];
   const TAB_LABELS = { pictures: 'Profile Pictures', services: 'Streaming Services' };
   // Feedback with something new from the person (kept current by the Feedback tab).
   const feedbackUnread = feedbackCount ?? stats?.feedbackUnread ?? 0;
@@ -682,7 +683,7 @@ export default function Admin() {
         {activeTab === 'users' && (
           <div>
             <AccountRequests users={pendingUsers} onChange={loadData} flash={flash} />
-            <UsersAdmin flash={flash} onChanged={loadData} />
+            <UsersAdmin flash={flash} onChanged={loadData} onEmail={(id) => { setComposeTo([id]); setActiveTab('emails'); }} />
           </div>
         )}
 
@@ -696,6 +697,8 @@ export default function Admin() {
         {activeTab === 'services' && <StreamingServicesAdmin flash={flash} />}
 
         {activeTab === 'feedback' && <FeedbackAdmin flash={flash} onCountsChanged={setFeedbackCount} />}
+
+        {activeTab === 'emails' && <EmailsAdmin flash={flash} composeTo={composeTo} onComposeUsed={() => setComposeTo(null)} />}
 
         {/* Settings */}
         {activeTab === 'settings' && (
@@ -1152,9 +1155,6 @@ export default function Admin() {
                 Save Regional Settings
               </button>
             </div>
-
-            {/* Email (password resets) */}
-            <EmailSettings flash={flash} />
 
             {/* Refresh Metadata */}
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>

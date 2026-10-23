@@ -334,6 +334,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
   ip TEXT
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id)');
+// Admin › Emails: wording changed from the defaults (services/emailTemplates.js).
+db.exec(`CREATE TABLE IF NOT EXISTS email_templates (
+  id TEXT PRIMARY KEY,
+  fields TEXT NOT NULL,
+  updated_at INTEGER,
+  updated_by TEXT
+)`);
 // What happened, for Admin › Users › Activity (services/activity.js).
 db.exec(`CREATE TABLE IF NOT EXISTS activity_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

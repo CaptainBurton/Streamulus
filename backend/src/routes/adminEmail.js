@@ -1,4 +1,4 @@
-// Admin › Settings › Email (mounted at /api/admin/email): the address Streamulus
+// Admin › Emails › Sending (mounted at /api/admin/email): the address Streamulus
 // sends from, its App Password, who people should contact for help, and a test send.
 const express = require('express');
 const db = require('../database/db');
@@ -56,20 +56,6 @@ router.put('/', requireAdmin, (req, res) => {
   res.json(state());
 });
 
-// Plain-English reasons for the usual failures.
-function explain(err, host) {
-  const msg = String(err?.message || err);
-  if (err?.code === 'EAUTH' || /535|Username and Password not accepted|Invalid login/i.test(msg)) {
-    return /gmail/i.test(host)
-      ? "Gmail didn't accept the sign-in. Check the sender address, and that the password is a Google App Password (16 letters), not the account's normal password."
-      : `The email server didn't accept the sign-in (${msg}).`;
-  }
-  if (['ETIMEDOUT', 'ECONNECTION', 'ESOCKET', 'ECONNREFUSED', 'ENOTFOUND', 'EDNS'].includes(err?.code)) {
-    return `Couldn't reach ${host} — check the server's internet connection and the port / security settings. (${msg})`;
-  }
-  return msg;
-}
-
 // { to? } — defaults to your own email address, else the sender address.
 router.post('/test', requireAdmin, async (req, res) => {
   const s = mailer.settings();
@@ -82,7 +68,7 @@ router.post('/test', requireAdmin, async (req, res) => {
     res.json({ sent: true, to });
   } catch (err) {
     console.error(`[mail] Test email failed: ${err.message}`);
-    res.status(502).json({ error: explain(err, s.smtp_host) });
+    res.status(502).json({ error: mailer.explainError(err, s.smtp_host) });
   }
 });
 

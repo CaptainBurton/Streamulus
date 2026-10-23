@@ -7,6 +7,7 @@ const accounts = require('../services/accounts');
 const sessions = require('../services/sessions');
 const activity = require('../services/activity');
 const mailer = require('../services/mailer');
+const emailTemplates = require('../services/emailTemplates');
 const resets = require('../services/passwordResets');
 
 const router = express.Router();
@@ -259,7 +260,7 @@ router.post('/forgot', async (req, res) => {
     return fail(403, 'DISABLED', `This account has been disabled — contact ${contact}.`, 'Account disabled', user);
   }
   if (!mailer.configured()) {
-    return fail(503, 'EMAIL_NOT_CONFIGURED', `Password reset emails aren't set up on this server yet — contact ${contact} to reset your password.`, 'Email sending isn\'t set up (Admin › Settings › Email)', user);
+    return fail(503, 'EMAIL_NOT_CONFIGURED', `Password reset emails aren't set up on this server yet — contact ${contact} to reset your password.`, 'Email sending isn\'t set up (Admin › Emails › Sending)', user);
   }
   if (!forgotPerAccount(user.id)) {
     return fail(429, 'TOO_MANY', 'We sent you a reset email recently — check your inbox (and spam folder), or try again in an hour.', 'Too many reset emails', user);
@@ -267,8 +268,8 @@ router.post('/forgot', async (req, res) => {
 
   const token = resets.create(user.id, req.ip);
   const site = mailer.siteUrl(req);
-  const message = mailer.resetEmail({
-    username: user.username, url: `${site}/reset-password?token=${encodeURIComponent(token)}`,
+  const message = emailTemplates.render('reset', {
+    name: user.username, link: `${site}/reset-password?token=${encodeURIComponent(token)}`,
     minutes: resets.RESET_MINUTES, site, contact,
   });
   try {

@@ -13,6 +13,8 @@ const { ensureMainProfile, publicProfile, deleteProfileData } = require('../serv
 const accounts = require('../services/accounts');
 const sessions = require('../services/sessions');
 const activity = require('../services/activity');
+const mailer = require('../services/mailer');
+const emailTemplates = require('../services/emailTemplates');
 
 const uploadsDir = path.join(process.env.DATA_DIR || '/data', 'uploads');
 const DAY = 24 * 60 * 60 * 1000;
@@ -199,6 +201,36 @@ users.post('/:id/passphrase', requireAdmin, (req, res) => {
     .run(accounts.hashPassphrase(passphrase), expiresAt, user.id);
   activity.log(req, { category: 'admin', action: 'passphrase_created', detail: `Admin Passphrase for ${user.username}` });
   res.json({ passphrase, expiresAt, username: user.username });
+});
+
+// Email an account request its Admin Passphrase (Admin › Emails › Admin Passphrase
+// wording). Only ever when an admin presses the button — never automatically, so
+// nobody gets in without an admin choosing to let them. { passphrase } must be the
+// one just made and still valid (only its hash is kept).
+users.post('/:id/passphrase/email', requireAdmin, async (req, res) => {
+  const user = db.prepare('SELECT id, username, email, status, passphrase_hash, passphrase_expires_at FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Account not found' });
+  if (user.status !== 'pending') return res.status(400).json({ error: 'That account is already active' });
+  if (!user.email) return res.status(409).json({ code: 'NO_EMAIL', error: `${user.username} didn't give an email address — pass the passphrase on another way` });
+  const passphrase = String(req.body?.passphrase || '').trim();
+  if (!user.passphrase_expires_at || user.passphrase_expires_at <= Date.now() || !accounts.passphraseMatches(passphrase, user.passphrase_hash)) {
+    return res.status(410).json({ code: 'EXPIRED', error: 'That passphrase has run out or been replaced — make a new one' });
+  }
+  if (!mailer.configured()) return res.status(400).json({ code: 'EMAIL_NOT_CONFIGURED', error: "Email isn't set up yet — add the App Password in Admin › Emails › Sending" });
+  const s = mailer.settings();
+  const site = mailer.siteUrl(req);
+  const message = emailTemplates.render('passphrase', {
+    name: user.username, passphrase, link: `${site}/`, site, contact: s.support_contact, admin: req.user.username,
+    minutes: Math.max(1, Math.round((user.passphrase_expires_at - Date.now()) / 60000)),
+  });
+  try {
+    await mailer.send({ to: user.email, ...message });
+  } catch (err) {
+    console.error(`[mail] Passphrase email to ${user.username} failed: ${err.message}`);
+    return res.status(502).json({ code: 'EMAIL_FAILED', error: mailer.explainError(err, s.smtp_host) });
+  }
+  activity.log(req, { category: 'admin', action: 'passphrase_emailed', detail: `Emailed ${user.username} their Admin Passphrase (${mailer.maskEmail(user.email)})` });
+  res.json({ sent: true, to: user.email });
 });
 
 users.delete('/:id', requireAdmin, (req, res) => {

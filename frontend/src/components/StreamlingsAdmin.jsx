@@ -136,7 +136,7 @@ export default function StreamlingsAdmin({ flash }) {
           ))}
           <div style={{ flex: 1 }} />
           {manualCount > 0 && (
-            <button onClick={resetManual} style={{ ...PILL, color: confirmReset ? '#fff' : '#ff6b6b', background: confirmReset ? '#ff4444' : 'transparent', borderColor: 'rgba(255,68,68,0.35)' }}>
+            <button onClick={resetManual} style={{ ...PILL, color: confirmReset ? '#fff' : '#ff6b6b', background: confirmReset ? '#ff4444' : 'transparent', border: '1px solid rgba(255,68,68,0.35)' }}>
               {confirmReset ? 'Click again to reset' : `Reset ${manualCount} manual choice${manualCount === 1 ? '' : 's'}`}
             </button>
           )}
@@ -253,4 +253,4 @@ function Toggle({ on, onChange, disabled }) {
 const CARD = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '24px' };
 const SELECT = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', cursor: 'pointer', outline: 'none', minWidth: '200px' };
 const PILL = { padding: '7px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', background: 'transparent', color: '#888', border: '1px solid rgba(255,255,255,0.12)' };
-const PILL_ON = { color: '#000', background: '#ffb703', borderColor: '#ffb703' };
+const PILL_ON = { color: '#000', background: '#ffb703', border: '1px solid #ffb703' };

@@ -3,7 +3,8 @@ import axios from 'axios';
 
 // Accounts people created themselves (web or app) wait here until the admin
 // makes them an Admin Passphrase: random, single use, valid for an hour. The
-// admin passes it on and the person enters it at their first sign-in.
+// admin passes it on (or emails it with the button — never automatically) and
+// the person enters it at their first sign-in.
 const parseSqlDate = (s) => (s ? new Date(String(s).replace(' ', 'T') + (String(s).endsWith('Z') ? '' : 'Z')) : null);
 
 function ago(date) {
@@ -23,6 +24,7 @@ export default function AccountRequests({ users, onChange, flash }) {
   const [shown, setShown] = useState({}); // userId -> { passphrase, expiresAt } (only this session)
   const [busy, setBusy] = useState(null);
   const [copied, setCopied] = useState(null);
+  const [emailed, setEmailed] = useState({}); // userId -> 'sending' | the address it went to
   const [, setNow] = useState(Date.now());
 
   // Keep "expires in …" and "… ago" current.
@@ -38,6 +40,7 @@ export default function AccountRequests({ users, onChange, flash }) {
     try {
       const r = await axios.post(`/api/admin/users/${u.id}/passphrase`);
       setShown(s => ({ ...s, [u.id]: { passphrase: r.data.passphrase, expiresAt: r.data.expiresAt } }));
+      setEmailed(e => { const n = { ...e }; delete n[u.id]; return n; });
       onChange();
     } catch (err) {
       flash(err.response?.data?.error || "Couldn't make a passphrase", true);
@@ -59,6 +62,18 @@ export default function AccountRequests({ users, onChange, flash }) {
     setBusy(null);
   };
 
+  const sendEmail = async (u, passphrase) => {
+    setEmailed(e => ({ ...e, [u.id]: 'sending' }));
+    try {
+      const r = await axios.post(`/api/admin/users/${u.id}/passphrase/email`, { passphrase });
+      setEmailed(e => ({ ...e, [u.id]: r.data.to }));
+      flash(`Passphrase emailed to ${r.data.to}`);
+    } catch (err) {
+      setEmailed(e => { const n = { ...e }; delete n[u.id]; return n; });
+      flash(err.response?.data?.error || "Couldn't send the email", true);
+    }
+  };
+
   const copy = async (id, text) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -74,9 +89,9 @@ export default function AccountRequests({ users, onChange, flash }) {
         <span style={S.count}>{users.length}</span>
       </div>
       <p style={{ color: '#777', fontSize: '13px', margin: '0 0 16px', lineHeight: 1.5 }}>
-        People who created an account on the web or in the app. Make them an Admin Passphrase and pass it on —
-        they enter it once, at their first sign-in. Each passphrase works once and only for 1 hour; making a new one
-        replaces the old.
+        People who created an account on the web or in the app. Make them an Admin Passphrase and pass it on (or email
+        it to them) — they enter it once, at their first sign-in. Each passphrase works once and only for 1 hour; making
+        a new one replaces the old. Nothing is emailed unless you press Email Passphrase.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {users.map(u => {
@@ -93,6 +108,7 @@ export default function AccountRequests({ users, onChange, flash }) {
                   <div style={S.avatar}>{u.username[0]?.toUpperCase()}</div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: '15px', wordBreak: 'break-word' }}>{u.username}</div>
+                    {u.email && <div style={{ fontSize: '12px', color: '#999', wordBreak: 'break-all' }}>{u.email}</div>}
                     <div style={{ fontSize: '12px', color: out ? '#00c864' : '#777' }}>
                       Asked {ago(parseSqlDate(u.created_at))} · {status}
                     </div>
@@ -113,7 +129,18 @@ export default function AccountRequests({ users, onChange, flash }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                     <code style={S.pass} data-testid="passphrase">{fresh.passphrase}</code>
                     <button onClick={() => copy(u.id, fresh.passphrase)} style={S.copy}>{copied === u.id ? 'Copied ✓' : 'Copy'}</button>
+                    {u.email ? (
+                      <button onClick={() => sendEmail(u, fresh.passphrase)} disabled={emailed[u.id] === 'sending'} data-action="email-passphrase"
+                        style={{ ...S.copy, color: emailed[u.id] && emailed[u.id] !== 'sending' ? '#00c864' : '#00c2ff', border: '1px solid rgba(0,194,255,0.35)' }}>
+                        {emailed[u.id] === 'sending' ? 'Sending…' : emailed[u.id] ? 'Emailed ✓ · Send Again' : 'Email Passphrase'}
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: '12px', color: '#777' }}>No email on this request — pass it on another way</span>
+                    )}
                   </div>
+                  {u.email && emailed[u.id] && emailed[u.id] !== 'sending' && (
+                    <div style={{ fontSize: '12px', color: '#00c864', marginTop: '8px' }}>Sent to {emailed[u.id]}</div>
+                  )}
                   <div style={{ fontSize: '12px', color: '#888', marginTop: '10px', lineHeight: 1.5 }}>
                     Works once, until {clock(fresh.expiresAt)}. It's only shown here — if it's lost or runs out, make a new one.
                   </div>

@@ -1,6 +1,6 @@
-// Outgoing email (password resets for now), sent through Gmail by default.
-// Admin › Settings › Email holds the sender address, its App Password and who
-// people should contact for help. The password can also come from the
+// Outgoing email, sent through Gmail by default. Admin › Emails › Sending holds
+// the sender address, its App Password and who people should contact for help
+// (the emails' wording is in services/emailTemplates.js). The password can also come from the
 // SMTP_PASSWORD environment variable instead of being saved in the database.
 const fs = require('fs');
 const path = require('path');
@@ -59,14 +59,14 @@ const escape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;'
 
 // The branded frame every email shares: logo, a card with the content, footer.
 // Table layout and inline styles, which every email app understands.
-function layout({ preheader, heading, bodyHtml, button, afterHtml, footer }) {
+// (No hidden preview text: spam filters count text people can't see against an email.)
+function layout({ title, heading, bodyHtml, button, afterHtml, footer }) {
   const font = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light"><meta name="supported-color-schemes" content="dark light">
-<title>${escape(heading)}</title></head>
+<title>${escape(title || heading)}</title></head>
 <body style="margin:0;padding:0;background:#0f0f0f;">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#0f0f0f;">${escape(preheader)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0f0f0f" style="background:#0f0f0f;">
 <tr><td align="center" style="padding:40px 16px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
@@ -77,7 +77,7 @@ function layout({ preheader, heading, bodyHtml, button, afterHtml, footer }) {
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr><td height="4" bgcolor="#00c2ff" style="height:4px;line-height:4px;font-size:0;background:#00c2ff;background-image:linear-gradient(90deg,#00c2ff,#7b2fff);">&nbsp;</td></tr>
         <tr><td style="padding:36px 36px 8px;font-family:${font};">
-          <h1 style="margin:0 0 16px;font-size:24px;line-height:1.3;font-weight:800;color:#ffffff;">${escape(heading)}</h1>
+          ${heading ? `<h1 style="margin:0 0 16px;font-size:24px;line-height:1.3;font-weight:800;color:#ffffff;">${escape(heading)}</h1>` : ''}
           <div style="font-size:15px;line-height:1.65;color:#c9c9d1;">${bodyHtml}</div>
         </td></tr>
         ${button ? `<tr><td align="center" style="padding:24px 36px 8px;">
@@ -95,53 +95,46 @@ function layout({ preheader, heading, bodyHtml, button, afterHtml, footer }) {
 </body></html>`;
 }
 
-/** The password reset email: { subject, html, text }. */
-function resetEmail({ username, url, minutes, site, contact }) {
-  const heading = 'Reset your password';
-  const html = layout({
-    preheader: `Choose a new password for your Streamulus account (${username}). The link works for ${minutes} minutes.`,
-    heading,
-    bodyHtml: `<p style="margin:0 0 14px;">Hi ${escape(username)},</p>
-      <p style="margin:0;">We got a request to reset the password for your Streamulus account <strong style="color:#ffffff;">${escape(username)}</strong>.
-      Press the button below to choose a new one.</p>`,
-    button: { label: 'Reset Password', url },
-    afterHtml: `<p style="margin:0 0 12px;">This link works once, for the next ${minutes} minutes. After you reset your password, you'll be signed out on your other devices.</p>
-      <p style="margin:0 0 12px;">If you didn't ask for this, you can ignore this email — your password stays the same. Questions? Ask ${escape(contact)}.</p>
-      <p style="margin:0;color:#6b6b75;">Button not working? Copy this link into your browser:<br>
-      <a href="${escape(url)}" style="color:#00c2ff;word-break:break-all;">${escape(url)}</a></p>`,
-    footer: `Sent by Streamulus · <a href="${escape(site)}" style="color:#5d5d66;">${escape(site.replace(/^https?:\/\//, ''))}</a><br>You're getting this because a password reset was requested for your account.`,
-  });
-  const text = `Hi ${username},
-
-We got a request to reset the password for your Streamulus account "${username}".
-Open this link to choose a new one (it works once, for the next ${minutes} minutes):
-
-${url}
-
-If you didn't ask for this, ignore this email — your password stays the same.
-Questions? Ask ${contact}.
-
-— Streamulus (${site})`;
-  return { subject: 'Reset your Streamulus password', html, text };
-}
-
-/** A short "it works" email for Admin › Settings › Email. */
+/** A short "it works" email for Admin › Emails › Sending. */
 function testEmail({ site, admin }) {
   const html = layout({
-    preheader: 'Your Streamulus server can send email.',
     heading: 'Email is working',
-    bodyHtml: `<p style="margin:0;">This is a test from your Streamulus server, sent by ${escape(admin)}. Password reset emails will look like this and come from this address.</p>`,
+    bodyHtml: `<p style="margin:0;">This is a test from your Streamulus server, sent by ${escape(admin)}. Emails from Streamulus will come from this address.</p>`,
     afterHtml: '',
     footer: `Sent by Streamulus · <a href="${escape(site)}" style="color:#5d5d66;">${escape(site.replace(/^https?:\/\//, ''))}</a>`,
   });
   return { subject: 'Streamulus email test', html, text: `This is a test from your Streamulus server, sent by ${admin}.\n\n— Streamulus (${site})` };
 }
 
-async function send({ to, subject, html, text }) {
+// personal: an email an admin wrote to people (custom emails) rather than an
+// automatic one (password resets, passphrases, tests). Inboxes trust mail more
+// when automatic emails say so (Auto-Submitted, which also stops out-of-office
+// replies) and when emails written to people carry an unsubscribe address
+// (List-Unsubscribe — Gmail and Outlook look for it).
+async function send({ to, subject, html, text, personal = false }) {
   const s = settings();
-  if (!s.smtp_pass) throw Object.assign(new Error('Email isn\'t set up yet (Admin › Settings › Email)'), { code: 'EMAIL_NOT_CONFIGURED' });
-  const attachments = fs.existsSync(WORDMARK) ? [{ filename: 'streamulus.png', path: WORDMARK, cid: 'streamulus-wordmark' }] : [];
-  return transport(s).sendMail({ from: { name: s.mail_from_name, address: s.mail_from }, to, subject, html, text, attachments });
+  if (!s.smtp_pass) throw Object.assign(new Error('Email isn\'t set up yet (Admin › Emails › Sending)'), { code: 'EMAIL_NOT_CONFIGURED' });
+  const attachments = fs.existsSync(WORDMARK)
+    ? [{ filename: 'streamulus.png', path: WORDMARK, cid: 'streamulus-wordmark', contentDisposition: 'inline' }]
+    : [];
+  const headers = personal
+    ? { 'List-Unsubscribe': `<mailto:${s.mail_from}?subject=${encodeURIComponent('Unsubscribe from Streamulus emails')}>` }
+    : { 'Auto-Submitted': 'auto-generated', 'X-Auto-Response-Suppress': 'All' };
+  return transport(s).sendMail({ from: { name: s.mail_from_name, address: s.mail_from }, to, subject, html, text, attachments, headers });
+}
+
+// Plain-English reasons for the usual failures.
+function explainError(err, host) {
+  const msg = String(err?.message || err);
+  if (err?.code === 'EAUTH' || /535|Username and Password not accepted|Invalid login/i.test(msg)) {
+    return /gmail/i.test(host)
+      ? "Gmail didn't accept the sign-in. Check the sender address, and that the password is a Google App Password (16 letters), not the account's normal password."
+      : `The email server didn't accept the sign-in (${msg}).`;
+  }
+  if (['ETIMEDOUT', 'ECONNECTION', 'ESOCKET', 'ECONNREFUSED', 'ENOTFOUND', 'EDNS'].includes(err?.code)) {
+    return `Couldn't reach ${host} — check the server's internet connection and the port / security settings. (${msg})`;
+  }
+  return msg;
 }
 
 // "erin@gmail.com" → "e••••@gmail.com"
@@ -153,4 +146,4 @@ function maskEmail(email) {
 
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e || '').trim());
 
-module.exports = { DEFAULTS, settings, configured, send, siteUrl, resetEmail, testEmail, maskEmail, validEmail };
+module.exports = { DEFAULTS, settings, configured, send, siteUrl, layout, escape, testEmail, explainError, maskEmail, validEmail };

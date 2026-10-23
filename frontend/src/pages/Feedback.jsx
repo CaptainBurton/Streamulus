@@ -134,7 +134,7 @@ function Conversation({ item, onChanged, say }) {
 const S = {
   card: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '20px' },
   chip: { padding: '7px 16px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#bbb', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  chipOn: { background: '#fff', color: '#000', borderColor: '#fff' },
+  chipOn: { background: '#fff', color: '#000', border: '1px solid #fff' },
   textarea: { width: '100%', boxSizing: 'border-box', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: '#fff', fontSize: '14px', lineHeight: 1.5, outline: 'none', resize: 'vertical', fontFamily: 'inherit' },
   primary: { padding: '10px 18px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
   row: { width: '100%', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: 'inherit' },

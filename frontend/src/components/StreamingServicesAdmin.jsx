@@ -11,7 +11,7 @@ const H3 = { fontSize: '16px', fontWeight: '700', marginBottom: '6px' };
 const HINT = { color: '#666', fontSize: '13px', lineHeight: 1.6, marginBottom: '18px' };
 const SMALL = { padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: '#ccc', fontFamily: 'inherit' };
 const PILL = { padding: '7px 16px', borderRadius: '999px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', color: '#bbb', fontFamily: 'inherit' };
-const PILL_ON = { background: '#00c2ff', color: '#000', borderColor: '#00c2ff' };
+const PILL_ON = { background: '#00c2ff', color: '#000', border: '1px solid #00c2ff' };
 const SELECT = { padding: '9px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', colorScheme: 'dark', cursor: 'pointer' };
 const PER_PAGE = 30;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;

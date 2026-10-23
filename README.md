@@ -35,7 +35,8 @@
 - **Profile pictures** — Upload a photo, or choose from picture categories the admin provides (e.g. "The Simpsons"), each set for Streamers, Streamlings or both
 - **Quick Login** — Sign a TV or phone in by approving a code from a device that's already signed in
 - **Create an account** — On the web or in the iPhone / iPad app (display name + password); an admin approves it with a single-use **Admin Passphrase** that works for 1 hour
-- **Forgot password** — *Forgot password?* on the sign-in page emails a branded reset link (sent from Gmail by default — set up in **Admin › Settings › Email**); new accounts need an email address
+- **Forgot password** — *Forgot password?* on the sign-in page emails a branded reset link (sent from Gmail by default — set up in **Admin › Emails › Sending**); new accounts need an email address
+- **Emails** — reword the Password Reset, Admin Passphrase and Custom emails with a live preview and test sends; email an account request its Admin Passphrase (only when an admin presses the button); write a personal email to chosen people, signed by whoever sends it
 - **Feedback** — Send feedback or app suggestions from Profile & Settings (apps) or Profile & Account (web); admins read and reply in **Admin › Feedback**
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
 - **Streaming services** — A Home row of Netflix, Disney+, Prime Video, Apple TV+, HBO Max, Paramount+, Hulu, Crunchyroll, Stan and Binge (logos in the Streamulus colours), each with its own page of titles; the admin picks which titles each service has, or fills them in from TMDB for their country
@@ -160,7 +161,7 @@ Game of Thrones/Game of Thrones - 1x01 - Winter Is Coming.mkv
 | `PORT` | `8096` | Web server port |
 | `DATA_DIR` | `/data` | Database and config storage |
 | `JWT_SECRET` | *(random, kept in `/data`)* | Secret for sign-in tokens — set your own or leave empty |
-| `SMTP_PASSWORD` | *(empty)* | Optional: the email password (e.g. Google App Password) instead of saving it in Admin › Settings › Email |
+| `SMTP_PASSWORD` | *(empty)* | Optional: the email password (e.g. Google App Password) instead of saving it in Admin › Emails › Sending |
 | `NODE_ENV` | `production` | Environment mode |
 
 ---

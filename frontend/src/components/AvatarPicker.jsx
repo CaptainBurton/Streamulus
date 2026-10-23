@@ -100,7 +100,7 @@ const S = {
   close: { width: '34px', height: '34px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#ccc', cursor: 'pointer', fontSize: '14px', flexShrink: 0 },
   chips: { display: 'flex', gap: '8px', padding: '0 22px 12px', overflowX: 'auto', scrollbarWidth: 'none', flexShrink: 0 },
   chip: { padding: '6px 14px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#bbb', fontSize: '13px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' },
-  chipOn: { background: '#fff', color: '#000', borderColor: '#fff' },
+  chipOn: { background: '#fff', color: '#000', border: '1px solid #fff' },
   body: { padding: '6px 22px 22px', overflowY: 'auto' },
   catTitle: { fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', margin: '0 0 12px' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: '14px' },

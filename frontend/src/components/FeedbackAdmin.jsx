@@ -127,7 +127,7 @@ function AdminConversation({ item, reload, flash, onRemoved }) {
 const S = {
   card: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '22px' },
   chip: { padding: '7px 14px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#bbb', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  chipOn: { background: '#fff', color: '#000', borderColor: '#fff' },
+  chipOn: { background: '#fff', color: '#000', border: '1px solid #fff' },
   row: { width: '100%', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: 'inherit' },
   dot: { width: '9px', height: '9px', borderRadius: '50%', background: '#00c2ff', flexShrink: 0 },
   kid: { padding: '1px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', color: '#ffb703', border: '1px solid #ffb70355' },

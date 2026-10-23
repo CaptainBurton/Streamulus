@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
-// Admin › Settings › Email: the address Streamulus sends from (password reset
-// emails), its Google App Password, who people should contact for help, and a
-// test send. Gmail is the default; other servers are under "Other email server".
+// Admin › Emails › Sending: the address Streamulus sends from, its Google App
+// Password, who people should contact for help, and a test send. Gmail is the
+// default; other servers are under "Other email server".
 
 const CARD = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' };
 const INPUT = { width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' };
 const LABEL = { fontSize: '13px', color: '#888', display: 'block', marginBottom: '8px', fontWeight: 600 };
 const BTN = { padding: '10px 20px', borderRadius: '8px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' };
 
-export default function EmailSettings({ flash }) {
+export default function EmailSettings({ flash, onChanged }) {
   const [data, setData] = useState(null);
   const [form, setForm] = useState(null);
   const [password, setPassword] = useState('');
@@ -38,11 +38,13 @@ export default function EmailSettings({ flash }) {
     const r = await axios.put('/api/admin/email', body);
     apply(r.data);
     setPassword('');
+    onChanged?.(r.data);
     flash(r.data.configured ? 'Email settings saved — send a test to check them' : 'Email settings saved');
   });
   const removePassword = () => run('remove', async () => {
     const r = await axios.put('/api/admin/email', { clearPassword: true });
     apply(r.data);
+    onChanged?.(r.data);
     flash('App Password removed — password reset emails are off until you add one');
   });
   const test = () => run('test', async () => {
@@ -55,15 +57,15 @@ export default function EmailSettings({ flash }) {
   return (
     <div style={CARD} data-section="email">
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Email</h3>
+        <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Sending</h3>
         <span style={{ padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase',
           color: data.configured ? '#00c864' : '#ffb703', border: `1px solid ${data.configured ? '#00c86455' : '#ffb70355'}` }}>
           {data.configured ? 'Ready' : 'Needs an App Password'}
         </span>
       </div>
       <p style={{ color: '#666', fontSize: '14px', marginBottom: '22px', lineHeight: 1.6 }}>
-        Streamulus sends password reset emails from this address (people choose <em>Forgot password?</em> on the sign-in page).
-        Someone without an email on their account is told to contact the person below.
+        Streamulus sends its emails from this address — password resets (people choose <em>Forgot password?</em> on the sign-in page),
+        Admin Passphrases you email, and emails you write. Someone without an email on their account is told to contact the person below.
       </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '18px' }}>
@@ -100,6 +102,22 @@ export default function EmailSettings({ flash }) {
           </ol>
         </div>
       )}
+
+      <details style={{ marginTop: '18px', padding: '14px 16px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', fontSize: '13px', color: '#aaa', lineHeight: 1.7 }} data-section="spam-tips">
+        <summary style={{ cursor: 'pointer', color: '#ddd', fontWeight: 700 }}>Keeping emails out of spam</summary>
+        <p style={{ margin: '10px 0 6px' }}>
+          Streamulus already sends each email the way inboxes like (through Gmail itself, with a plain-text copy, no hidden text, and the right headers).
+          A new Gmail address sending sign-in links is still unfamiliar to spam filters at first, so:
+        </p>
+        <ol style={{ margin: 0, paddingLeft: '20px' }}>
+          <li>When someone gets their first email from <strong style={{ color: '#ddd' }}>{form.fromAddress || 'Streamulus'}</strong>, ask them to open it from Spam and press <strong style={{ color: '#ddd' }}>Not spam</strong> (Gmail) or <strong style={{ color: '#ddd' }}>Not junk</strong> (Outlook / Hotmail), and add the address to their contacts. Their inbox remembers it from then on.</li>
+          <li>Send yourself a test and do the same — every “Not spam” teaches the filters this sender is fine.</li>
+          <li>Set a public address in <strong style={{ color: '#ddd' }}>Settings › Remote Access</strong> so links point at your server's name, not a bare IP address (links to IP addresses look suspicious).</li>
+          <li>In the Gmail account, give it a name and profile picture (Google Account › Personal info), and use it only for Streamulus.</li>
+          <li>Keep emails personal and few — send custom emails to the people they're for rather than everyone at once.</li>
+          <li>For the best results, send from your own domain (e.g. <em>hello@yourdomain.com</em>) through a mail service that sets up SPF and DKIM for it (Zoho Mail, Fastmail, Brevo, Resend…) and enter its details under <em>Other email server</em>.</li>
+        </ol>
+      </details>
 
       <button type="button" onClick={() => setAdvanced(a => !a)} style={{ background: 'none', border: 'none', color: '#888', fontSize: '13px', cursor: 'pointer', padding: '16px 0 0' }}>
         {advanced ? '▾' : '▸'} Other email server
