@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.streamulus.android.R
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -81,7 +82,7 @@ class Session(private val app: Application) {
 
     /** Optional server address built into the app (res/values/config.xml). */
     private val presetServer: HttpUrl?
-        get() = app.getString(R.string.streamulus_server_url).trim().takeIf { it.isNotEmpty() }?.let { normalize(it) }
+        get() = ServerAddress.candidates(app.getString(R.string.streamulus_server_url)).firstOrNull()
 
     // ── Start-up ─────────────────────────────────────────────────────────────
 
@@ -125,11 +126,25 @@ class Session(private val app: Application) {
 
     // ── Server ───────────────────────────────────────────────────────────────
 
-    /** Accepts "192.168.1.20:8096", "http://nas.local:8096/", "https://name.tailnet.ts.net", etc. */
+    /**
+     * Accepts "192.168.1.20:8096", "http://nas.local:8096/", "https://name.tailnet.ts.net",
+     * "name.tailnet.ts.net", a pasted page link, etc. — see [ServerAddress].
+     */
     suspend fun setServer(text: String) {
-        val url = normalize(text) ?: throw ApiException(0, "That doesn't look like a server address.")
+        val candidates = ServerAddress.candidates(text)
+        if (candidates.isEmpty()) {
+            throw ApiException(0, "That doesn't look like a server address — enter it like https://streamulus.your-tailnet.ts.net or 192.168.1.20:8096.")
+        }
+        // The likeliest address first (its error is the one shown); then the others quickly.
+        val url = try {
+            ApiClient(candidates.first(), clientName = clientName).getObject("/api/health")
+            candidates.first()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            candidates.drop(1).firstOrNull { ApiClient.ping(it, 8000) } ?: throw e
+        }
         val client = ApiClient(url, clientName = clientName)
-        client.getObject("/api/health")
         prefs.edit().putString(SERVER, url.toString()).remove(PUBLIC).apply()
         tokens.token = null
         homeUrl = url
@@ -151,15 +166,10 @@ class Session(private val app: Application) {
         phase = Phase.NeedsServer
     }
 
-    private fun normalize(text: String): HttpUrl? {
-        var address = text.trim()
-        if (!address.contains("://")) address = "http://$address"
-        return address.trimEnd('/').toHttpUrlOrNull()
-    }
-
     /** Use the home address if it answers quickly, otherwise the public one. */
     private suspend fun connectToReachableAddress(): Boolean {
-        homeUrl?.let { home -> if (ApiClient.ping(home, 4000)) { use(home); return true } }
+        // A public https:// address (e.g. Tailscale Funnel) over mobile data needs longer than a LAN one.
+        homeUrl?.let { home -> if (ApiClient.ping(home, if (home.isHttps) 10000 else 4000)) { use(home); return true } }
         publicUrl?.let { pub -> if (pub != homeUrl && ApiClient.ping(pub, 10000)) { use(pub); return true } }
         return false
     }
@@ -183,7 +193,7 @@ class Session(private val app: Application) {
         val client = api ?: return
         val fetched = runCatching { Branding.from(client.getObject("/api/branding")) }.getOrNull() ?: return
         branding = fetched
-        val url = fetched.publicUrl?.toHttpUrlOrNull()
+        val url = fetched.publicUrl?.let { ServerAddress.candidates(it).firstOrNull() }
         publicUrl = url
         prefs.edit().apply { if (url != null) putString(PUBLIC, url.toString()) else remove(PUBLIC) }.apply()
     }
