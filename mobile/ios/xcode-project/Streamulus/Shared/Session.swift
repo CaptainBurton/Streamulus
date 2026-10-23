@@ -181,10 +181,15 @@ final class Session: ObservableObject {
         completeSignIn(token: response.token, user: response.user, profile: response.profile, profileCount: response.profileCount)
     }
 
-    /// Create an account with a display name (also the sign-in name) and password.
-    /// It can't be used until the person signs in with an Admin Passphrase.
-    func register(displayName: String, password: String) async throws -> RegisterResponse {
-        try await client().post("/api/auth/register", body: ["displayName": displayName, "password": password])
+    /// Create an account with a display name (also the sign-in name), password and
+    /// email (for password resets). It can't be used until the person signs in with an Admin Passphrase.
+    func register(displayName: String, password: String, email: String) async throws -> RegisterResponse {
+        try await client().post("/api/auth/register", body: ["displayName": displayName, "password": password, "email": email])
+    }
+
+    /// A page of the Streamulus website at the address in use, e.g. "/forgot-password".
+    func websiteURL(_ path: String) -> URL? {
+        api?.url(path)
     }
 
     /// Finish signing in with a token from a password sign-in or an approved Quick Login.

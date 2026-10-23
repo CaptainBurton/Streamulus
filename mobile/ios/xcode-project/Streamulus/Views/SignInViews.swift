@@ -140,6 +140,12 @@ struct SignInView: View {
                         .onSubmit { Task { await signIn() } }
                         .padding(14)
                         .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                    if passphraseNote == nil, let url = session.websiteURL("/forgot-password") {
+                        // Opens the website's Forgot Password page (the reset email links there too).
+                        Link("Forgot password?", destination: url)
+                            .font(.footnote.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                     if passphraseNote != nil {
                         TextField("Admin Passphrase", text: $passphrase, prompt: Text("Admin Passphrase, e.g. maple-river-otter-comet"))
                             .textContentType(.oneTimeCode)
@@ -234,6 +240,7 @@ struct CreateAccountView: View {
     @State private var name = ""
     @State private var password = ""
     @State private var confirm = ""
+    @State private var email = ""
     @State private var busy = false
     @State private var errorText: String?
 
@@ -255,12 +262,19 @@ struct CreateAccountView: View {
                         .glassEffect(.regular, in: .rect(cornerRadius: 14))
                     SecureField("Confirm password", text: $confirm)
                         .textContentType(.newPassword)
+                        .padding(14)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                    TextField("Email address", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                         .submitLabel(.go)
                         .onSubmit { Task { await create() } }
                         .padding(14)
                         .glassEffect(.regular, in: .rect(cornerRadius: 14))
                 }
-                Text("You'll sign in with your display name.")
+                Text("You'll sign in with your display name. Your email lets you reset your password if you forget it.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -277,7 +291,8 @@ struct CreateAccountView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .controlSize(.large)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty || confirm.isEmpty || busy)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty || confirm.isEmpty
+                          || email.trimmingCharacters(in: .whitespaces).isEmpty || busy)
 
                 Text("New accounts need an **Admin Passphrase** from your Streamulus admin before the first sign-in. It usually takes 5–10 minutes to get one.")
                     .font(.footnote)
@@ -304,7 +319,8 @@ struct CreateAccountView: View {
         busy = true
         errorText = nil
         do {
-            let created = try await session.register(displayName: name, password: password)
+            let created = try await session.register(displayName: name, password: password,
+                                                     email: email.trimmingCharacters(in: .whitespaces))
             onCreated(created.username, password, created.message)
         } catch {
             errorText = error.localizedDescription

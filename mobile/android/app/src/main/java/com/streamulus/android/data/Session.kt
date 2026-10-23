@@ -201,14 +201,18 @@ class Session(private val app: Application) {
         completeSignIn(signInFrom(response) ?: throw ApiException(0, "The server sent something unexpected."))
     }
 
-    /** Create an account (display name + password). It waits for an Admin Passphrase. Returns (name, message). */
-    suspend fun register(displayName: String, password: String): Pair<String, String> {
+    /** Create an account (display name, password, email for password resets). It waits for an Admin Passphrase. Returns (name, message). */
+    suspend fun register(displayName: String, password: String, email: String): Pair<String, String> {
         val response = client().post("/api/auth/register", buildJsonObject {
             put("displayName", displayName)
             put("password", password)
+            put("email", email)
         }) as JsonObject
         return (response.str("username") ?: displayName) to (response.str("message") ?: "")
     }
+
+    /** A page of the Streamulus website at the address in use, e.g. "/forgot-password". */
+    fun websiteUrl(path: String): String? = api?.url(path)?.toString()
 
     fun completeSignIn(signIn: SignIn) {
         tokens.token = signIn.token

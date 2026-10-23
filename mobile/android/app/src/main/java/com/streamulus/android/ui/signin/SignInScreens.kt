@@ -3,6 +3,7 @@ package com.streamulus.android.ui.signin
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -197,6 +199,15 @@ private fun PasswordSignIn(
         AppTextField(password, onPassword, "Password", password = true,
             imeAction = if (passphraseNote == null) ImeAction.Go else ImeAction.Next,
             onDone = if (passphraseNote == null) ::signIn else null)
+        if (passphraseNote == null) {
+            // Opens the website's Forgot Password page (the reset email links there too).
+            val uriHandler = LocalUriHandler.current
+            session.websiteUrl("/forgot-password")?.let { url ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    TextButton(onClick = { runCatching { uriHandler.openUri(url) } }) { Text("Forgot password?") }
+                }
+            }
+        }
         if (passphraseNote != null) {
             AppTextField(passphrase, { passphrase = it }, "Admin Passphrase", placeholder = "e.g. maple-river-otter-comet",
                 imeAction = ImeAction.Go, onDone = ::signIn)
@@ -238,9 +249,10 @@ private fun CreateAccount(onCancel: () -> Unit, onCreated: (String, String, Stri
     var name by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val ready = name.isNotBlank() && password.isNotEmpty() && confirm.isNotEmpty()
+    val ready = name.isNotBlank() && password.isNotEmpty() && confirm.isNotEmpty() && email.isNotBlank()
 
     fun create() {
         if (!ready || busy) return
@@ -252,7 +264,7 @@ private fun CreateAccount(onCancel: () -> Unit, onCreated: (String, String, Stri
             busy = true
             error = null
             attempt({ error = it }) {
-                val (created, message) = session.register(name.trim(), password)
+                val (created, message) = session.register(name.trim(), password, email.trim())
                 onCreated(created, password, message)
             }
             busy = false
@@ -265,7 +277,9 @@ private fun CreateAccount(onCancel: () -> Unit, onCreated: (String, String, Stri
         AppTextField(name, { name = it }, "Display name", capitalization = KeyboardCapitalization.Words)
         Text("You'll sign in with your display name.", style = MaterialTheme.typography.bodySmall, color = Brand.Secondary, modifier = Modifier.fillMaxWidth())
         AppTextField(password, { password = it }, "Password (at least 6 characters)", password = true)
-        AppTextField(confirm, { confirm = it }, "Confirm password", password = true, imeAction = ImeAction.Go, onDone = ::create)
+        AppTextField(confirm, { confirm = it }, "Confirm password", password = true)
+        AppTextField(email, { email = it }, "Email address", keyboardType = KeyboardType.Email, imeAction = ImeAction.Go, onDone = ::create)
+        Text("Your email lets you reset your password if you forget it.", style = MaterialTheme.typography.bodySmall, color = Brand.Secondary, modifier = Modifier.fillMaxWidth())
         ErrorText(error)
         Button(onClick = ::create, enabled = ready && !busy, modifier = Modifier.fillMaxWidth()) {
             if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Create Account")
