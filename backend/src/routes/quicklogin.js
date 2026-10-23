@@ -86,12 +86,15 @@ router.post('/poll', (req, res) => {
   }
   if (!r.userId) return res.json({ status: 'pending', expiresIn: secondsLeft(r) });
 
-  const user = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(r.userId);
+  const user = db.prepare('SELECT id, username, role, status FROM users WHERE id = ?').get(r.userId);
   drop(requestId); // one use only
-  if (!user) return res.status(410).json({ error: 'That account no longer exists', code: 'EXPIRED' });
+  if (!user || user.status !== 'active') return res.status(410).json({ error: 'That account no longer exists', code: 'EXPIRED' });
+  delete user.status;
   const main = ensureMainProfile(user.id, user.username);
   const profileCount = db.prepare('SELECT COUNT(*) AS n FROM profiles WHERE user_id = ?').get(user.id).n;
-  res.json({ status: 'approved', token: signToken(user, main.id), user, profile: publicProfile(main), profileCount });
+  const sessionId = require('../services/sessions').create(user.id, req);
+  require('../services/activity').log(req, { category: 'auth', action: 'sign_in', userId: user.id, username: user.username, detail: `Quick Login${r.deviceName ? ` (${r.deviceName})` : ''}` });
+  res.json({ status: 'approved', token: signToken(user, main.id, sessionId), user, profile: publicProfile(main), profileCount });
 });
 
 function findForApprover(req, res) {
@@ -125,6 +128,7 @@ router.post('/:code/approve', authenticate, (req, res) => {
   const found = findForApprover(req, res);
   if (!found) return;
   found.r.userId = req.user.id;
+  require('../services/activity').log(req, { category: 'auth', action: 'quick_login_approved', detail: found.r.deviceName ? `Approved ${found.r.deviceName}` : 'Approved a device' });
   res.json({ success: true, deviceName: found.r.deviceName });
 });
 

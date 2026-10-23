@@ -25,6 +25,8 @@ export function AuthProvider({ children }) {
   };
 
   const logout = useCallback(() => {
+    // Tell the server too, so this browser's sign-in ends there (not waited for).
+    if (localStorage.getItem(TOKEN_KEY)) axios.post('/api/auth/logout').catch(() => {});
     localStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(PICK_KEY);
     delete axios.defaults.headers.common['Authorization'];
@@ -35,9 +37,10 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     // If the active profile is removed (e.g. from another device), its token is
-    // refused — sign out rather than silently becoming another profile.
+    // refused — sign out rather than silently becoming another profile. Same when
+    // an admin signs this device out or disables the account.
     const id = axios.interceptors.response.use(r => r, (err) => {
-      if (err.response?.status === 401 && err.response?.data?.code === 'PROFILE_GONE') logout();
+      if (err.response?.status === 401 && ['PROFILE_GONE', 'SIGNED_OUT', 'ACCOUNT_INACTIVE'].includes(err.response?.data?.code)) logout();
       return Promise.reject(err);
     });
     return () => axios.interceptors.response.eject(id);

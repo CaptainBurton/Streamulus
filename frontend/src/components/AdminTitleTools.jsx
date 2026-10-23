@@ -219,3 +219,126 @@ export function IconButton({ label, onClick, danger, children, style }) {
     </button>
   );
 }
+
+export const MoveIcon = ({ size = 16 }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true" style={{ display: 'block', flexShrink: 0 }}>
+    <path d="M6.99 11 3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z" />
+  </svg>
+);
+
+// ── Move a season / merge a show ─────────────────────────────────────────────
+// mode 'season': one season of fromShow → another show (optionally renumbered).
+// mode 'show': every season of fromShow → another show (it's the same show).
+// Streamulus remembers the move, so scans keep the files with the chosen show.
+export function MoveModal({ mode, fromShow, season, onClose, onMoved }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState(null);
+  const [target, setTarget] = useState(null);
+  const [asNew, setAsNew] = useState(false);
+  const [newTitle, setNewTitle] = useState(fromShow.title);
+  const [targetSeason, setTargetSeason] = useState(season ?? 1);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      axios.get('/api/admin/library/shows', { params: { search: query } })
+        .then(r => { if (!cancelled) setResults(r.data.shows.filter(s => s.id !== fromShow.id)); })
+        .catch(() => { if (!cancelled) setResults([]); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query, fromShow.id]);
+
+  const existing = target && mode === 'season' ? target.seasons.find(s => s.season === Number(targetSeason)) : null;
+  const ready = asNew ? newTitle.trim().length > 0 : !!target;
+
+  const submit = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const body = asNew ? { newShowTitle: newTitle.trim() } : { toShowId: target.id };
+      const url = mode === 'season'
+        ? `/api/admin/library/show/${fromShow.id}/season/${season}/move`
+        : `/api/admin/library/show/${fromShow.id}/merge`;
+      if (mode === 'season') body.targetSeason = Number(targetSeason);
+      const r = await axios.post(url, body);
+      onMoved(r.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not move it');
+      setBusy(false);
+    }
+  };
+
+  const heading = mode === 'season' ? `Move Season ${season}` : `Merge ${fromShow.title}`;
+  const sub = mode === 'season'
+    ? `From ${fromShow.title}. Pick the show it belongs to.`
+    : 'All of its seasons go into the show you pick, and this one disappears.';
+
+  return (
+    <Modal title={heading} subtitle={sub} width={600} onClose={onClose}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+        <button type="button" onClick={() => setAsNew(false)} style={{ ...BTN, padding: '7px 14px', fontSize: '13px', border: '1px solid rgba(255,255,255,0.12)', background: !asNew ? '#00c2ff' : 'transparent', color: !asNew ? '#000' : '#bbb' }}>Existing show</button>
+        <button type="button" onClick={() => setAsNew(true)} style={{ ...BTN, padding: '7px 14px', fontSize: '13px', border: '1px solid rgba(255,255,255,0.12)', background: asNew ? '#00c2ff' : 'transparent', color: asNew ? '#000' : '#bbb' }}>New show</button>
+      </div>
+
+      {asNew ? (
+        <div>
+          <label style={LABEL} htmlFor="move-new-title">New show's title</label>
+          <input id="move-new-title" style={INPUT} value={newTitle} maxLength={200} onChange={e => setNewTitle(e.target.value)} />
+          <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>Use Fix Match on the new show afterwards to get its artwork and details.</div>
+        </div>
+      ) : (
+        <>
+          <input style={INPUT} placeholder="Search your shows…" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search shows" autoFocus />
+          <div style={{ marginTop: '10px', maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {results === null ? <div style={{ color: '#666', fontSize: '13px', padding: '8px' }}>Loading…</div>
+              : results.length === 0 ? <div style={{ color: '#666', fontSize: '13px', padding: '8px' }}>No shows match.</div>
+              : results.map(s => {
+                const on = target?.id === s.id;
+                return (
+                  <button key={s.id} type="button" onClick={() => setTarget(s)} aria-pressed={on} data-show={s.title}
+                    style={{ display: 'flex', alignItems: 'center', gap: '12px', textAlign: 'left', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit',
+                      background: on ? 'rgba(0,194,255,0.12)' : 'rgba(255,255,255,0.03)', border: `1px solid ${on ? 'rgba(0,194,255,0.55)' : 'rgba(255,255,255,0.06)'}`, color: '#ddd' }}>
+                    <div style={{ width: '30px', height: '44px', borderRadius: '4px', overflow: 'hidden', background: '#222', flexShrink: 0 }}>
+                      {s.poster_url && <img src={s.poster_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                    </div>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '14px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}{s.year ? ` (${s.year})` : ''}</span>
+                      <span style={{ display: 'block', fontSize: '12px', color: '#777' }}>
+                        {s.seasons.length ? `Season${s.seasons.length === 1 ? '' : 's'} ${s.seasons.map(x => x.season).join(', ')}` : 'No episodes'}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </>
+      )}
+
+      {mode === 'season' && (
+        <div style={{ marginTop: '16px' }}>
+          <label style={LABEL} htmlFor="move-season">As season</label>
+          <input id="move-season" type="number" min="0" max="999" style={{ ...INPUT, width: '120px' }} value={targetSeason} onChange={e => setTargetSeason(e.target.value)} />
+          {existing && (
+            <div style={{ fontSize: '12px', color: '#ffb703', marginTop: '6px' }}>
+              {target.title} already has Season {existing.season} ({existing.episodes} episode{existing.episodes === 1 ? '' : 's'}) — these join it.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ marginTop: '16px', fontSize: '12px', color: '#666', lineHeight: 1.5 }}>
+        Streamulus remembers this: later scans keep these files with the show you pick, and new episodes that arrive in the same folder join it too.
+      </div>
+      {error && <div style={{ marginTop: '12px', color: '#ff6b6b', fontSize: '13px' }}>⚠ {error}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' }}>
+        <button onClick={onClose} style={CANCEL}>Cancel</button>
+        <button onClick={submit} disabled={busy || !ready}
+          style={{ ...BTN, border: 'none', fontWeight: 700, background: '#00c2ff', color: '#000', opacity: busy || !ready ? 0.5 : 1 }}>
+          {busy ? 'Moving…' : mode === 'season' ? 'Move Season' : 'Merge'}
+        </button>
+      </div>
+    </Modal>
+  );
+}

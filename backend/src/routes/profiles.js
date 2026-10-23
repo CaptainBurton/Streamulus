@@ -84,6 +84,7 @@ router.post('/', authenticate, (req, res) => {
   const count = db.prepare('SELECT COUNT(*) AS n FROM profiles WHERE user_id = ?').get(req.user.id).n;
   if (count >= MAX_PROFILES) return res.status(400).json({ error: `An account can have up to ${MAX_PROFILES} profiles` });
   const r = db.prepare('INSERT INTO profiles (user_id, name, is_kids) VALUES (?, ?, ?)').run(req.user.id, name, req.body.is_kids ? 1 : 0);
+  require('../services/activity').log(req, { category: 'account', action: 'profile_added', detail: `Added ${req.body.is_kids ? 'Streamling ' : ''}profile ${name}` });
   res.json({ profile: publicProfile(db.prepare('SELECT * FROM profiles WHERE id = ?').get(r.lastInsertRowid)) });
 });
 
@@ -140,6 +141,7 @@ router.delete('/:id', authenticate, (req, res) => {
   if (target.is_main) return res.status(400).json({ error: "The main profile can't be removed" });
   db.transaction(() => deleteProfileData(target.id))();
   removeAvatarFile(target);
+  require('../services/activity').log(req, { category: 'account', action: 'profile_removed', detail: `Removed profile ${target.name}` });
   res.json({ success: true });
 });
 
@@ -243,7 +245,11 @@ router.post('/:id/select', authenticate, async (req, res) => {
   }
 
   const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(req.user.id);
-  res.json({ token: signToken(user, target.id), profile: publicProfile(target) });
+  if (target.id !== req.profile.id) {
+    require('../services/activity').log(req, { category: 'auth', action: 'profile_switch', profileName: target.name, detail: `Switched to ${target.name}` });
+  }
+  // Same device, so the same session.
+  res.json({ token: signToken(user, target.id, req.sessionId), profile: publicProfile(target) });
 });
 
 module.exports = router;

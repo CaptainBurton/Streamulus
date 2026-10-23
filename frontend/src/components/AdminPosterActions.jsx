@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrashIcon } from './AdminTitleTools';
+import { TrashIcon, MoveIcon } from './AdminTitleTools';
 
 // Pencil (edit) and magnifying glass (search), from the supplied SVGs; they
 // take the button's text colour.
@@ -29,8 +29,8 @@ const dangerOn = e => { e.currentTarget.style.background = 'rgba(255,77,77,0.1)'
 const dangerOff = e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#c77'; };
 
 // Admin buttons under a movie/show poster: Edit Artwork, Fix Match, then (when
-// given) Edit Details and Remove.
-export default function AdminPosterActions({ onEditArtwork, onFixMatch, onEditDetails, onRemove, width = 220 }) {
+// given) Edit Details, Merge (shows) and Remove.
+export default function AdminPosterActions({ onEditArtwork, onFixMatch, onEditDetails, onMerge, onRemove, width = 220 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: `${width}px`, marginTop: '10px' }}>
       <button onClick={onEditArtwork} style={base} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
@@ -42,6 +42,11 @@ export default function AdminPosterActions({ onEditArtwork, onFixMatch, onEditDe
       {onEditDetails && (
         <button onClick={onEditDetails} style={base} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
           <PencilIcon size={16} /> Edit Details
+        </button>
+      )}
+      {onMerge && (
+        <button onClick={onMerge} style={base} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
+          <MoveIcon /> Merge into Another Show…
         </button>
       )}
       {onRemove && (

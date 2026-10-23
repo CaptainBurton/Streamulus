@@ -11,6 +11,7 @@ const { resolveFilePath } = require('../services/path-repair');
 const { kidsScope, canAccess } = require('../services/kids');
 const { pick } = require('../services/locale');
 const audio = require('../services/audio');
+const activity = require('../services/activity');
 
 const router = express.Router();
 
@@ -575,6 +576,7 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, 
     const { tracks, selected } = await audio.resolve(req, type, id, filePath, req.query.audio);
     const audioTrack = tracks.length > 1 && selected ? selected.index : null;
     console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s${compat ? ' (compat)' : ''}${audioTrack != null ? ` audio=${selected.label}` : ''}`);
+    activity.logWatch(req, type, id); // "started watching" (at most every 30 min per title)
     const key = await getHLSSession(filePath, start, { compat, audio: audioTrack });
     if (res.writableEnded) return; // client disconnected while transcoding
     const segBase = `/api/stream/hls/${type}/${id}/segment?token=${req.query.token}&key=${key}`;

@@ -258,6 +258,15 @@ db.exec(`CREATE TABLE IF NOT EXISTS title_services (
   PRIMARY KEY (media_type, media_id, service_id)
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS idx_title_services_service ON title_services(service_id)');
+// Seasons / folders the admin moved to another show (services/showMoves.js):
+// everything under `path` (a folder, or one file) belongs to show_id, optionally
+// as season `season`. Scans and duplicate fixing follow these instead of the folders.
+db.exec(`CREATE TABLE IF NOT EXISTS show_overrides (
+  path TEXT PRIMARY KEY,
+  show_id INTEGER NOT NULL,
+  season INTEGER,
+  created_at INTEGER
+)`);
 // The country each title's streaming services were last looked up on TMDB for.
 try { db.exec('ALTER TABLE movies ADD COLUMN services_checked TEXT'); } catch {}
 try { db.exec('ALTER TABLE tv_shows ADD COLUMN services_checked TEXT'); } catch {}
@@ -298,6 +307,40 @@ try { db.exec('ALTER TABLE users ADD COLUMN passphrase_hash TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN passphrase_expires_at INTEGER'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN passphrase_attempts INTEGER NOT NULL DEFAULT 0'); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_wh_profile ON watch_history(profile_id, media_type, media_id)');
+// Signed-in devices (services/sessions.js): each sign-in gets one, its token
+// carries the id, and signing a device out revokes it. token_version on the
+// account signs every device out at once (older tokens without a session too).
+db.exec(`CREATE TABLE IF NOT EXISTS user_sessions (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  ip TEXT,
+  app TEXT,
+  device TEXT,
+  revoked_at INTEGER
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id)');
+try { db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN last_login_at INTEGER'); } catch {}
+// What happened, for Admin › Users › Activity (services/activity.js).
+db.exec(`CREATE TABLE IF NOT EXISTS activity_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  category TEXT NOT NULL,
+  action TEXT NOT NULL,
+  user_id INTEGER,
+  username TEXT,
+  profile_name TEXT,
+  detail TEXT,
+  ip TEXT,
+  app TEXT,
+  device TEXT,
+  media_type TEXT,
+  media_id INTEGER
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_activity_at ON activity_log(at)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id, at)');
 
 // Give every existing account a main profile and move its history onto it.
 db.transaction(() => {

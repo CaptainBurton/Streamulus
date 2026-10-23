@@ -37,11 +37,16 @@ function loadSecret() {
 
 const JWT_SECRET = loadSecret();
 
-// Tokens carry the account (userId) and the active profile (profileId). A token
+// Tokens carry the account (userId), the active profile (profileId), the signed-in
+// device (sid, services/sessions.js) and the account's token_version (tv). A token
 // without a profileId — e.g. straight after login — acts as the main profile.
-function signToken(user, profileId) {
-  return jwt.sign({ userId: user.id, role: user.role, profileId: profileId ?? undefined }, JWT_SECRET, { expiresIn: '7d' });
+function signToken(user, profileId, sessionId) {
+  const tv = db.prepare('SELECT token_version FROM users WHERE id = ?').get(user.id)?.token_version || 0;
+  return jwt.sign({ userId: user.id, role: user.role, profileId: profileId ?? undefined, sid: sessionId ?? undefined, tv },
+    JWT_SECRET, { expiresIn: '7d' });
 }
+
+const SIGNED_OUT = { error: 'You were signed out — sign in again', code: 'SIGNED_OUT' };
 
 function authenticate(req, res, next) {
   // Also accept token as query param for SSE endpoints (EventSource can't set headers)
@@ -54,11 +59,18 @@ function authenticate(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
-  const user = db.prepare('SELECT id, username, role, status FROM users WHERE id = ?').get(payload.userId);
+  const user = db.prepare('SELECT id, username, role, status, token_version FROM users WHERE id = ?').get(payload.userId);
   if (!user) return res.status(401).json({ error: 'User not found' });
-  // Only active accounts get tokens; this just makes sure of it.
-  if (user.status !== 'active') return res.status(401).json({ error: 'This account is not active yet' });
+  // Only active accounts get tokens; an admin may have disabled it since.
+  if (user.status !== 'active') {
+    return res.status(401).json({ error: user.status === 'disabled' ? 'This account has been disabled' : 'This account is not active yet', code: 'ACCOUNT_INACTIVE' });
+  }
+  // Signed out by the admin ("Sign out everywhere", a password reset) or this device signed out.
+  if ((payload.tv || 0) !== (user.token_version || 0)) return res.status(401).json(SIGNED_OUT);
+  if (payload.sid && !require('../services/sessions').check(payload.sid, user.id, req)) return res.status(401).json(SIGNED_OUT);
   delete user.status;
+  delete user.token_version;
+  req.sessionId = payload.sid || null;
 
   let profile;
   if (payload.profileId) {
@@ -83,4 +95,11 @@ function requireAdmin(req, res, next) {
   });
 }
 
-module.exports = { authenticate, requireAdmin, JWT_SECRET, signToken };
+// The request's token contents if it's valid, else null (no response sent).
+function tokenPayload(req) {
+  const token = req.headers.authorization?.split(' ')[1] || req.cookies?.token || req.query?.token;
+  if (!token) return null;
+  try { return jwt.verify(token, JWT_SECRET); } catch { return null; }
+}
+
+module.exports = { authenticate, requireAdmin, JWT_SECRET, signToken, tokenPayload };

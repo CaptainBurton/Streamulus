@@ -43,6 +43,7 @@
 - **Metadata** — TMDB / TVDB / IMDb, Fix Match, custom artwork, English titles for foreign-language titles
 - **Watch progress** — Resume where you left off, Continue Watching with stills, mark as watched
 - **Library management** — One show per series folder (Season 00 / Specials / Extras stay with their show), Sonarr / Radarr-style naming formats, gone files cleaned up after scans, and Edit Details, season posters and Remove (from Streamulus only, or with the files) on every title
+- **Fix split shows** — Move a season to the show it belongs to (optionally renumbered, or into a new show), or merge a whole show into another; Streamulus remembers it, so later scans keep the files there
 - **Admin dashboard** — Libraries, users, Streamlings, genres, branding (logo / text), remote access
 - **Docker-ready** — Single container, deployable via Portainer
 
@@ -168,9 +169,13 @@ Access at `/admin` (admin users only):
 
 - **Overview** — Stats and media scan trigger
 - **Libraries** — Add/remove media library paths; **Naming** formats (Sonarr / Radarr style) and whether to remove
-  gone files after scans; **Library Maintenance** — fix duplicate shows, remove missing files, and restore titles
-  you removed from Streamulus but kept on disk
-- **Users** — Create and manage user accounts and their profiles; **Account Requests** from people who signed up, with a *Generate Passphrase* button (single use, valid 1 hour)
+  gone files after scans; **Library Maintenance** — fix duplicate shows, remove missing files, restore titles
+  you removed from Streamulus but kept on disk, and the seasons / folders you moved to another show
+- **Users** — Create and manage user accounts and their profiles; **Account Requests** from people who signed up, with a *Generate Passphrase* button (single use, valid 1 hour).
+  Search and sort accounts; open one to rename it, change its email or role, set a new password, disable it, see the
+  **devices** it's signed in on (app, device, IP, last used) and sign one or all of them out, and see its recent
+  activity and what it watched. The **Activity Log** records sign-ins and failed attempts, what people start
+  watching, account changes and admin actions — filter, search, export as CSV, and choose how long to keep it
 - **Streamlings** — What kids profiles can watch
 - **Profile Pictures** — Categories of pictures profiles can choose from, and who each category / picture is for (Streamers, Streamlings or both)
 - **Feedback** — Feedback and app suggestions from everyone, as conversations you can reply to, close or delete

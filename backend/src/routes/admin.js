@@ -1,13 +1,10 @@
 const express = require('express');
-const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const db = require('../database/db');
 const { requireAdmin } = require('../middleware/auth');
 const { scanAllWithProgress, validatePath } = require('../services/scanner');
-const { ensureMainProfile, publicProfile, deleteProfileData } = require('../services/profiles');
-const accounts = require('../services/accounts');
 
 const uploadsDir = path.join(process.env.DATA_DIR || '/data', 'uploads');
 const upload = multer({
@@ -158,62 +155,7 @@ router.delete('/libraries/:id', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// Accounts with their profiles nested underneath (main profile first). Accounts
-// people created themselves show as status 'pending' until they're activated
-// with an Admin Passphrase; passphraseExpiresAt says whether one is out (ms).
-router.get('/users', requireAdmin, (req, res) => {
-  const users = db.prepare('SELECT id, username, email, role, status, passphrase_expires_at, created_at FROM users ORDER BY id').all();
-  const profiles = db.prepare('SELECT * FROM profiles ORDER BY is_main DESC, id').all();
-  res.json({
-    users: users.map(({ passphrase_expires_at, ...u }) => ({
-      ...u,
-      passphraseExpiresAt: u.status === 'pending' ? passphrase_expires_at : null,
-      profiles: profiles.filter(p => p.user_id === u.id).map(p => ({ ...publicProfile(p), created_at: p.created_at })),
-    })),
-  });
-});
-
-// Make a new single-use Admin Passphrase for an account that's waiting, valid for
-// an hour. It replaces any earlier one and is only ever shown here, once.
-router.post('/users/:id/passphrase', requireAdmin, (req, res) => {
-  const user = db.prepare('SELECT id, username, status FROM users WHERE id = ?').get(req.params.id);
-  if (!user) return res.status(404).json({ error: 'Account not found' });
-  if (user.status !== 'pending') return res.status(400).json({ error: 'That account is already active' });
-  const passphrase = accounts.generatePassphrase();
-  const expiresAt = Date.now() + accounts.PASSPHRASE_TTL_MS;
-  db.prepare('UPDATE users SET passphrase_hash = ?, passphrase_expires_at = ?, passphrase_attempts = 0 WHERE id = ?')
-    .run(accounts.hashPassphrase(passphrase), expiresAt, user.id);
-  res.json({ passphrase, expiresAt, username: user.username });
-});
-
-router.post('/users', requireAdmin, async (req, res) => {
-  const { username, email, password, role = 'user' } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-  const hash = await bcrypt.hash(password, 12);
-  try {
-    const result = db.prepare('INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)').run(username, email || null, hash, role);
-    ensureMainProfile(result.lastInsertRowid, username);
-    res.json({ id: result.lastInsertRowid, username, role });
-  } catch {
-    res.status(409).json({ error: 'Username already exists' });
-  }
-});
-
-router.delete('/users/:id', requireAdmin, (req, res) => {
-  if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: 'Cannot delete your own account' });
-  // Remove the account's profiles, their avatars and watch history first —
-  // with foreign keys on, leftover rows made the delete fail.
-  const profiles = db.prepare('SELECT * FROM profiles WHERE user_id = ?').all(req.params.id);
-  db.transaction(() => {
-    for (const p of profiles) deleteProfileData(p.id);
-    db.prepare('DELETE FROM watch_history WHERE user_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
-  })();
-  for (const p of profiles) {
-    if (p.avatar_path) fs.rm(path.join(uploadsDir, 'avatars', p.avatar_path), { force: true }, () => {});
-  }
-  res.json({ success: true });
-});
+// Accounts (/users) and the activity log (/activity) are in routes/adminUsers.js.
 
 router.get('/config', requireAdmin, (req, res) => {
   const get = (key) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? null;
@@ -291,6 +233,13 @@ router.put('/config', requireAdmin, (req, res) => {
       ratings.refreshRatings().then(() => require('../services/kids').clearKidsCache?.()).catch(err => console.error('[ratings] Failed:', err.message));
     }
   }
+  // Which settings changed — names only, never the values (API keys).
+  const LABELS = { tmdbApiKey: 'TMDB key', tvdbApiKey: 'TVDB key', omdbApiKey: 'OMDb key', imdbApiKey: 'IMDb key', movieSourceOrder: 'movie sources',
+    tvSourceOrder: 'TV sources', videoCrf: 'video quality', videoPreset: 'encoder preset', videoResolution: 'resolution', audioBitrate: 'audio bitrate',
+    audioChannels: 'audio channels', hlsSegmentDuration: 'segment length', progressMinSeconds: 'progress threshold', upNextSeconds: 'Up Next countdown',
+    preferredLanguage: 'metadata language', preferredCountry: 'country', featuredRotateSeconds: 'featured interval' };
+  const changed = Object.keys(LABELS).filter(k => req.body[k] !== undefined).map(k => LABELS[k]);
+  if (changed.length) require('../services/activity').log(req, { category: 'admin', action: 'settings_changed', detail: `Settings: ${changed.join(', ')}` });
   res.json({ success: true, ratingsQueued });
 });
 

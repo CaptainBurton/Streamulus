@@ -268,6 +268,10 @@ function removeMissing(lib, foundFiles) {
  */
 function regroupShows() {
   const cfg = naming.getConfig();
+  const showMoves = require('./showMoves');
+  showMoves.cleanupOverrides();
+  const pins = showMoves.overrides();
+  const showIds = new Set(db.prepare('SELECT id FROM tv_shows').all().map(r => r.id));
   const libraries = db.prepare(`SELECT * FROM libraries WHERE type = 'tv'`).all();
   let moved = 0;
   let merged = 0;
@@ -278,6 +282,15 @@ function regroupShows() {
       `).all(lib.id);
       const groups = new Map(); // showKey -> episodes
       for (const ep of episodes) {
+        // Seasons / folders the admin moved to a show stay with that show.
+        const pinned = pins.length ? showMoves.overrideFor(ep.file_path, pins) : null;
+        if (pinned && showIds.has(pinned.show_id)) {
+          if (ep.show_id !== pinned.show_id) {
+            db.prepare('UPDATE episodes SET show_id = ? WHERE id = ?').run(pinned.show_id, ep.id);
+            moved++;
+          }
+          continue;
+        }
         const parsed = naming.parseEpisode(lib.path, ep.file_path, cfg);
         if (!parsed) continue;
         if (!groups.has(parsed.showKey)) groups.set(parsed.showKey, []);

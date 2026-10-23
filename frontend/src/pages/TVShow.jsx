@@ -5,7 +5,7 @@ import Navbar from '../components/Navbar';
 import ArtworkPicker from '../components/ArtworkPicker';
 import FixMatch from '../components/FixMatch';
 import AdminPosterActions, { PencilIcon } from '../components/AdminPosterActions';
-import { EditDetailsModal, RemoveModal, removedMessage, IconButton, TrashIcon } from '../components/AdminTitleTools';
+import { EditDetailsModal, RemoveModal, removedMessage, IconButton, TrashIcon, MoveIcon, MoveModal } from '../components/AdminTitleTools';
 import SecondaryButton from '../components/SecondaryButton';
 import TitleLogo from '../components/TitleLogo';
 import RefreshIcon from '../components/RefreshIcon';
@@ -30,6 +30,7 @@ export default function TVShow() {
   const [showEditDetails, setShowEditDetails] = useState(false);
   const [removing, setRemoving] = useState(null);       // { kind, id, season?, title }
   const [seasonArtwork, setSeasonArtwork] = useState(null); // season number
+  const [moving, setMoving] = useState(null); // { mode: 'season' | 'show', season? }
   const [notice, setNotice] = useState('');
   const [firstEpisodeId, setFirstEpisodeId] = useState(null);
   const [started, setStarted] = useState(false); // this user has watched any of it
@@ -121,6 +122,7 @@ export default function TVShow() {
             {user?.role === 'admin' && (
               <AdminPosterActions onEditArtwork={() => setShowArtwork(true)} onFixMatch={() => setShowFixMatch(true)}
                 onEditDetails={() => setShowEditDetails(true)}
+                onMerge={() => setMoving({ mode: 'show' })}
                 onRemove={() => setRemoving({ kind: 'show', id: show.id, title: show.title })} />
             )}
           </div>
@@ -244,6 +246,7 @@ export default function TVShow() {
                     {user?.role === 'admin' && (
                       <div style={{ position: 'absolute', top: '8px', left: '8px', display: 'flex', gap: '6px' }}>
                         <IconButton label={`Season ${s.season} poster`} onClick={() => setSeasonArtwork(s.season)}><PencilIcon size={15} /></IconButton>
+                        <IconButton label={`Move Season ${s.season} to another show`} onClick={() => setMoving({ mode: 'season', season: s.season })}><MoveIcon size={15} /></IconButton>
                         <IconButton label={`Remove Season ${s.season}`} danger onClick={() => setRemoving({ kind: 'season', id: show.id, season: s.season, title: `${show.title} – Season ${s.season}` })}><TrashIcon size={15} /></IconButton>
                       </div>
                     )}
@@ -345,6 +348,14 @@ export default function TVShow() {
         onClose={() => setSeasonArtwork(null)}
         onSaved={() => { setSeasonArtwork(null); setRefreshKey(k => k + 1); }}
       />
+    )}
+    {moving && (
+      <MoveModal mode={moving.mode} season={moving.season} fromShow={{ id: show.id, title: show.title }} onClose={() => setMoving(null)}
+        onMoved={(result) => {
+          setMoving(null);
+          if (result.show.id !== Number(id)) navigate(`/tv/${result.show.id}`, { replace: moving.mode === 'show' });
+          else setRefreshKey(k => k + 1);
+        }} />
     )}
     {showEditDetails && (
       <EditDetailsModal kind="show" item={show} onClose={() => setShowEditDetails(false)}

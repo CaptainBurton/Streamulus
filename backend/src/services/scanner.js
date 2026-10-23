@@ -255,8 +255,13 @@ async function processTVFile(filePath, lib, ctx) {
   const parsed = naming.parseEpisode(lib.path, filePath, ctx.cfg);
   if (!parsed) return { status: 'skipped', title: `${path.basename(filePath)} (couldn't tell which episode)` };
 
-  const show = await resolveShow(parsed, lib.id, ctx);
-  const { season } = parsed;
+  // A folder (or file) the admin moved to a show belongs to that show — as the
+  // season they chose, if they renumbered it (services/showMoves.js).
+  ctx.pins ??= require('./showMoves').overrides();
+  const pinned = ctx.pins.length ? require('./showMoves').overrideFor(filePath, ctx.pins) : null;
+  const pinnedShow = pinned ? db.prepare('SELECT id, title, tmdb_id, tvdb_id FROM tv_shows WHERE id = ?').get(pinned.show_id) : null;
+  const show = pinnedShow || await resolveShow(parsed, lib.id, ctx);
+  const season = pinnedShow && pinned.season != null ? pinned.season : parsed.season;
   let episode = parsed.episode;
   if (episode == null) {
     // An unnumbered extra: next free number in its season (usually Specials).

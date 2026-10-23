@@ -5,7 +5,7 @@ import Navbar from '../components/Navbar';
 import { useNow, formatRuntime, endsAt } from '../components/endsAt';
 import ArtworkPicker from '../components/ArtworkPicker';
 import { PencilIcon } from '../components/AdminPosterActions';
-import { RemoveModal, removedMessage, IconButton, TrashIcon } from '../components/AdminTitleTools';
+import { RemoveModal, removedMessage, IconButton, TrashIcon, MoveIcon, MoveModal } from '../components/AdminTitleTools';
 import { useAuth } from '../context/AuthContext';
 
 export default function TVSeason() {
@@ -19,6 +19,7 @@ export default function TVSeason() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [editPoster, setEditPoster] = useState(false);
   const [removing, setRemoving] = useState(null); // { kind, id, season?, title }
+  const [moving, setMoving] = useState(false);
   const [notice, setNotice] = useState('');
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -98,6 +99,7 @@ export default function TVSeason() {
             {isAdmin && (
               <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
                 <button onClick={() => setEditPoster(true)} style={ADMIN_BTN}><PencilIcon size={15} /> Season Poster</button>
+                <button onClick={() => setMoving(true)} style={ADMIN_BTN}><MoveIcon size={15} /> Move to Another Show…</button>
                 <button onClick={() => setRemoving({ kind: 'season', id: show.id, season, title: `${show.title} – Season ${season}` })} style={{ ...ADMIN_BTN, color: '#c77' }}>
                   <TrashIcon size={15} /> Remove Season…
                 </button>
@@ -201,6 +203,10 @@ export default function TVSeason() {
       <ArtworkPicker mediaType="tv" itemId={id} season={Number(season)}
         onClose={() => setEditPoster(false)}
         onSaved={() => { setEditPoster(false); setRefreshKey(k => k + 1); }} />
+    )}
+    {moving && (
+      <MoveModal mode="season" season={Number(season)} fromShow={{ id: show.id, title: show.title }} onClose={() => setMoving(false)}
+        onMoved={(result) => navigate(`/tv/${result.show.id}/season/${result.season}`, { replace: true })} />
     )}
     {removing && (
       <RemoveModal target={removing} onClose={() => setRemoving(null)}

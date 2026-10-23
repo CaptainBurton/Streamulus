@@ -72,7 +72,10 @@ router.post('/naming/test', requireAdmin, (req, res) => {
 
 function remove(req, res, args) {
   try {
-    const result = library.removeMedia({ ...args, deleteFiles: req.query.files === '1' || req.body?.deleteFiles === true });
+    const deleteFiles = req.query.files === '1' || req.body?.deleteFiles === true;
+    const result = library.removeMedia({ ...args, deleteFiles });
+    require('../services/activity').log(req, { category: 'admin', action: 'title_removed',
+      detail: `${result.title || args.kind}${deleteFiles ? ` — ${result.filesDeleted || 0} file(s) deleted from the server` : ' (files kept)'}` });
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -147,6 +150,69 @@ function editDetails(table, req, res) {
 
 router.put('/movie/:id', requireAdmin, (req, res) => editDetails('movies', req, res));
 router.put('/show/:id', requireAdmin, (req, res) => editDetails('tv_shows', req, res));
+
+// ── Moving seasons between shows ─────────────────────────────────────────────
+
+const showMoves = require('../services/showMoves');
+const { posterUrl } = require('../services/tmdb');
+const isFullUrl = (p) => p && (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('/uploads/'));
+
+// Shows to move a season into: by title, with their seasons (for the picker).
+router.get('/shows', requireAdmin, (req, res) => {
+  const q = String(req.query.search || '').trim();
+  const rows = q
+    ? db.prepare(`SELECT id, title, first_air_date, poster_path FROM tv_shows WHERE title LIKE ? OR title_en LIKE ? ORDER BY title COLLATE NOCASE LIMIT 40`).all(`%${q}%`, `%${q}%`)
+    : db.prepare('SELECT id, title, first_air_date, poster_path FROM tv_shows ORDER BY title COLLATE NOCASE LIMIT 40').all();
+  const seasons = db.prepare('SELECT season, COUNT(*) AS episodes FROM episodes WHERE show_id = ? GROUP BY season ORDER BY season');
+  res.json({
+    shows: rows.map(r => ({
+      id: r.id, title: r.title, year: r.first_air_date ? r.first_air_date.slice(0, 4) : null,
+      poster_url: r.poster_path ? (isFullUrl(r.poster_path) ? r.poster_path : posterUrl(r.poster_path, 'w185')) : null,
+      seasons: seasons.all(r.id),
+    })),
+  });
+});
+
+function move(res, fn) {
+  try {
+    res.json({ success: true, ...fn() });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+}
+
+// { toShowId } or { newShowTitle }, and optionally { targetSeason } to renumber it.
+router.post('/show/:id/season/:season/move', requireAdmin, (req, res) => move(res, () => {
+  const from = db.prepare('SELECT title FROM tv_shows WHERE id = ?').get(req.params.id);
+  const result = showMoves.moveSeason({
+    fromShowId: Number(req.params.id), season: Number(req.params.season),
+    toShowId: req.body?.toShowId ? Number(req.body.toShowId) : null,
+    newShowTitle: req.body?.newShowTitle, targetSeason: req.body?.targetSeason,
+  });
+  require('../services/activity').log(req, { category: 'admin', action: 'season_moved', detail: `${from?.title || 'A show'} Season ${req.params.season} → ${result.show.title} (Season ${result.season})` });
+  return result;
+}));
+
+// Every season of this show into another show.
+router.post('/show/:id/merge', requireAdmin, (req, res) => move(res, () => {
+  const from = db.prepare('SELECT title FROM tv_shows WHERE id = ?').get(req.params.id);
+  const result = showMoves.mergeShow({
+    fromShowId: Number(req.params.id),
+    toShowId: req.body?.toShowId ? Number(req.body.toShowId) : null,
+    newShowTitle: req.body?.newShowTitle,
+  });
+  require('../services/activity').log(req, { category: 'admin', action: 'show_merged', detail: `${from?.title || 'A show'} → ${result.show.title}` });
+  return result;
+}));
+
+// Folders and files moved to another show (Admin › Libraries).
+router.get('/moved', requireAdmin, (req, res) => res.json({ items: showMoves.listOverrides() }));
+
+// Forget one: scans group that folder by its own name again (nothing moves back by itself).
+router.post('/moved/forget', requireAdmin, (req, res) => {
+  if (!showMoves.removeOverride(String(req.body?.path || ''))) return res.status(404).json({ error: 'Not in the list' });
+  res.json({ success: true });
+});
 
 // ── Tidy ─────────────────────────────────────────────────────────────────────
 

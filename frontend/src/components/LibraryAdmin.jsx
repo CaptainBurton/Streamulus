@@ -186,8 +186,10 @@ export function LibraryMaintenance({ flash, onChanged }) {
   const [busy, setBusy] = useState('');
   const [hidden, setHidden] = useState(null);
 
+  const [moved, setMoved] = useState(null);
   const loadHidden = () => axios.get('/api/admin/library/excluded').then(r => setHidden(r.data.items || [])).catch(() => setHidden([]));
-  useEffect(() => { loadHidden(); }, []);
+  const loadMoved = () => axios.get('/api/admin/library/moved').then(r => setMoved(r.data.items || [])).catch(() => setMoved([]));
+  useEffect(() => { loadHidden(); loadMoved(); }, []);
 
   const run = async (name, fn) => {
     setBusy(name);
@@ -209,6 +211,12 @@ export function LibraryMaintenance({ flash, onChanged }) {
     const skipped = data.results.filter(r => r.skipped);
     flash?.(`Removed ${removed} title${removed === 1 ? '' : 's'} whose files are gone${skipped.length ? ` · skipped ${skipped.map(r => `${r.library} (${r.skipped})`).join(', ')}` : ''}`, removed === 0 && skipped.length > 0);
     onChanged?.();
+  });
+
+  const forget = (item) => run(`forget:${item.path}`, async () => {
+    await axios.post('/api/admin/library/moved/forget', { path: item.path });
+    flash?.('Forgotten — scans group that folder by its own name again');
+    loadMoved();
   });
 
   const restore = (item) => run(`restore:${item.path}`, async () => {
@@ -246,6 +254,31 @@ export function LibraryMaintenance({ flash, onChanged }) {
                   <div style={{ fontSize: '12px', color: '#555', fontFamily: 'ui-monospace, Menlo, monospace', overflowWrap: 'anywhere' }}>{item.path}</div>
                 </div>
                 <button style={SMALL} disabled={!!busy} onClick={() => restore(item)}>{busy === `restore:${item.path}` ? 'Restoring…' : 'Restore'}</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ fontSize: '14px', fontWeight: 700, color: '#ddd', marginBottom: '4px' }}>Moved to another show</div>
+        <div style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>
+          Seasons and folders you moved with <em>Move to Another Show</em> or <em>Merge</em> (on a show or season page). Scans keep them with
+          that show. <em>Forget</em> lets scans group the folder by its own name again — nothing moves back by itself.
+        </div>
+        {moved === null ? null : moved.length === 0 ? (
+          <div style={{ fontSize: '13px', color: '#444' }}>Nothing moved.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {moved.map(item => (
+              <div key={item.path} data-moved={item.path} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', color: '#ddd', fontWeight: 600 }}>
+                    → {item.show_title || 'A removed show'}{item.season != null ? ` · as Season ${item.season}` : ''}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#555', fontFamily: 'ui-monospace, Menlo, monospace', overflowWrap: 'anywhere' }}>{item.path}</div>
+                </div>
+                <button style={SMALL} disabled={!!busy} onClick={() => forget(item)}>{busy === `forget:${item.path}` ? 'Forgetting…' : 'Forget'}</button>
               </div>
             ))}
           </div>

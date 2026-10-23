@@ -105,8 +105,10 @@ async function applyMovie(movie, source, id) {
 
 // Episode titles/overviews/stills for the newly matched show — in the
 // background, since a long show can be hundreds of lookups.
-function refreshEpisodes(showId, lookup) {
-  const episodes = db.prepare('SELECT * FROM episodes WHERE show_id = ?').all(showId);
+// onlyIds: just these episodes (e.g. a season moved in from another show).
+function refreshEpisodes(showId, lookup, onlyIds = null) {
+  const episodes = db.prepare('SELECT * FROM episodes WHERE show_id = ?').all(showId)
+    .filter(ep => !onlyIds || onlyIds.includes(ep.id));
   (async () => {
     let updated = 0;
     for (let i = 0; i < episodes.length; i += 4) {
@@ -206,4 +208,16 @@ function refreshRatings() {
   require('./ratings').refreshRatings().catch(err => console.error('[ratings] Failed:', err.message));
 }
 
-module.exports = { search, apply };
+// Episode details for a show's current match (TVDB, then TMDB), or null.
+function episodeLookupFor(show) {
+  if (show?.tvdb_id && tvdb.isConfigured()) return (season, episode) => tvdb.getEpisodeDetails(show.tvdb_id, season, episode);
+  if (show?.tmdb_id) {
+    return async (season, episode) => {
+      const ep = await tmdb.getEpisodeDetails(show.tmdb_id, season, episode);
+      return ep ? { name: ep.name, overview: ep.overview, still_path: ep.still_path } : null;
+    };
+  }
+  return null;
+}
+
+module.exports = { search, apply, refreshEpisodes, episodeLookupFor };

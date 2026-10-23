@@ -2,9 +2,9 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import Navbar, { noteAdminCounts } from '../components/Navbar';
 import RefreshIcon from '../components/RefreshIcon';
-import ProfileAvatar from '../components/ProfileAvatar';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
 import AccountRequests from '../components/AccountRequests';
+import UsersAdmin from '../components/UsersAdmin';
 import AvatarLibraryAdmin from '../components/AvatarLibraryAdmin';
 import FeedbackAdmin from '../components/FeedbackAdmin';
 import GenresAdmin from '../components/GenresAdmin';
@@ -261,7 +261,6 @@ function RefreshMetadata() {
   );
 }
 
-const TAG = (color) => ({ padding: '2px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color, border: `1px solid ${color}55` });
 
 export default function Admin() {
   const [stats, setStats] = useState(null);
@@ -292,7 +291,6 @@ export default function Admin() {
   const [editLib, setEditLib] = useState(null); // { id, path } while editing a library's path
   const [confirmRemoveId, setConfirmRemoveId] = useState(null);
   const confirmRemoveTimer = useRef(null);
-  const [newUser, setNewUser] = useState({ username: '', password: '', email: '', role: 'user' });
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
 
@@ -494,25 +492,6 @@ export default function Admin() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleAddUser = async (e) => {
-    e.preventDefault();
-    try {
-      await axios.post('/api/admin/users', newUser);
-      flash('User created!');
-      setNewUser({ username: '', password: '', email: '', role: 'user' });
-      loadData();
-    } catch (err) { flash(err.response?.data?.error || 'Failed to create user', true); }
-  };
-
-  const handleDeleteUser = async (id) => {
-    if (!confirm('Delete this user?')) return;
-    try {
-      await axios.delete(`/api/admin/users/${id}`);
-      flash('User deleted');
-      loadData();
-    } catch (err) { flash(err.response?.data?.error || 'Failed', true); }
-  };
-
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
   const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'services', 'feedback', 'settings'];
@@ -521,7 +500,6 @@ export default function Admin() {
   const feedbackUnread = feedbackCount ?? stats?.feedbackUnread ?? 0;
   // Accounts people created themselves, waiting for an Admin Passphrase.
   const pendingUsers = users.filter(u => u.status === 'pending');
-  const activeUsers = users.filter(u => u.status !== 'pending');
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
@@ -703,65 +681,7 @@ export default function Admin() {
         {activeTab === 'users' && (
           <div>
             <AccountRequests users={pendingUsers} onChange={loadData} flash={flash} />
-            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '24px', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Add User</h3>
-              <form onSubmit={handleAddUser} style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                <input style={inputStyle} placeholder="Username" value={newUser.username}
-                  onChange={e => setNewUser(u => ({ ...u, username: e.target.value }))}
-                  onFocus={e => { e.target.style.borderColor = '#00c2ff'; }} onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
-                <input style={inputStyle} type="password" placeholder="Password" value={newUser.password}
-                  onChange={e => setNewUser(u => ({ ...u, password: e.target.value }))}
-                  onFocus={e => { e.target.style.borderColor = '#00c2ff'; }} onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
-                <input style={{ ...inputStyle, flex: '0 1 200px' }} type="email" placeholder="Email (optional)" value={newUser.email}
-                  onChange={e => setNewUser(u => ({ ...u, email: e.target.value }))}
-                  onFocus={e => { e.target.style.borderColor = '#00c2ff'; }} onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }} />
-                <select style={selectStyle} value={newUser.role} onChange={e => setNewUser(u => ({ ...u, role: e.target.value }))}>
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button type="submit" style={{ padding: '10px 20px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>Create</button>
-              </form>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {activeUsers.map(user => (
-                <div key={user.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '14px 20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #00c2ff, #7b2fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
-                      {user.username[0].toUpperCase()}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: '600', fontSize: '15px' }}>{user.username}</div>
-                      <div style={{ fontSize: '12px', color: '#555' }}>{user.email || 'No email'}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', background: user.role === 'admin' ? 'rgba(0,194,255,0.15)' : 'rgba(255,255,255,0.06)', color: user.role === 'admin' ? '#00c2ff' : '#888' }}>{user.role}</span>
-                    <button onClick={() => handleDeleteUser(user.id)} style={{ padding: '7px 14px', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', color: '#ff4444', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,68,68,0.1)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
-                      Remove
-                    </button>
-                  </div>
-                </div>
-                {/* Profiles under this account — main profile first */}
-                {user.profiles?.length > 0 && (
-                  <div style={{ marginTop: '12px', marginLeft: '17px', paddingLeft: '22px', borderLeft: '2px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {user.profiles.map(p => (
-                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: '-22px', top: '50%', width: '16px', borderTop: '2px solid rgba(255,255,255,0.08)' }} />
-                        <ProfileAvatar profile={p} size={28} radius="7px" />
-                        <span style={{ fontSize: '14px', color: '#ddd', fontWeight: 500 }}>{p.name}</span>
-                        {p.is_main && <span style={TAG('#00c2ff')}>Main</span>}
-                        {p.is_kids && <span style={TAG('#ffb703')}>Streamling</span>}
-                        {p.has_pin && <span style={TAG('#888')}>🔒 PIN</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                </div>
-              ))}
-            </div>
+            <UsersAdmin flash={flash} onChanged={loadData} />
           </div>
         )}
 

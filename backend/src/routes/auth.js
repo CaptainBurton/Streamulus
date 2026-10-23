@@ -1,9 +1,11 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../database/db');
-const { authenticate, signToken } = require('../middleware/auth');
+const { authenticate, signToken, tokenPayload } = require('../middleware/auth');
 const { ensureMainProfile, publicProfile } = require('../services/profiles');
 const accounts = require('../services/accounts');
+const sessions = require('../services/sessions');
+const activity = require('../services/activity');
 
 const router = express.Router();
 
@@ -29,6 +31,7 @@ function limiter(max, windowMs) {
   };
 }
 const registerLimit = limiter(10, 60 * 60 * 1000); // new accounts per IP per hour
+const failedSignIns = limiter(20, 15 * 60 * 1000); // wrong passwords per IP per 15 minutes
 
 const WAITING = 'Your account needs an Admin Passphrase before you can sign in. Ask your Streamulus admin for one — '
   + 'it usually takes 5–10 minutes — then enter it here. Each passphrase works once, for 1 hour.';
@@ -60,27 +63,46 @@ function activatePending(user, passphrase) {
   return null;
 }
 
+function failed(req, res, status, body, { user, username, reason }) {
+  activity.log(req, { category: 'auth', action: 'sign_in_failed', userId: user?.id ?? null, username: user?.username ?? String(username || '').slice(0, 64), detail: reason });
+  return res.status(status).json(body);
+}
+
 router.post('/login', async (req, res) => {
   const { username, password, passphrase } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  const blocked = { error: 'Too many failed sign-ins from here — try again in 15 minutes' };
 
   const user = findUser(username);
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!user) {
+    if (!failedSignIns(req.ip)) return res.status(429).json(blocked);
+    return failed(req, res, 401, { error: 'Invalid credentials' }, { username, reason: 'No account with that name' });
+  }
 
   const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!valid) {
+    if (!failedSignIns(req.ip)) return res.status(429).json(blocked);
+    return failed(req, res, 401, { error: 'Invalid credentials' }, { user, reason: 'Wrong password' });
+  }
 
+  let method = 'Password';
   if (user.status === 'pending') {
     const failure = activatePending(user, passphrase);
-    if (failure) return res.status(failure.status).json(failure.body);
+    if (failure) return failed(req, res, failure.status, failure.body, { user, reason: failure.body.error });
+    method = 'Admin Passphrase (account activated)';
+    activity.log(req, { category: 'account', action: 'activated', userId: user.id, username: user.username, detail: 'Signed in with an Admin Passphrase' });
+  } else if (user.status === 'disabled') {
+    return failed(req, res, 403, { error: 'This account has been disabled — ask your Streamulus admin', code: 'ACCOUNT_DISABLED' }, { user, reason: 'Account disabled' });
   } else if (user.status !== 'active') {
-    return res.status(403).json({ error: 'This account is not active' });
+    return failed(req, res, 403, { error: 'This account is not active' }, { user, reason: 'Account not active' });
   }
 
   const main = ensureMainProfile(user.id, user.username);
   const profileCount = db.prepare('SELECT COUNT(*) AS n FROM profiles WHERE user_id = ?').get(user.id).n;
+  const sessionId = sessions.create(user.id, req);
+  activity.log(req, { category: 'auth', action: 'sign_in', userId: user.id, username: user.username, detail: method });
   res.json({
-    token: signToken(user, main.id),
+    token: signToken(user, main.id, sessionId),
     user: { id: user.id, username: user.username, role: user.role },
     profile: publicProfile(main),
     // The app shows "Who's watching?" after login when there's more than one profile.
@@ -107,7 +129,8 @@ router.post('/register', async (req, res) => {
   }
   const hash = await bcrypt.hash(password, 12);
   try {
-    db.prepare("INSERT INTO users (username, password_hash, role, status) VALUES (?, ?, 'user', 'pending')").run(name, hash);
+    const r = db.prepare("INSERT INTO users (username, password_hash, role, status) VALUES (?, ?, 'user', 'pending')").run(name, hash);
+    activity.log(req, { category: 'account', action: 'registered', userId: r.lastInsertRowid, username: name, detail: 'Asked for an account (waiting for an Admin Passphrase)' });
   } catch {
     return res.status(409).json({ error: 'That name is already taken — try another' });
   }
@@ -118,7 +141,15 @@ router.get('/me', authenticate, (req, res) => {
   res.json({ user: req.user, profile: publicProfile(req.profile) });
 });
 
+// Signs this device out (its session stops working). Always succeeds, even with
+// no or an expired token.
 router.post('/logout', (req, res) => {
+  const payload = tokenPayload(req);
+  const user = payload && db.prepare('SELECT id, username FROM users WHERE id = ?').get(payload.userId);
+  if (user) {
+    if (payload.sid) sessions.revoke(payload.sid);
+    activity.log(req, { category: 'auth', action: 'sign_out', userId: user.id, username: user.username });
+  }
   res.json({ success: true });
 });
 
@@ -148,6 +179,7 @@ router.put('/account/username', authenticate, async (req, res) => {
   const taken = db.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE AND id != ?').get(username, row.id);
   if (taken) return res.status(409).json({ error: 'That username is already taken' });
   db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, row.id);
+  activity.log(req, { category: 'account', action: 'username_changed', username, detail: `${row.username} → ${username}` });
   res.json({ success: true, username });
 });
 
@@ -159,6 +191,9 @@ router.put('/account/password', authenticate, async (req, res) => {
   const row = await checkAccountChange(req, res);
   if (!row) return;
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await bcrypt.hash(newPassword, 12), row.id);
+  // Other devices sign in again with the new password; this one stays signed in.
+  db.prepare('UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND id IS NOT ?').run(Date.now(), row.id, req.sessionId);
+  activity.log(req, { category: 'account', action: 'password_changed', detail: 'Changed their password (other devices signed out)' });
   res.json({ success: true });
 });
 
