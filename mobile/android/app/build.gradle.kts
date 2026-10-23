@@ -99,6 +99,8 @@ dependencies {
     implementation(libs.androidx.fragment)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.mediarouter)
+    // Forgot password? opens in a Custom Tab (the in-app browser).
+    implementation(libs.androidx.browser)
 
     // Approve a Sign-In: Google's QR scanner (no camera permission needed).
     implementation(libs.play.services.code.scanner)

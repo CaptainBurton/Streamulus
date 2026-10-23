@@ -54,6 +54,7 @@ import com.streamulus.android.ui.components.AppTextField
 import com.streamulus.android.ui.components.BrandMark
 import com.streamulus.android.ui.components.ErrorText
 import com.streamulus.android.ui.components.FormPage
+import com.streamulus.android.ui.components.openInAppBrowser
 import com.streamulus.android.ui.components.QrCode
 import com.streamulus.android.ui.components.attempt
 import com.streamulus.android.ui.components.userMessage
@@ -200,11 +201,12 @@ private fun PasswordSignIn(
             imeAction = if (passphraseNote == null) ImeAction.Go else ImeAction.Next,
             onDone = if (passphraseNote == null) ::signIn else null)
         if (passphraseNote == null) {
-            // Opens the website's Forgot Password page (the reset email links there too).
+            // The website's Forgot Password page, in the in-app browser (the reset email links there too).
+            val context = LocalContext.current
             val uriHandler = LocalUriHandler.current
             session.websiteUrl("/forgot-password")?.let { url ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    TextButton(onClick = { runCatching { uriHandler.openUri(url) } }) { Text("Forgot password?") }
+                    TextButton(onClick = { if (!openInAppBrowser(context, url)) runCatching { uriHandler.openUri(url) } }) { Text("Forgot password?") }
                 }
             }
         }

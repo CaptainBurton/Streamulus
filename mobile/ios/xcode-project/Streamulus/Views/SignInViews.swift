@@ -84,6 +84,7 @@ struct SignInView: View {
     @State private var passphraseNote: String?
     @State private var justCreated = false
     @State private var passphrase = ""
+    @State private var browserPage: BrowserPage?
 
     enum Mode { case password, quickLogin, create }
 
@@ -141,8 +142,8 @@ struct SignInView: View {
                         .padding(14)
                         .glassEffect(.regular, in: .rect(cornerRadius: 14))
                     if passphraseNote == nil, let url = session.websiteURL("/forgot-password") {
-                        // Opens the website's Forgot Password page (the reset email links there too).
-                        Link("Forgot password?", destination: url)
+                        // The website's Forgot Password page, in the in-app browser (the reset email links there too).
+                        Button("Forgot password?") { browserPage = BrowserPage(url: url) }
                             .font(.footnote.weight(.semibold))
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
@@ -207,6 +208,7 @@ struct SignInView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
+        .inAppBrowser($browserPage)
     }
 
     private func signIn() async {
