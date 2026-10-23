@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import ProfileAvatar from './ProfileAvatar';
+import MailIcon from './MailIcon';
 
 // Admin › Users: every account (search, filter, sort), each one's details —
 // name, email, role, disable, new password, signed-in devices (sign one or all
@@ -236,7 +237,9 @@ function AccountTab({ user, self, flash, onChanged, onDeleted, onEmail }) {
           Created {when(sqlTime(user.created_at)) || 'a while ago'} · last signed in {user.last_login_at ? `${ago(user.last_login_at)} (${when(user.last_login_at)})` : 'never'}
         </span>
         {onEmail && user.email && (
-          <button style={BTN} onClick={() => onEmail(user.id)} data-action="email-user">✉ Email {user.username}</button>
+          <button style={{ ...BTN, display: 'inline-flex', alignItems: 'center', gap: '7px' }} onClick={() => onEmail(user.id)} data-action="email-user">
+            <MailIcon size="1.25em" /> Email {user.username}
+          </button>
         )}
       </div>
 

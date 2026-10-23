@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import EmailSettings from './EmailSettings';
+import MailIcon from './MailIcon';
 
 // Admin › Emails: write an email to people (signed by whoever sends it), reword
 // the emails Streamulus sends — with a live preview and test sends — and the
@@ -180,7 +181,10 @@ function Composer({ template, signature, configured, flash, composeTo, onCompose
             Send a personal email to one or more people. Each gets their own copy, with {'{{name}}'} filled in for them, signed by you.
           </p>
         </div>
-        <button style={open ? BTN : PRIMARY} onClick={() => setOpen(o => !o)} data-action="compose">{open ? 'Close' : '✉ Write an Email'}</button>
+        <button style={{ ...(open ? BTN : PRIMARY), display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontSize: '14px' }}
+          onClick={() => setOpen(o => !o)} data-action="compose">
+          {open ? 'Close' : <><MailIcon /> Write an Email</>}
+        </button>
       </div>
 
       {open && (

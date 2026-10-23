@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import QuickLoginRequest from '../components/QuickLoginRequest';
 import BrandMark from '../components/BrandMark';
+import MailIcon from '../components/MailIcon';
 
 const PASSPHRASE_CODES = ['PASSPHRASE_REQUIRED', 'PASSPHRASE_NOT_READY', 'PASSPHRASE_INVALID', 'PASSPHRASE_EXPIRED'];
 
@@ -209,7 +210,7 @@ export default function Login() {
           {mode === 'forgot' && (
             forgot?.sent ? (
               <div style={{ textAlign: 'center' }} data-forgot="sent">
-                <div style={{ width: '56px', height: '56px', margin: '0 auto 16px', borderRadius: '50%', background: 'linear-gradient(135deg, #00c2ff, #7b2fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px' }}>✉️</div>
+                <div style={{ width: '56px', height: '56px', margin: '0 auto 16px', borderRadius: '50%', background: 'linear-gradient(135deg, #00c2ff, #7b2fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><MailIcon size="28px" /></div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#fff', marginBottom: '10px' }}>Check your email</div>
                 <p style={{ color: '#aaa', fontSize: '14px', lineHeight: 1.6, margin: '0 0 8px' }}>
                   We've sent a link to <strong style={{ color: '#fff' }}>{forgot.to}</strong>. Press <strong style={{ color: '#fff' }}>Reset Password</strong> in the email to choose a new password.
