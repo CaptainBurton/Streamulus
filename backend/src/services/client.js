@@ -39,4 +39,34 @@ function describe(req) {
   return { app: 'Web', device: browser && system ? `${browser} on ${system}` : (browser || system || null) };
 }
 
-module.exports = { describe };
+// Home network addresses (and this machine). Tailscale's 100.64.0.0/10 is not
+// here on purpose: a phone on mobile data reaching the server over Tailscale is
+// away from home, and its connection may be relayed.
+function isPrivateIp(ip) {
+  const v4 = ip.replace(/^::ffff:/i, '');
+  const m = v4.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+  const v6 = ip.toLowerCase();
+  return v6 === '::1' || /^f[cd][0-9a-f]{2}:/.test(v6) || /^fe[89ab][0-9a-f]:/.test(v6);
+}
+
+// Whether a request comes from away from home: through the public address
+// (e.g. a Tailscale Funnel *.ts.net name, or the Remote Access address in
+// Settings), or from an address outside the home network. Remote viewers get
+// streams kept under Settings › Transcoding & Streaming › Remote Streaming.
+function isRemote(req) {
+  const host = String(req.get?.('x-forwarded-host') || req.get?.('host') || '').split(',')[0].trim().replace(/:\d+$/, '').toLowerCase();
+  if (host.endsWith('.ts.net')) return true;
+  try {
+    const db = require('../database/db');
+    const saved = db.prepare("SELECT value FROM config WHERE key = 'public_url'").get()?.value;
+    if (saved && host && new URL(saved).hostname.toLowerCase() === host) return true;
+  } catch {}
+  const ip = String(req.ip || '');
+  return !!ip && !isPrivateIp(ip);
+}
+
+module.exports = { describe, isRemote, isPrivateIp };

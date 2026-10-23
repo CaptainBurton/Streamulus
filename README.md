@@ -41,6 +41,8 @@
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
 - **Streaming services** — A Home row of Netflix, Disney+, Prime Video, Apple TV+, HBO Max, Paramount+, Hulu, Crunchyroll, Stan and Binge (logos in the Streamulus colours), each with its own page of titles; the admin picks which titles each service has, or fills them in from TMDB for their country
 - **Streaming** — HLS with smart copy/transcode, buffered progress, Up Next, subtitles (embedded and sidecar files)
+  - 4K is converted at 1080p, converted streams have a bitrate ceiling, and the server converts a few minutes ahead of each player (held, not restarted, when far enough ahead)
+  - **Remote Streaming** limit (Admin › Settings › Transcoding & Streaming, default 10 Mbit/s): people watching through the Tailscale / public address get heavy films converted down so they don't buffer; at home everything plays at full quality
 - **Dual audio** — Pick the audio track in any player (e.g. Japanese or English on dual-audio anime); the choice is remembered per show. Each profile can prefer a language (or the original language) and turn on English subtitles automatically for other languages
 - **Metadata** — TMDB / TVDB / IMDb, Fix Match, custom artwork, English titles for foreign-language titles
 - **Watch progress** — Resume where you left off, Continue Watching with stills, mark as watched

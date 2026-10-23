@@ -18,19 +18,51 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-// Stop FFmpeg for sessions nobody is reading from (player closed, paused for a
-// while, or replaced by a new session after a seek). Without this, every
-// abandoned session kept transcoding to the end of the file at full CPU — on a
-// long movie that is an hour of work per skip, which starves the transcode the
-// viewer is actually watching. A paused session resumes on its next request.
-const IDLE_PAUSE_MS = 60 * 1000;
-setInterval(() => pauseIdleSessions(IDLE_PAUSE_MS), 10 * 1000);
+// Keep FFmpeg a few minutes ahead of the player, and no further. Once it is
+// AHEAD_PAUSE_SEC ahead of the last segment the player asked for it is
+// suspended (SIGSTOP: it keeps its place and uses no CPU), and it carries on
+// (SIGCONT) when the player gets within AHEAD_RESUME_SEC. Before, FFmpeg was
+// killed after a minute without requests — which happens whenever a player has
+// a full buffer — and restarted from scratch when the next segment wasn't
+// there: a cold seek-and-encode exactly when the player needed it, which is
+// what showed up as buffering part-way through films.
+// Sessions nobody asks anything of for IDLE_STOP_MS (player closed, or paused
+// for a while) are stopped altogether; keepAhead() starts them again ahead of
+// the player when it comes back.
+const AHEAD_PAUSE_SEC = 300;
+const AHEAD_RESUME_SEC = 150;
+const IDLE_STOP_MS = 3 * 60 * 1000;
+setInterval(() => manageSessions(), 5 * 1000);
 
+function manageSessions(now = Date.now()) {
+  for (const s of sessions.values()) {
+    if (!s.process) continue;
+    if (s.lastAccess < now - IDLE_STOP_MS) { pauseSession(s, 'idle'); continue; }
+    const aheadSec = (lastWrittenIdx(s) - s.lastRequestedIdx) * s.settings.segmentDuration;
+    if (!s.suspended && aheadSec > AHEAD_PAUSE_SEC) suspendSession(s);
+    else if (s.suspended && aheadSec < AHEAD_RESUME_SEC) resumeSession(s, 'player caught up');
+  }
+}
+
+// Kept for anything that wants idle sessions stopped now.
 function pauseIdleSessions(maxIdleMs) {
   const cutoff = Date.now() - maxIdleMs;
   for (const s of sessions.values()) {
     if (s.process && s.lastAccess < cutoff) pauseSession(s, 'idle');
   }
+}
+
+function suspendSession(session) {
+  if (!session.process || session.suspended) return;
+  try { session.process.kill('SIGSTOP'); session.suspended = true; } catch { return; }
+  console.log(`[transcode] Far enough ahead — holding: ${path.basename(session.filePath)}`);
+}
+
+function resumeSession(session, reason) {
+  if (!session.process || !session.suspended) return;
+  session.suspended = false;
+  try { session.process.kill('SIGCONT'); } catch {}
+  console.log(`[transcode] Carrying on (${reason}): ${path.basename(session.filePath)}`);
 }
 
 // Kill the session's FFmpeg without marking it finished; getSegmentPath
@@ -40,6 +72,9 @@ function pauseSession(session, reason) {
   if (!proc) return;
   session.process = null; // exit handlers ignore processes that are no longer current
   try { proc.kill('SIGTERM'); } catch {}
+  // A suspended process can't act on SIGTERM until it runs again.
+  if (session.suspended) { try { proc.kill('SIGCONT'); } catch {} }
+  session.suspended = false;
   console.log(`[transcode] Paused (${reason}): ${path.basename(session.filePath)} start=${session.startTime}s`);
 }
 
@@ -60,13 +95,14 @@ function runProbe(args) {
   });
 }
 
-const EMPTY_PROBE = { duration: 0, vCodec: null, aCodec: null, video: null, audio: null, audios: [] };
+const EMPTY_PROBE = { duration: 0, bitrate: 0, vCodec: null, aCodec: null, video: null, audio: null, audios: [] };
 
 async function probeFile(filePath) {
   const out = await runProbe(['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filePath]);
   try {
     const parsed = JSON.parse(out);
     const duration = parseFloat(parsed.format?.duration) || 0;
+    const bitrate = parseInt(parsed.format?.bit_rate, 10) || 0; // whole file, bits per second
     const streams = parsed.streams || [];
     // Skip embedded cover art: MKV/MP4 files often carry the poster as a
     // one-frame "video" stream, sometimes listed before the film itself.
@@ -75,7 +111,7 @@ async function probeFile(filePath) {
     const video = videos.find(s => !IMAGE_CODECS.includes(s.codec_name)) || videos[0] || null;
     const audios = streams.filter(s => s.codec_type === 'audio');
     const audio = audios[0] || null;
-    return { duration, vCodec: video?.codec_name || null, aCodec: audio?.codec_name || null, video, audio, audios };
+    return { duration, bitrate, vCodec: video?.codec_name || null, aCodec: audio?.codec_name || null, video, audio, audios };
   } catch { return EMPTY_PROBE; }
 }
 
@@ -139,6 +175,44 @@ function canCopyAudio(audio) {
   return !audio.profile || ['lc', 'he-aac', 'he-aacv2'].includes(audio.profile.toLowerCase());
 }
 
+// A stream's bitrate in kbit/s: what ffprobe reports, else the BPS tag MKV
+// muxers write, else 0 (unknown).
+function streamKbps(stream) {
+  const bps = parseInt(stream?.bit_rate, 10) || parseInt(stream?.tags?.BPS, 10) || parseInt(stream?.tags?.['BPS-eng'], 10) || 0;
+  return Math.round(bps / 1000);
+}
+
+// The video's bitrate in kbit/s. Many MKVs don't say, so fall back to the whole
+// file's bitrate minus its audio tracks (lossless film soundtracks are big).
+function videoKbps({ video, audios = [], bitrate = 0 }) {
+  const own = streamKbps(video);
+  if (own) return own;
+  if (!bitrate) return 0;
+  const audioKbps = audios.reduce((sum, a) => sum + (streamKbps(a) || 640), 0);
+  return Math.max(0, Math.round(bitrate / 1000) - audioKbps);
+}
+
+// Height limits for "Max Resolution". Automatic converts anything bigger than
+// 1080p at 1080p: 4K takes four times the work to convert and the stream
+// would be several times the size, which is what made 4K films buffer.
+const RESOLUTION_HEIGHT = { '2160': 2160, '1080': 1080, '720': 720, '480': 480, original: 1080 };
+
+// The most a converted stream may use at each size, so busy scenes can't
+// spike past what a connection can carry (kbit/s; quality is still CRF).
+function maxrateFor(height) {
+  if (height <= 480) return 3000;
+  if (height <= 720) return 5000;
+  if (height <= 1080) return 10000;
+  return 25000;
+}
+
+// A remote viewer's limit (kbit/s) → the largest picture worth sending at it.
+function heightForKbps(kbps) {
+  if (kbps >= 8000) return 1080;
+  if (kbps >= 4000) return 720;
+  return 480;
+}
+
 function getSettings() {
   const get = (key, fallback) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? fallback;
   return {
@@ -148,20 +222,19 @@ function getSettings() {
     audioBitrate: get('audio_bitrate', '192k'),
     audioChannels: get('audio_channels', '2'),
     segmentDuration: parseInt(get('hls_segment_duration', '4')) || 4,
+    // Viewers away from home (Tailscale / public address): Mbit/s, 0 = no limit.
+    remoteMaxMbps: Math.max(0, parseFloat(get('remote_max_bitrate', '10')) || 0),
   };
 }
 
-function buildVideoFilter(resolution, deinterlace) {
+// maxHeight: shrink to fit a 16:9 box that tall (never enlarges); null = as is.
+function buildVideoFilter(maxHeight, deinterlace) {
   const even = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
   const fmt = 'format=yuv420p';
-  const limits = {
-    '1080': 'scale=1920:1080:force_original_aspect_ratio=decrease',
-    '720':  'scale=1280:720:force_original_aspect_ratio=decrease',
-    '480':  'scale=854:480:force_original_aspect_ratio=decrease',
-  };
+  const box = maxHeight ? `scale='min(iw,${Math.round(maxHeight * 16 / 9)})':'min(ih,${maxHeight})':force_original_aspect_ratio=decrease` : null;
   const filters = [
     ...(deinterlace ? ['yadif'] : []),
-    ...(limits[resolution] ? [limits[resolution]] : []),
+    ...(box ? [box] : []),
     even, fmt,
   ];
   return filters.join(',');
@@ -172,8 +245,10 @@ function buildVideoFilter(resolution, deinterlace) {
 //   audioCopy  — the source audio is AAC that can be copied as-is
 //   vMap/aMap  — FFmpeg -map specifiers for the film's video and audio streams
 //   deinterlace, audioMaxChannels
+//   maxHeight  — shrink converted video to this height (null = as is)
+//   maxrateKbps — bitrate ceiling for converted video
 function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, media = {}) {
-  const { copyMode = false, audioCopy = false, vMap = '0:v:0', aMap = '0:a:0?', deinterlace = false, audioMaxChannels = 0 } = media;
+  const { copyMode = false, audioCopy = false, vMap = '0:v:0', aMap = '0:a:0?', deinterlace = false, audioMaxChannels = 0, maxHeight = null, maxrateKbps = 0 } = media;
   // "Original" channels still has to fit AAC in HLS: at most 5.1.
   const channels = settings.audioChannels !== 'original'
     ? settings.audioChannels
@@ -194,7 +269,9 @@ function buildFfmpegArgs(filePath, startSec, settings, dir, outputTsOffset = 0, 
       '-threads', '0',
       '-profile:v', 'high', '-level:v', '5.1',
       '-pix_fmt', 'yuv420p',
-      '-vf', buildVideoFilter(settings.resolution, deinterlace),
+      '-vf', buildVideoFilter(maxHeight, deinterlace),
+      // A ceiling on top of the quality setting (see maxrateFor / remote limit).
+      ...(maxrateKbps > 0 ? ['-maxrate', `${maxrateKbps}k`, '-bufsize', `${maxrateKbps * 2}k`] : []),
       '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
       // Force keyframes at exact segment boundaries regardless of source framerate.
       // -g/-keyint_min depends on fps (e.g. -g 120 at 24fps = 5s GOPs, wrong for 4s segments).
@@ -235,8 +312,11 @@ const INITIAL_SEGMENT_BUFFER = 1;
 // a stream fails to play, in case copying the source was the problem.
 // audio: which of the file's audio tracks to play (0 = the first; see
 // services/audio.js), for files with more than one, e.g. Japanese and English.
-async function getHLSSession(filePath, startTime = 0, { compat = false, audio: audioTrack = null } = {}) {
-  const variant = (compat ? '#compat' : '') + (audioTrack != null ? `#a${audioTrack}` : '');
+// remote: the viewer is away from home (see services/client.js isRemote) — the
+// stream is kept under the Remote Streaming limit.
+async function getHLSSession(filePath, startTime = 0, { compat = false, audio: audioTrack = null, remote = false } = {}) {
+  const remoteKbps = remote ? Math.round(getSettings().remoteMaxMbps * 1000) : 0;
+  const variant = (compat ? '#compat' : '') + (audioTrack != null ? `#a${audioTrack}` : '') + (remoteKbps ? `#r${remoteKbps}` : '');
   const key = makeKey(filePath + variant, startTime);
 
   // A new stream of this file (the player seeked somewhere outside its current
@@ -262,25 +342,48 @@ async function getHLSSession(filePath, startTime = 0, { compat = false, audio: a
   }
 
   const settings = getSettings();
-  const { duration: totalDuration, vCodec, video, audios } = await probeFile(filePath);
+  const probe = await probeFile(filePath);
+  const { duration: totalDuration, vCodec, video, audios } = probe;
   const audio = (audioTrack != null && audios[audioTrack]) || audios[0] || null;
   const aCodec = audio?.codec_name || null;
   require('./durations').recordDuration(filePath, totalDuration); // for "Ends at" times
+  // How big and how heavy the stream may be: Max Resolution (Automatic = up to
+  // 1080p when converting), and for viewers away from home the Remote
+  // Streaming limit, which also picks a smaller picture for low limits.
+  const srcKbps = videoKbps(probe);
+  const srcHeight = video?.height || 0;
+  const srcWidth = video?.width || 0;
+  const settingHeight = RESOLUTION_HEIGHT[settings.resolution] || 1080;
+  const maxHeight = remoteKbps ? Math.min(settingHeight, heightForKbps(remoteKbps)) : settingHeight;
+  const fitsIn = (h) => !srcHeight || (srcHeight <= h * 1.05 && srcWidth <= h * 16 / 9 * 1.05);
+  const overLimit = remoteKbps > 0 && srcKbps > remoteKbps * 1.1;
   // Copy mode: if the source is H.264 the player can take as-is, skip video
-  // re-encoding (10-50x faster segment generation).
+  // re-encoding (10-50x faster segment generation). A 4K H.264 file is still
+  // copied under Automatic (copying costs nothing); an explicit Max Resolution
+  // converts it, and so does a bitrate over a remote viewer's limit.
   const copyCheck = compat ? { copy: false, reason: 'compatibility mode' }
+    : overLimit ? { copy: false, reason: `${(srcKbps / 1000).toFixed(1)} Mbit/s is over the ${remoteKbps / 1000} Mbit/s remote limit` }
+    : (settings.resolution !== 'original' && !fitsIn(settingHeight)) ? { copy: false, reason: `${srcHeight}p is over the ${settingHeight}p limit` }
     : await canCopyVideo(filePath, video, totalDuration, settings.segmentDuration);
   const copyMode = copyCheck.copy;
   // Only copy audio when both video AND audio can be passthrough.
   const audioCopy = copyMode && canCopyAudio(audio);
+  const outHeight = srcHeight ? Math.min(srcHeight, maxHeight) : maxHeight;
+  const audioKbps = audioCopy ? (streamKbps(audio) || 192) : (parseInt(settings.audioBitrate, 10) || 192);
+  const maxrateKbps = copyMode ? 0
+    : Math.max(1000, Math.min(maxrateFor(outHeight), remoteKbps ? remoteKbps - audioKbps : Infinity));
   const media = {
     copyMode, audioCopy,
     vMap: video ? `0:${video.index}` : '0:v:0',
     aMap: audio ? `0:${audio.index}` : '0:a:0?',
     deinterlace: ['tt', 'bb', 'tb', 'bt'].includes(video?.field_order),
     audioMaxChannels: audio?.channels || 0,
+    maxHeight: fitsIn(maxHeight) ? null : maxHeight,
+    maxrateKbps,
   };
-  console.log(`[transcode] ${copyMode ? 'Copy' : 'Transcode'} mode (${copyCheck.reason}): ${path.basename(filePath)} video=${vCodec} audio=${aCodec}${audios.length > 1 ? ` (track ${audios.indexOf(audio) + 1} of ${audios.length})` : ''} audioCopy=${audioCopy}`);
+  // Roughly what the stream will use, so players can size their buffers.
+  const streamKbpsEstimate = (copyMode ? (srcKbps || 8000) : maxrateKbps) + audioKbps;
+  console.log(`[transcode] ${copyMode ? 'Copy' : 'Transcode'} mode (${copyCheck.reason}): ${path.basename(filePath)} video=${vCodec} ${srcWidth}x${srcHeight} ~${(srcKbps / 1000).toFixed(1)}Mbit/s audio=${aCodec}${audios.length > 1 ? ` (track ${audios.indexOf(audio) + 1} of ${audios.length})` : ''} audioCopy=${audioCopy}${remote ? ` remote≤${remoteKbps ? remoteKbps / 1000 + 'Mbit/s' : 'no limit'}` : ''}${copyMode ? '' : ` → ≤${maxHeight}p ≤${(maxrateKbps / 1000).toFixed(1)}Mbit/s`}`);
 
   const dir = path.join(HLS_BASE, key);
   fs.mkdirSync(dir, { recursive: true });
@@ -294,7 +397,8 @@ async function getHLSSession(filePath, startTime = 0, { compat = false, audio: a
   // Each entry { fromIdx, dir } maps a range of global segment indices to a
   // local directory where FFmpeg wrote seg00000.ts, seg00001.ts, ...
   // Global segment N → seek point with highest fromIdx ≤ N → local file seg{N-fromIdx}.ts
-  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, totalDuration, settings, copyMode, audioCopy, media, ffmpegDone: false, seekPoints: [{ fromIdx: 0, dir }] };
+  const session = { dir, lastAccess: Date.now(), ready: false, readyPromise, process: null, precomputedManifest: null, filePath, startTime, totalDuration, settings, copyMode, audioCopy, media, ffmpegDone: false, seekPoints: [{ fromIdx: 0, dir }],
+    streamKbps: streamKbpsEstimate, lastRequestedIdx: 0, suspended: false };
 
   // Precompute a VOD manifest so Safari and Apple TV see a scrubber instead of
   // a "Live" badge from the very first request.  Copy mode uses approximate
@@ -491,16 +595,87 @@ function resolveSegPath(session, requestedIdx) {
   return path.join(best.dir, `seg${String(requestedIdx - best.fromIdx).padStart(5, '0')}.ts`);
 }
 
-// A segment is complete once FFmpeg lists it in its playlist. FFmpeg creates the
-// .ts file at the start and fills it as it encodes, so "file exists" is not
-// enough — that served half-written segments (often 0 bytes). temp_file avoids
-// it on newer FFmpeg builds; this check works on every build.
+// A segment is complete once FFmpeg has started the next one, or lists it in its
+// playlist. FFmpeg creates the .ts file at the start and fills it as it encodes,
+// so "file exists" is not enough — that served half-written segments (often 0
+// bytes). temp_file avoids it on newer FFmpeg builds; this check works on every
+// build. The next-segment test comes first: builds that can't rename rewrite the
+// playlist in place, so it can be read half-written (and stays that way while
+// FFmpeg is held), and reading a whole film's playlist on every check is slow.
 function isSegmentComplete(segPath) {
   if (!fs.existsSync(segPath)) return false;
+  const m = path.basename(segPath).match(/^seg(\d{5})\.ts$/);
+  if (m) {
+    const next = path.join(path.dirname(segPath), `seg${String(Number(m[1]) + 1).padStart(5, '0')}.ts`);
+    if (fs.existsSync(next) || fs.existsSync(`${next}.tmp`)) return true;
+  }
   try {
     const list = fs.readFileSync(path.join(path.dirname(segPath), 'index.m3u8'), 'utf8');
     return list.split('\n').some(line => line.trim() === path.basename(segPath));
   } catch { return false; }
+}
+
+// Global index of the last segment the current (latest) FFmpeg has written.
+function lastWrittenIdx(session) {
+  const latestSP = session.seekPoints[session.seekPoints.length - 1];
+  let lastLocalIdx = -1;
+  try {
+    for (const f of fs.readdirSync(latestSP.dir)) {
+      const m = f.match(/^seg(\d{5})\.ts$/);
+      if (m) { const n = parseInt(m[1], 10); if (n > lastLocalIdx) lastLocalIdx = n; }
+    }
+  } catch {}
+  return latestSP.fromIdx + lastLocalIdx;
+}
+
+// The player is reading segment idx from disk: make sure more is on the way
+// before it runs out — let a held FFmpeg carry on, or start one again (after
+// an idle stop) from the end of what's written, while there's still a couple
+// of minutes in hand.
+function keepAhead(session, idx) {
+  if (session.ffmpegDone || !session.filePath) return;
+  const latestSP = session.seekPoints[session.seekPoints.length - 1];
+  if (idx < latestSP.fromIdx) return; // reading an older stretch; getSegmentPath handles gaps
+  const written = lastWrittenIdx(session);
+  const aheadSec = (written - idx) * session.settings.segmentDuration;
+  if (aheadSec >= AHEAD_RESUME_SEC) return;
+  if (session.process) resumeSession(session, 'player caught up');
+  else restartAt(session, written + 1, 'reading ahead');
+}
+
+// Start FFmpeg at global segment `idx` (after a seek, or to carry on after it
+// was stopped). Stops the session's current FFmpeg.
+function restartAt(session, idx, reason) {
+  const seekSec = session.startTime + idx * session.settings.segmentDuration;
+  if (session.totalDuration > 0 && seekSec >= session.totalDuration) return false;
+  // Each restart gets its own subdirectory so segments are always named from
+  // seg00000.ts — no need for FFmpeg's -start_number option. Unique per
+  // restart so returning to an earlier position never rewrites files that an
+  // older playlist already lists as complete.
+  const seekDir = path.join(session.dir, `seek_${idx}_${Date.now()}`);
+  fs.mkdirSync(seekDir, { recursive: true });
+  console.log(`[transcode] ${reason}: t=${seekSec}s → seg${String(idx).padStart(5, '0')}`);
+  pauseSession(session, reason);
+  session.seekPoints.push({ fromIdx: idx, dir: seekDir });
+  session.ffmpegDone = false;
+  // Timestamps must match the player's timeline, which starts at 0 where this
+  // session started (the initial FFmpeg's output starts at 0) — not the file's
+  // own time. Using seekSec put every skip in a resumed stream off by the
+  // resume position, so the player stalled waiting for the right timestamps.
+  const tsOffset = idx * session.settings.segmentDuration;
+  const proc = spawn('ffmpeg',
+    buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, tsOffset, session.media),
+    { stdio: ['ignore', 'ignore', 'pipe'] });
+  session.process = proc;
+  proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
+  proc.on('error', err => console.error(`[transcode] seek spawn error: ${err.message}`));
+  proc.on('exit', code => {
+    if (session.process !== proc) return; // stopped on purpose — not finished
+    session.process = null;
+    session.ffmpegDone = true;
+    if (code) console.error(`[transcode] seek FFmpeg exit ${code}`);
+  });
+  return true;
 }
 
 async function getSegmentPath(key, segmentName) {
@@ -510,21 +685,18 @@ async function getSegmentPath(key, segmentName) {
 
   if (!/^seg\d{5}\.ts$/.test(segmentName)) return null;
   const requestedIdx = parseInt(segmentName.match(/\d+/)[0], 10);
+  session.lastRequestedIdx = requestedIdx;
 
   // Fast path: file already on disk
   const fastPath = resolveSegPath(session, requestedIdx);
-  if (fastPath && isSegmentComplete(fastPath)) return fastPath;
+  if (fastPath && isSegmentComplete(fastPath)) {
+    keepAhead(session, requestedIdx);
+    return fastPath;
+  }
 
   // Find where the current (latest) FFmpeg process has gotten to
   const latestSP = session.seekPoints[session.seekPoints.length - 1];
-  let lastLocalIdx = -1;
-  try {
-    for (const f of fs.readdirSync(latestSP.dir)) {
-      const m = f.match(/^seg(\d{5})\.ts$/);
-      if (m) { const n = parseInt(m[1], 10); if (n > lastLocalIdx) lastLocalIdx = n; }
-    }
-  } catch {}
-  const lastGlobalIdx = latestSP.fromIdx + lastLocalIdx;
+  const lastGlobalIdx = lastWrittenIdx(session);
 
   // Restart FFmpeg when:
   //  a) Forward seek: requested segment is far ahead of what FFmpeg has written
@@ -540,35 +712,9 @@ async function getSegmentPath(key, segmentName) {
   );
 
   if (needsRestart) {
-    const seekSec = session.startTime + requestedIdx * session.settings.segmentDuration;
-    if (session.totalDuration > 0 && seekSec >= session.totalDuration) return null;
-    // Each restart gets its own subdirectory so segments are always named from
-    // seg00000.ts — no need for FFmpeg's -start_number option. Unique per
-    // restart so returning to an earlier position never rewrites files that an
-    // older playlist already lists as complete.
-    const seekDir = path.join(session.dir, `seek_${requestedIdx}_${Date.now()}`);
-    fs.mkdirSync(seekDir, { recursive: true });
-    console.log(`[transcode] Seek: t=${seekSec}s → seg${String(requestedIdx).padStart(5,'0')} (prev lastGlobal=${lastGlobalIdx})`);
-    pauseSession(session, 'seek');
-    session.seekPoints.push({ fromIdx: requestedIdx, dir: seekDir });
-    session.ffmpegDone = false;
-    // Timestamps must match the player's timeline, which starts at 0 where this
-    // session started (the initial FFmpeg's output starts at 0) — not the file's
-    // own time. Using seekSec put every skip in a resumed stream off by the
-    // resume position, so the player stalled waiting for the right timestamps.
-    const tsOffset = requestedIdx * session.settings.segmentDuration;
-    const proc = spawn('ffmpeg',
-      buildFfmpegArgs(session.filePath, seekSec, session.settings, seekDir, tsOffset, session.media),
-      { stdio: ['ignore', 'ignore', 'pipe'] });
-    session.process = proc;
-    proc.stderr.on('data', d => process.stderr.write(`[ffmpeg] ${d}`));
-    proc.on('error', err => console.error(`[transcode] seek spawn error: ${err.message}`));
-    proc.on('exit', code => {
-      if (session.process !== proc) return; // stopped on purpose — not finished
-      session.process = null;
-      session.ffmpegDone = true;
-      if (code) console.error(`[transcode] seek FFmpeg exit ${code}`);
-    });
+    if (!restartAt(session, requestedIdx, `Seek (was at seg${String(lastGlobalIdx).padStart(5, '0')})`)) return null;
+  } else {
+    resumeSession(session, 'segment wanted'); // in case it was being held
   }
 
   // Wait up to 30s for FFmpeg to write the segment
@@ -601,4 +747,12 @@ function getSessionTotalDuration(key) {
   return sessions.get(key)?.totalDuration ?? 0;
 }
 
-module.exports = { getHLSSession, getManifestContent, getSegmentPath, canDirectPlay, getSessionTotalDuration, pauseIdleSessions, probeFile };
+function getSessionStreamKbps(key) {
+  return sessions.get(key)?.streamKbps ?? 0;
+}
+
+module.exports = {
+  getHLSSession, getManifestContent, getSegmentPath, canDirectPlay, getSessionTotalDuration, getSessionStreamKbps,
+  pauseIdleSessions, manageSessions, probeFile, videoKbps, buildVideoFilter,
+  _sessions: sessions, // for tests
+};

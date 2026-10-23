@@ -287,7 +287,7 @@ export default function Admin() {
   const [encSettings, setEncSettings] = useState({
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
     audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4', progressMinSeconds: '10',
-    upNextSeconds: '30',
+    upNextSeconds: '30', remoteMaxBitrate: '10',
   });
   const [newLib, setNewLib] = useState({ name: '', path: '', type: 'movies' });
   const [editLib, setEditLib] = useState(null); // { id, path } while editing a library's path
@@ -336,6 +336,7 @@ export default function Admin() {
         hlsSegmentDuration: configRes.data.hlsSegmentDuration || '4',
         progressMinSeconds: configRes.data.progressMinSeconds || '10',
         upNextSeconds: configRes.data.upNextSeconds || '30',
+        remoteMaxBitrate: configRes.data.remoteMaxBitrate ?? '10',
       });
       setPreferredLanguage(configRes.data.preferredLanguage || 'en');
       setPreferredCountry(configRes.data.preferredCountry || 'US');
@@ -963,7 +964,7 @@ export default function Admin() {
                 {
                   label: 'Max Resolution',
                   key: 'videoResolution',
-                  options: { 'original': 'Original (no limit)', '1080': '1080p', '720': '720p', '480': '480p' },
+                  options: { 'original': 'Automatic (4K converted at 1080p)', '2160': '4K (needs a fast server)', '1080': '1080p', '720': '720p', '480': '480p' },
                 },
               ].map(({ label, key, options }, i, arr) => (
                 <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
@@ -1010,6 +1011,32 @@ export default function Admin() {
 
               {/* STREAMING section */}
               <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '12px', marginTop: '16px' }}>Streaming</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Remote Streaming</span>
+                  <div style={{ fontSize: '12px', color: '#555', marginTop: '3px', lineHeight: 1.5 }}>
+                    For people watching away from home (through your Tailscale / public address). Films heavier than this are converted
+                    down so they don't buffer. At home, videos always play at full quality.
+                  </div>
+                </div>
+                <select
+                  data-setting="remoteMaxBitrate"
+                  value={encSettings.remoteMaxBitrate}
+                  onChange={e => setEncSettings(s => ({ ...s, remoteMaxBitrate: e.target.value }))}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none', flexShrink: 0 }}
+                >
+                  {!['0', '20', '15', '10', '6', '4', '2'].includes(String(encSettings.remoteMaxBitrate)) && (
+                    <option value={encSettings.remoteMaxBitrate}>{encSettings.remoteMaxBitrate} Mbit/s</option>
+                  )}
+                  <option value="20">Up to 20 Mbit/s (1080p, best)</option>
+                  <option value="15">Up to 15 Mbit/s (1080p)</option>
+                  <option value="10">Up to 10 Mbit/s (1080p, default)</option>
+                  <option value="6">Up to 6 Mbit/s (720p)</option>
+                  <option value="4">Up to 4 Mbit/s (720p, slow connections)</option>
+                  <option value="2">Up to 2 Mbit/s (480p, mobile data)</option>
+                  <option value="0">No limit (original quality)</option>
+                </select>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Segment Size</span>
                 <select

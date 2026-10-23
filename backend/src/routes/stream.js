@@ -5,7 +5,8 @@ const os = require('os');
 const { spawn } = require('child_process');
 const db = require('../database/db');
 const { authenticate } = require('../middleware/auth');
-const { getHLSSession, getManifestContent, getSegmentPath, getSessionTotalDuration } = require('../services/transcoder');
+const { getHLSSession, getManifestContent, getSegmentPath, getSessionTotalDuration, getSessionStreamKbps } = require('../services/transcoder');
+const { isRemote } = require('../services/client');
 const { posterUrl, backdropUrl } = require('../services/tmdb');
 const { resolveFilePath } = require('../services/path-repair');
 const { kidsScope, canAccess } = require('../services/kids');
@@ -575,9 +576,10 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, 
   try {
     const { tracks, selected } = await audio.resolve(req, type, id, filePath, req.query.audio);
     const audioTrack = tracks.length > 1 && selected ? selected.index : null;
-    console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s${compat ? ' (compat)' : ''}${audioTrack != null ? ` audio=${selected.label}` : ''}`);
+    const remote = isRemote(req); // away from home: kept under the Remote Streaming limit
+    console.log(`[stream] HLS manifest: ${path.basename(filePath)} start=${start}s${compat ? ' (compat)' : ''}${audioTrack != null ? ` audio=${selected.label}` : ''}${remote ? ' (remote)' : ''}`);
     activity.logWatch(req, type, id); // "started watching" (at most every 30 min per title)
-    const key = await getHLSSession(filePath, start, { compat, audio: audioTrack });
+    const key = await getHLSSession(filePath, start, { compat, audio: audioTrack, remote });
     if (res.writableEnded) return; // client disconnected while transcoding
     const segBase = `/api/stream/hls/${type}/${id}/segment?token=${req.query.token}&key=${key}`;
     const manifest = getManifestContent(key, segBase);
@@ -585,8 +587,11 @@ router.get('/hls/:type/:id/manifest.m3u8', authenticate, guardKids, async (req, 
     const totalDur = getSessionTotalDuration(key);
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Access-Control-Expose-Headers', 'X-Total-Duration, X-Audio-Track');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Total-Duration, X-Audio-Track, X-Stream-Bitrate');
     if (totalDur > 0) res.setHeader('X-Total-Duration', String(Math.round(totalDur)));
+    // Roughly how heavy the stream is (bit/s), so the web player can size its buffer.
+    const kbps = getSessionStreamKbps(key);
+    if (kbps > 0) res.setHeader('X-Stream-Bitrate', String(kbps * 1000));
     if (audioTrack != null) res.setHeader('X-Audio-Track', String(audioTrack));
     res.send(manifest);
   } catch (err) {

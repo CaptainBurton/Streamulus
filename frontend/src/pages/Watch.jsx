@@ -321,6 +321,20 @@ export default function Watch() {
               const d = parseFloat(data.networkDetails?.getResponseHeader?.('X-Total-Duration') || '0');
               if (d > 0) setTotalFileDur(prev => d > prev ? d : prev);
             } catch {}
+            // Size the buffer to the stream. Browsers hold roughly 150 MB of video
+            // per player; 120 s ahead + 60 s behind of a 30 Mbit/s film is ~700 MB,
+            // so the browser kept refusing segments ("buffer full"), hls.js threw
+            // them away and fetched them again — pauses mid-film. Keep ~110 MB
+            // ahead and ~25 MB behind, between 30–120 s and 10–60 s.
+            try {
+              const bps = parseFloat(data.networkDetails?.getResponseHeader?.('X-Stream-Bitrate') || '0');
+              if (bps > 0) {
+                const ahead = Math.round(Math.min(120, Math.max(30, (110e6 * 8) / bps)));
+                const behind = Math.round(Math.min(60, Math.max(10, (25e6 * 8) / bps)));
+                Object.assign(hls.config, { maxBufferLength: ahead, maxMaxBufferLength: Math.max(ahead, 60), backBufferLength: behind });
+                addLog(`Stream ≈${(bps / 1e6).toFixed(1)} Mbit/s → buffer ${ahead}s ahead, ${behind}s behind`);
+              }
+            } catch {}
           });
 
           hls.on(Hls.Events.MANIFEST_PARSED, () => {

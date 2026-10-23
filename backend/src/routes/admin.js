@@ -173,6 +173,7 @@ router.get('/config', requireAdmin, (req, res) => {
     audioBitrate:       get('audio_bitrate')        ?? '192k',
     audioChannels:      get('audio_channels')       ?? '2',
     hlsSegmentDuration: get('hls_segment_duration') ?? '4',
+    remoteMaxBitrate:   get('remote_max_bitrate')   ?? '10',
     progressMinSeconds: get('progress_min_seconds') ?? '10',
     upNextSeconds:      get('up_next_seconds')      ?? '30',
     featuredRotateSeconds: get('featured_rotate_seconds') ?? '120',
@@ -185,7 +186,7 @@ router.put('/config', requireAdmin, (req, res) => {
   const {
     tmdbApiKey, tvdbApiKey, omdbApiKey, imdbApiKey,
     movieSourceOrder, tvSourceOrder,
-    videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration,
+    videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration, remoteMaxBitrate,
     progressMinSeconds, upNextSeconds, preferredLanguage, preferredCountry,
     featuredRotateSeconds,
   } = req.body;
@@ -195,6 +196,9 @@ router.put('/config', requireAdmin, (req, res) => {
     if (!/^\d+$/.test(raw) || secs < 10 || secs > 86400) {
       return res.status(400).json({ error: 'Featured movie interval must be a whole number of seconds between 10 and 86400 (24 hours)' });
     }
+  }
+  if (remoteMaxBitrate !== undefined && !(Number(remoteMaxBitrate) >= 0 && Number(remoteMaxBitrate) <= 200)) {
+    return res.status(400).json({ error: 'Remote streaming limit must be between 0 (no limit) and 200 Mbit/s' });
   }
   if (upNextSeconds !== undefined) {
     const secs = parseInt(upNextSeconds);
@@ -213,6 +217,7 @@ router.put('/config', requireAdmin, (req, res) => {
   if (audioBitrate     !== undefined) upsert.run('audio_bitrate',      audioBitrate);
   if (audioChannels    !== undefined) upsert.run('audio_channels',     audioChannels);
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
+  if (remoteMaxBitrate !== undefined) upsert.run('remote_max_bitrate', String(Number(remoteMaxBitrate)));
   if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
   if (upNextSeconds !== undefined) upsert.run('up_next_seconds', String(parseInt(upNextSeconds)));
   if (featuredRotateSeconds !== undefined) upsert.run('featured_rotate_seconds', String(Number(String(featuredRotateSeconds).trim())));
