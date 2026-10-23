@@ -39,6 +39,28 @@ button {
   font-family: inherit;
 }
 
+/* Hover and press feedback for every button. Nearly all buttons here are styled
+   inline, and inline styles can't have :hover, so this sits on top of whatever a
+   button looks like: a touch brighter with a faint highlight on hover, pressed in
+   slightly on click. :where() gives it no weight, so a button's own hover styles
+   (classes or inline) always win. */
+:where(button) {
+  transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+@media (hover: hover) {
+  :where(button:not(:disabled):hover) {
+    filter: brightness(1.15);
+    box-shadow: inset 0 0 0 100vmax rgba(255, 255, 255, 0.07);
+  }
+}
+:where(button:not(:disabled):active) {
+  filter: brightness(0.95);
+  transform: scale(0.97);
+}
+:where(button:disabled) {
+  cursor: not-allowed;
+}
+
 input, textarea, select {
   font-family: inherit;
 }

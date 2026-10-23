@@ -517,9 +517,10 @@ export default function Admin() {
             tabs overlapping a border, so nothing sticks out and the bar can't scroll
             up/down. On narrow screens the tabs can still be swiped sideways. */}
         <div className="admin-tabs" style={{ display: 'flex', gap: '4px', marginBottom: '32px', boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.06)', overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none', overscrollBehaviorX: 'contain' }}>
-          <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
+          {/* Hover: lighter text (the shared button highlight gives the tab a rounded background) */}
+          <style>{`.admin-tabs::-webkit-scrollbar { display: none; } .admin-tab:not(.active):hover { color: #bbb !important; }`}</style>
           {tabs.map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', whiteSpace: 'nowrap', flexShrink: 0, transition: 'color 0.15s' }}>
+            <button key={tab} className={`admin-tab${activeTab === tab ? ' active' : ''}`} onClick={() => setActiveTab(tab)} style={{ padding: '10px 20px', background: 'transparent', border: 'none', borderBottom: activeTab === tab ? '2px solid #00c2ff' : '2px solid transparent', borderRadius: '8px 8px 0 0', color: activeTab === tab ? '#00c2ff' : '#666', fontSize: '14px', fontWeight: '600', cursor: 'pointer', textTransform: 'capitalize', whiteSpace: 'nowrap', flexShrink: 0, transition: 'color 0.15s, box-shadow 0.15s' }}>
               {TAB_LABELS[tab] || tab}
               {tab === 'users' && pendingUsers.length > 0 && (
                 <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{pendingUsers.length}</span>
