@@ -46,7 +46,7 @@ final class Session: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: Self.serverKey), let url = URL(string: saved) {
             homeURL = url
             serverURL = url
-            api = APIClient(baseURL: url, token: Keychain.get(Self.tokenKey))
+            api = APIClient(baseURL: url, token: Keychain.get(Self.tokenKey), clientName: Self.clientName)
         } else if let preset = Self.presetServer {
             // Built-in server (see StreamulusServerURL in Info.plist), so the app just works.
             homeURL = preset
@@ -103,7 +103,7 @@ final class Session: ObservableObject {
         guard let url = URL(string: address), url.host != nil else {
             throw APIError(status: 0, message: "That doesn't look like a server address.", code: nil)
         }
-        let client = APIClient(baseURL: url)
+        let client = APIClient(baseURL: url, clientName: Self.clientName)
         _ = try await client.get("/api/health", as: HealthResponse.self)
         UserDefaults.standard.set(url.absoluteString, forKey: Self.serverKey)
         UserDefaults.standard.removeObject(forKey: Self.publicKey) // another server's public address
@@ -146,7 +146,7 @@ final class Session: ObservableObject {
     private func use(_ url: URL) {
         guard serverURL != url || api == nil else { return }
         serverURL = url
-        api = APIClient(baseURL: url, token: Keychain.get(Self.tokenKey))
+        api = APIClient(baseURL: url, token: Keychain.get(Self.tokenKey), clientName: Self.clientName)
     }
 
     /// The current address stopped answering (left home, or came back): try the other one.
@@ -197,6 +197,10 @@ final class Session: ObservableObject {
     }
 
     func signOut() {
+        // End this device's sign-in on the server too (not waited for).
+        if let client = api, client.token != nil {
+            Task { _ = try? await client.post("/api/auth/logout", as: Empty.self) }
+        }
         Keychain.delete(Self.tokenKey)
         api?.token = nil
         user = nil
@@ -321,6 +325,15 @@ final class Session: ObservableObject {
         case .tv: return "appletv"
         default: return "iphone"
         }
+    }
+
+    /// "iOS 1.6 (8) · iPhone", "iOS 1.6 (8) · iPad" or "tvOS 1.33 (34) · Apple TV".
+    static var clientName: String {
+        #if os(tvOS)
+        return "tvOS \(appVersion) · Apple TV"
+        #else
+        return "iOS \(appVersion) · \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")"
+        #endif
     }
 
     /// e.g. "1.3 (4)".

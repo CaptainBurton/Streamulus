@@ -19,6 +19,9 @@ struct Empty: Decodable {}
 final class APIClient {
     let baseURL: URL
     var token: String?
+    /// "iOS 1.6 (8) · iPhone" — which app and device this is, for the admin's list
+    /// of signed-in devices and the activity log (X-Streamulus-Client).
+    var clientName: String?
 
     private let session: URLSession
     /// For requests the server may take minutes to answer (subtitle extraction).
@@ -29,9 +32,10 @@ final class APIClient {
     }()
     private let decoder = JSONDecoder()
 
-    init(baseURL: URL, token: String? = nil) {
+    init(baseURL: URL, token: String? = nil, clientName: String? = nil) {
         self.baseURL = baseURL
         self.token = token
+        self.clientName = clientName
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         session = URLSession(configuration: config)
@@ -98,6 +102,7 @@ final class APIClient {
         let urlSession = timeout == nil ? session : Self.longSession
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let clientName { request.setValue(clientName, forHTTPHeaderField: "X-Streamulus-Client") }
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

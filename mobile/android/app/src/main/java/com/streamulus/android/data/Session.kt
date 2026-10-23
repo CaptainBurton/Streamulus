@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.streamulus.android.R
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -70,7 +72,7 @@ class Session(private val app: Application) {
         if (saved != null) {
             homeUrl = saved
             serverUrl = saved
-            api = ApiClient(saved, tokens.token)
+            api = ApiClient(saved, tokens.token, clientName)
         } else {
             presetServer?.let { homeUrl = it }
         }
@@ -126,7 +128,7 @@ class Session(private val app: Application) {
     /** Accepts "192.168.1.20:8096", "http://nas.local:8096/", "https://name.tailnet.ts.net", etc. */
     suspend fun setServer(text: String) {
         val url = normalize(text) ?: throw ApiException(0, "That doesn't look like a server address.")
-        val client = ApiClient(url)
+        val client = ApiClient(url, clientName = clientName)
         client.getObject("/api/health")
         prefs.edit().putString(SERVER, url.toString()).remove(PUBLIC).apply()
         tokens.token = null
@@ -165,7 +167,7 @@ class Session(private val app: Application) {
     private fun use(url: HttpUrl) {
         if (serverUrl == url && api != null) return
         serverUrl = url
-        api = ApiClient(url, tokens.token)
+        api = ApiClient(url, tokens.token, clientName)
     }
 
     /** The current address stopped answering (left home, or came back): try the other one. */
@@ -218,6 +220,10 @@ class Session(private val app: Application) {
     }
 
     fun signOut() {
+        // End this device's sign-in on the server too (not waited for).
+        api?.takeIf { it.token != null }?.let { client ->
+            MainScope().launch { runCatching { client.post("/api/auth/logout") } }
+        }
         tokens.token = null
         api?.token = null
         user = null
@@ -324,6 +330,10 @@ class Session(private val app: Application) {
     suspend fun markFeedbackRead(id: Int) {
         runCatching { post("/api/feedback/$id/read") }
     }
+
+    /** "Android 1.0.10 · Pixel 9" — shown to the admin under the account's devices. */
+    val clientName: String
+        get() = "Android ${appVersion.substringBefore(" (")} · ${Build.MODEL ?: "Android device"}"
 
     /** e.g. "1.0 (1)". */
     val appVersion: String

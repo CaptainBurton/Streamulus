@@ -57,7 +57,8 @@ suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation 
 }
 
 /** Thin JSON client for the Streamulus REST API. */
-class ApiClient(val baseUrl: HttpUrl, @Volatile var token: String? = null) {
+/** clientName: "Android 1.0.10 · Pixel 9" — which app and device this is, for the admin's device list (X-Streamulus-Client). */
+class ApiClient(val baseUrl: HttpUrl, @Volatile var token: String? = null, val clientName: String? = null) {
 
     /** Absolute URL for a server path such as "/api/movies" (each part is encoded). */
     fun url(path: String, query: Map<String, String> = emptyMap()): HttpUrl {
@@ -111,6 +112,7 @@ class ApiClient(val baseUrl: HttpUrl, @Volatile var token: String? = null) {
         }
         val builder = Request.Builder().url(url).method(method, requestBody).header("Accept", "application/json")
         token?.let { builder.header("Authorization", "Bearer $it") }
+        clientName?.let { builder.header("X-Streamulus-Client", it) }
         return builder.build()
     }
 
