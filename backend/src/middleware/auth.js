@@ -59,7 +59,7 @@ function authenticate(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
-  const user = db.prepare('SELECT id, username, role, status, token_version FROM users WHERE id = ?').get(payload.userId);
+  const user = db.prepare('SELECT id, username, email, role, status, token_version FROM users WHERE id = ?').get(payload.userId);
   if (!user) return res.status(401).json({ error: 'User not found' });
   // Only active accounts get tokens; an admin may have disabled it since.
   if (user.status !== 'active') {

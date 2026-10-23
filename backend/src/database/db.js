@@ -323,6 +323,17 @@ db.exec(`CREATE TABLE IF NOT EXISTS user_sessions (
 db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id)');
 try { db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN last_login_at INTEGER'); } catch {}
+// Password reset links (routes/auth.js): only a hash of each token is kept; a
+// link works once, for an hour.
+db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER,
+  ip TEXT
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id)');
 // What happened, for Admin › Users › Activity (services/activity.js).
 db.exec(`CREATE TABLE IF NOT EXISTS activity_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

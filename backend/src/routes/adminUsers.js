@@ -87,6 +87,8 @@ users.post('/', requireAdmin, async (req, res) => {
   if (!username) return res.status(400).json({ error: "Username must be 3–32 characters: letters, numbers, spaces and . _ ' -" });
   if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   if (!['user', 'admin'].includes(role)) return res.status(400).json({ error: 'Role must be user or admin' });
+  if (email && !require('../services/mailer').validEmail(email)) return res.status(400).json({ error: "That doesn't look like an email address" });
+  if (email && db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email)) return res.status(409).json({ error: 'Another account already uses that email address' });
   if (db.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE').get(username)) return res.status(409).json({ error: 'Username already exists' });
   const hash = await bcrypt.hash(String(password), 12);
   const result = db.prepare('INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)').run(username, email || null, hash, role);
@@ -114,6 +116,10 @@ users.put('/:id', requireAdmin, (req, res) => {
   }
   if (b.email !== undefined) {
     const email = String(b.email || '').trim().slice(0, 200) || null;
+    if (email && !require('../services/mailer').validEmail(email)) return res.status(400).json({ error: "That doesn't look like an email address" });
+    if (email && db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE AND id != ?').get(email, target.id)) {
+      return res.status(409).json({ error: 'Another account already uses that email address' });
+    }
     if (email !== target.email) { updates.email = email; changes.push(email ? `email ${email}` : 'email removed'); }
   }
   if (b.role !== undefined) {

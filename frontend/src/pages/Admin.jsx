@@ -5,6 +5,7 @@ import RefreshIcon from '../components/RefreshIcon';
 import StreamlingsAdmin from '../components/StreamlingsAdmin';
 import AccountRequests from '../components/AccountRequests';
 import UsersAdmin from '../components/UsersAdmin';
+import EmailSettings from '../components/EmailSettings';
 import AvatarLibraryAdmin from '../components/AvatarLibraryAdmin';
 import FeedbackAdmin from '../components/FeedbackAdmin';
 import GenresAdmin from '../components/GenresAdmin';
@@ -1151,6 +1152,9 @@ export default function Admin() {
                 Save Regional Settings
               </button>
             </div>
+
+            {/* Email (password resets) */}
+            <EmailSettings flash={flash} />
 
             {/* Refresh Metadata */}
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '28px' }}>

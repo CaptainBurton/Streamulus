@@ -364,7 +364,21 @@ function AccountSection({ user, onChanged, say, errText }) {
   const [cur, setCur] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [email, setEmail] = useState(user?.email || '');
+  const [emailPw, setEmailPw] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => setEmail(user?.email || ''), [user?.email]);
+
+  const saveEmail = async (e) => {
+    e.preventDefault(); setBusy(true);
+    try {
+      await axios.put('/api/auth/account/email', { email: email.trim(), currentPassword: emailPw });
+      await onChanged();
+      say(email.trim() ? 'Email saved — password reset links will go there' : 'Email removed');
+      setEmailPw('');
+    } catch (err) { say(errText(err, "Couldn't save your email"), true); }
+    setBusy(false);
+  };
 
   const saveUsername = async (e) => {
     e.preventDefault(); setBusy(true);
@@ -398,6 +412,15 @@ function AccountSection({ user, onChanged, say, errText }) {
           <input style={{ ...INPUT, flex: '1 1 180px' }} type="password" placeholder="Current password" value={userPw} onChange={e => setUserPw(e.target.value)} autoComplete="current-password" />
           <Btn type="submit" disabled={busy || !username.trim() || !userPw}>Change Username</Btn>
         </div>
+      </form>
+      <form onSubmit={saveEmail} style={{ marginBottom: '22px' }}>
+        <div style={LABEL}>Email address <span style={{ color: '#555', fontWeight: 400 }}>· {user?.email ? `currently ${user.email}` : 'not set'}</span></div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <input style={{ ...INPUT, flex: '1 1 180px' }} type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" aria-label="Email address" />
+          <input style={{ ...INPUT, flex: '1 1 180px' }} type="password" placeholder="Current password" value={emailPw} onChange={e => setEmailPw(e.target.value)} autoComplete="current-password" aria-label="Current password for email" />
+          <Btn type="submit" disabled={busy || !emailPw || email.trim() === (user?.email || '')}>Save Email</Btn>
+        </div>
+        <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>Lets you reset your password with <em>Forgot password?</em> on the sign-in page if you forget it.</div>
       </form>
       <form onSubmit={savePassword}>
         <div style={LABEL}>Password</div>

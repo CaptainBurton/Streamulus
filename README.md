@@ -35,6 +35,7 @@
 - **Profile pictures** — Upload a photo, or choose from picture categories the admin provides (e.g. "The Simpsons"), each set for Streamers, Streamlings or both
 - **Quick Login** — Sign a TV or phone in by approving a code from a device that's already signed in
 - **Create an account** — On the web or in the iPhone / iPad app (display name + password); an admin approves it with a single-use **Admin Passphrase** that works for 1 hour
+- **Forgot password** — *Forgot password?* on the sign-in page emails a branded reset link (sent from Gmail by default — set up in **Admin › Settings › Email**); new accounts need an email address
 - **Feedback** — Send feedback or app suggestions from Profile & Settings (apps) or Profile & Account (web); admins read and reply in **Admin › Feedback**
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
 - **Streaming services** — A Home row of Netflix, Disney+, Prime Video, Apple TV+, HBO Max, Paramount+, Hulu, Crunchyroll, Stan and Binge (logos in the Streamulus colours), each with its own page of titles; the admin picks which titles each service has, or fills them in from TMDB for their country
@@ -159,6 +160,7 @@ Game of Thrones/Game of Thrones - 1x01 - Winter Is Coming.mkv
 | `PORT` | `8096` | Web server port |
 | `DATA_DIR` | `/data` | Database and config storage |
 | `JWT_SECRET` | *(random, kept in `/data`)* | Secret for sign-in tokens — set your own or leave empty |
+| `SMTP_PASSWORD` | *(empty)* | Optional: the email password (e.g. Google App Password) instead of saving it in Admin › Settings › Email |
 | `NODE_ENV` | `production` | Environment mode |
 
 ---
@@ -182,7 +184,8 @@ Access at `/admin` (admin users only):
 - **Genres** — Custom artwork for each genre
 - **Streaming Services** — Which services show on Home and in what order, a banner for each, which services each
   movie / show is on (any number), and *Fill in from TMDB* (where each title streams in your country)
-- **Settings** — Metadata sources and keys, encoding, Up Next, featured movie interval, branding (logo and/or
+- **Settings** — **Email** (the address password reset emails come from — Gmail by default, with an App Password —
+  who people should contact for help, and a test send), metadata sources and keys, encoding, Up Next, featured movie interval, branding (logo and/or
   STREAMULUS text, custom logo), remote access (public URL), regional settings — metadata language, and the
   **country** whose age ratings Streamulus uses (shown on every title, offered in Edit Details, and read by
   Streamlings' maximum age)

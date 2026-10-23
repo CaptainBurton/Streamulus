@@ -26,6 +26,9 @@ services:
       # environment variable in Portainer. Left empty, Streamulus makes a random
       # one and keeps it in the data volume.
       - JWT_SECRET=${JWT_SECRET:-}
+      # Optional: the Google App Password for password reset emails. Usually you
+      # enter it in Admin › Settings › Email instead; this overrides that.
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
 volumes:
   streamulus_data:
     driver: local

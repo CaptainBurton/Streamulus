@@ -19,6 +19,7 @@ import ProfilePicker from './pages/ProfilePicker';
 import ProfileSettings from './pages/ProfileSettings';
 import QuickLogin from './pages/QuickLogin';
 import Feedback from './pages/Feedback';
+import ResetPassword from './pages/ResetPassword';
 
 function AppRoutes() {
   const { user, profile, loading, needsProfilePick } = useAuth();
@@ -39,6 +40,8 @@ function AppRoutes() {
   }
 
   if (!setupComplete) return <Setup onComplete={() => setSetupComplete(true)} />;
+  // The link in a password reset email works whether or not anyone is signed in here.
+  if (window.location.pathname === '/reset-password') return <ResetPassword />;
   if (!user) return <Login />;
   if (needsProfilePick) return <ProfilePicker />;
 

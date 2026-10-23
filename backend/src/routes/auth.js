@@ -6,6 +6,8 @@ const { ensureMainProfile, publicProfile } = require('../services/profiles');
 const accounts = require('../services/accounts');
 const sessions = require('../services/sessions');
 const activity = require('../services/activity');
+const mailer = require('../services/mailer');
+const resets = require('../services/passwordResets');
 
 const router = express.Router();
 
@@ -20,6 +22,13 @@ function findUser(name) {
   return loose.length === 1 ? loose[0] : null;
 }
 
+// Why an email address can't be used for an account, or null if it can.
+function emailError(email, exceptUserId = null) {
+  if (!mailer.validEmail(email) || email.length > 200) return "That doesn't look like an email address";
+  const taken = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE AND id IS NOT ?').get(email, exceptUserId);
+  return taken ? 'Another account already uses that email address' : null;
+}
+
 // Simple fixed-window limiter: at most `max` hits per key per window.
 function limiter(max, windowMs) {
   const hits = new Map();
@@ -32,6 +41,8 @@ function limiter(max, windowMs) {
 }
 const registerLimit = limiter(10, 60 * 60 * 1000); // new accounts per IP per hour
 const failedSignIns = limiter(20, 15 * 60 * 1000); // wrong passwords per IP per 15 minutes
+const forgotPerIp = limiter(15, 15 * 60 * 1000); // reset requests per IP per 15 minutes (a household shares one)
+const forgotPerAccount = limiter(3, 60 * 60 * 1000); // reset emails per account per hour
 
 const WAITING = 'Your account needs an Admin Passphrase before you can sign in. Ask your Streamulus admin for one — '
   + 'it usually takes 5–10 minutes — then enter it here. Each passphrase works once, for 1 hour.';
@@ -120,6 +131,11 @@ router.post('/register', async (req, res) => {
   }
   const password = String(req.body?.password || '');
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  // An email is required, so everyone can reset their password if they forget it.
+  const email = String(req.body?.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'Enter your email address — it lets you reset your password if you forget it' });
+  const emailProblem = emailError(email);
+  if (emailProblem) return res.status(400).json({ error: emailProblem });
   if (db.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE').get(name)) {
     return res.status(409).json({ error: 'That name is already taken — try another' });
   }
@@ -129,7 +145,7 @@ router.post('/register', async (req, res) => {
   }
   const hash = await bcrypt.hash(password, 12);
   try {
-    const r = db.prepare("INSERT INTO users (username, password_hash, role, status) VALUES (?, ?, 'user', 'pending')").run(name, hash);
+    const r = db.prepare("INSERT INTO users (username, email, password_hash, role, status) VALUES (?, ?, ?, 'user', 'pending')").run(name, email, hash);
     activity.log(req, { category: 'account', action: 'registered', userId: r.lastInsertRowid, username: name, detail: 'Asked for an account (waiting for an Admin Passphrase)' });
   } catch {
     return res.status(409).json({ error: 'That name is already taken — try another' });
@@ -195,6 +211,95 @@ router.put('/account/password', authenticate, async (req, res) => {
   db.prepare('UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND id IS NOT ?').run(Date.now(), row.id, req.sessionId);
   activity.log(req, { category: 'account', action: 'password_changed', detail: 'Changed their password (other devices signed out)' });
   res.json({ success: true });
+});
+
+// Your own email address (used to send you a password reset link). Empty removes it.
+router.put('/account/email', authenticate, async (req, res) => {
+  const email = String(req.body.email || '').trim() || null;
+  const problem = email && emailError(email, req.user.id);
+  if (problem) return res.status(400).json({ error: problem });
+  const row = await checkAccountChange(req, res);
+  if (!row) return;
+  db.prepare('UPDATE users SET email = ? WHERE id = ?').run(email, row.id);
+  activity.log(req, { category: 'account', action: 'email_changed', detail: email ? `Set their email to ${mailer.maskEmail(email)}` : 'Removed their email address' });
+  res.json({ success: true, email });
+});
+
+// ── Forgot password ──────────────────────────────────────────────────────────
+// 1. POST /forgot { identifier: email or username } emails a reset link.
+// 2. GET /password-reset/:token says whose it is (or 410 if it's expired/used).
+// 3. POST /password-reset { token, password } sets the new password.
+
+router.post('/forgot', async (req, res) => {
+  const identifier = String(req.body?.identifier ?? req.body?.email ?? '').trim().slice(0, 200);
+  if (!identifier) return res.status(400).json({ error: 'Enter the email address on your account' });
+  if (!forgotPerIp(req.ip)) return res.status(429).json({ error: 'Too many reset requests from here — try again in 15 minutes' });
+  const contact = mailer.settings().support_contact;
+  const fail = (status, code, error, detail, user) => {
+    activity.log(req, { category: 'auth', action: 'password_reset_failed', userId: user?.id ?? null, username: user?.username ?? identifier.slice(0, 64), detail });
+    return res.status(status).json({ code, error, contact });
+  };
+
+  const isEmail = identifier.includes('@');
+  const user = isEmail
+    ? db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(identifier)
+    : findUser(identifier);
+  if (!user) {
+    return isEmail
+      ? fail(404, 'NOT_FOUND', `No account here uses that email address. If you haven't added an email address to your account, contact ${contact} to reset your password.`, 'No account with that email')
+      : fail(404, 'NOT_FOUND', `We couldn't find an account called "${identifier}". Check the spelling, or contact ${contact}.`, 'No account with that username');
+  }
+  if (!user.email) {
+    return fail(409, 'NO_EMAIL', `You haven't set up an email address on your account, so we can't send you a reset link. Contact ${contact} to reset your password.`, 'No email on the account', user);
+  }
+  if (user.status === 'pending') {
+    return fail(403, 'PENDING', `Your account is still waiting for an Admin Passphrase — ask ${contact} for one, then sign in with the password you chose.`, 'Account waiting for approval', user);
+  }
+  if (user.status !== 'active') {
+    return fail(403, 'DISABLED', `This account has been disabled — contact ${contact}.`, 'Account disabled', user);
+  }
+  if (!mailer.configured()) {
+    return fail(503, 'EMAIL_NOT_CONFIGURED', `Password reset emails aren't set up on this server yet — contact ${contact} to reset your password.`, 'Email sending isn\'t set up (Admin › Settings › Email)', user);
+  }
+  if (!forgotPerAccount(user.id)) {
+    return fail(429, 'TOO_MANY', 'We sent you a reset email recently — check your inbox (and spam folder), or try again in an hour.', 'Too many reset emails', user);
+  }
+
+  const token = resets.create(user.id, req.ip);
+  const site = mailer.siteUrl(req);
+  const message = mailer.resetEmail({
+    username: user.username, url: `${site}/reset-password?token=${encodeURIComponent(token)}`,
+    minutes: resets.RESET_MINUTES, site, contact,
+  });
+  try {
+    await mailer.send({ to: user.email, ...message });
+  } catch (err) {
+    console.error(`[mail] Password reset email to ${user.username} failed: ${err.message}`);
+    return fail(502, 'EMAIL_FAILED', `We couldn't send the email right now — try again later, or contact ${contact}.`, `Email failed: ${err.message}`, user);
+  }
+  activity.log(req, { category: 'auth', action: 'password_reset_requested', userId: user.id, username: user.username, detail: `Reset email sent to ${mailer.maskEmail(user.email)}` });
+  res.json({ sent: true, to: mailer.maskEmail(user.email), minutes: resets.RESET_MINUTES });
+});
+
+const EXPIRED = { code: 'EXPIRED', error: 'This reset link has expired or was already used. Ask for a new one from the sign-in page.' };
+
+router.get('/password-reset/:token', (req, res) => {
+  const found = resets.find(req.params.token);
+  if (!found) return res.status(410).json(EXPIRED);
+  res.json({ username: found.username, expiresAt: found.expiresAt });
+});
+
+router.post('/password-reset', async (req, res) => {
+  const found = resets.find(req.body?.token);
+  if (!found) return res.status(410).json(EXPIRED);
+  const password = String(req.body?.password || '');
+  if (password.length < 6) return res.status(400).json({ error: 'Your new password must be at least 6 characters' });
+  if (req.body?.confirm !== undefined && req.body.confirm !== password) return res.status(400).json({ error: "The passwords don't match" });
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await bcrypt.hash(password, 12), found.id);
+  resets.markUsed(found);
+  sessions.revokeAll(found.id); // every device signs in again with the new password
+  activity.log(req, { category: 'account', action: 'password_reset_completed', userId: found.id, username: found.username, detail: 'Reset their password from an email link (signed out everywhere)' });
+  res.json({ success: true, username: found.username });
 });
 
 // Parental lock (main profile): whether leaving a Streamling needs a check, and
