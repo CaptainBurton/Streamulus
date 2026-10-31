@@ -365,6 +365,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS media_requests (
   updated_at INTEGER NOT NULL,
   checked_at INTEGER
 )`);
+// The torrent (Radarr's downloadId) and live numbers read straight from Deluge.
+try { db.exec('ALTER TABLE media_requests ADD COLUMN download_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN speed INTEGER'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN live_at INTEGER'); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_requests_tmdb ON media_requests(media_type, tmdb_id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_requests_status ON media_requests(status)');
 db.exec(`CREATE TABLE IF NOT EXISTS media_request_users (

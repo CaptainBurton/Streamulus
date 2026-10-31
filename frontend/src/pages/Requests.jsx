@@ -28,13 +28,15 @@ export default function Requests() {
     }).catch(() => setConfig({ open: false }));
   }, []);
 
-  // Keep an eye on downloads while any are on the go.
+  // Keep an eye on downloads while any are on the go, as often as the admin set
+  // (Admin › Requests › Refresh every).
   const anyActive = (mine || []).some(r => ACTIVE.includes(r.status));
+  const everyMs = Math.max(1, config?.refreshSeconds || 2) * 1000;
   useEffect(() => {
     if (!anyActive) return undefined;
-    const t = setInterval(loadMine, 8000);
+    const t = setInterval(() => { if (!document.hidden) loadMine(); }, everyMs);
     return () => clearInterval(t);
-  }, [anyActive]);
+  }, [anyActive, everyMs]);
 
   const counts = useMemo(() => ({ total: mine?.length || 0, active: (mine || []).filter(r => ACTIVE.includes(r.status)).length }), [mine]);
 

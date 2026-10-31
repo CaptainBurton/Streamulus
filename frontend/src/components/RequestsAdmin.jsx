@@ -47,12 +47,13 @@ export default function RequestsAdmin({ flash }) {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep progress current while downloads are going.
+  // Keep progress current while downloads are going (Refresh every, below).
+  const everyMs = Math.max(1, settings?.refreshSeconds || 2) * 1000;
   useEffect(() => {
     if (!counts.active) return undefined;
-    const t = setInterval(() => { loadCounts(); loadList(); }, 10000);
+    const t = setInterval(() => { if (!document.hidden) { loadCounts(); loadList(); } }, everyMs);
     return () => clearInterval(t);
-  }, [counts.active, filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [counts.active, filter, everyMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pick = (f) => { setFilter(f); setList(null); loadList(f); };
 
@@ -203,7 +204,10 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
     url: settings.radarr.url || '', apiKey: '', rootFolder: settings.radarr.rootFolder || '',
     qualityProfileId: settings.radarr.qualityProfileId || '', minimumAvailability: settings.radarr.minimumAvailability || 'released',
     enabled: settings.enabled, limit: settings.limit, notifyAdmins: settings.notifyAdmins,
+    refreshSeconds: settings.refreshSeconds || 2,
+    delugeUrl: settings.deluge?.url || '', delugePassword: '',
   });
+  const [delugeOk, setDelugeOk] = useState(null); // torrent count after a good test
   const [busy, setBusy] = useState('');
   const [tested, setTested] = useState(null); // version string after a good test
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
@@ -226,14 +230,27 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
     }
     setBusy('');
   };
+  const testDeluge = async () => {
+    setBusy('deluge');
+    try {
+      const r = await axios.post('/api/admin/requests/settings/deluge-test', { url: form.delugeUrl, password: form.delugePassword || undefined });
+      setDelugeOk(r.data.torrents);
+      flash(`Connected to Deluge (${r.data.torrents} torrent${r.data.torrents === 1 ? '' : 's'}) — press Save to use it`);
+    } catch (err) {
+      setDelugeOk(null);
+      flash(err.response?.data?.error || "Couldn't connect to Deluge", true);
+    }
+    setBusy('');
+  };
   const save = async () => {
     setBusy('save');
     try {
-      const body = { ...form, qualityProfileId: form.qualityProfileId ? Number(form.qualityProfileId) : '' };
+      const body = { ...form, qualityProfileId: form.qualityProfileId ? Number(form.qualityProfileId) : '', refreshSeconds: Number(form.refreshSeconds) };
       if (!body.apiKey) delete body.apiKey;
+      if (!body.delugePassword) delete body.delugePassword;
       const r = await axios.put('/api/admin/requests/settings', body);
       onSaved(r.data);
-      setForm(f => ({ ...f, apiKey: '' }));
+      setForm(f => ({ ...f, apiKey: '', delugePassword: '' }));
       flash(r.data.open ? 'Saved — requests are open' : 'Saved');
     } catch (err) { flash(err.response?.data?.error || "Couldn't save", true); }
     setBusy('');
@@ -295,6 +312,28 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
         </div>
       </div>
 
+      <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', margin: '22px 0 6px' }}>Deluge · live download progress (optional)</div>
+      <p style={{ color: '#666', fontSize: '13px', margin: '0 0 12px', lineHeight: 1.6 }}>
+        Radarr only checks on downloads about once a minute, so its percentage and time left lag behind. With Deluge connected, progress,
+        speed and time left come straight from Deluge instead.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '16px' }}>
+        <div>
+          <label style={LABEL} htmlFor="deluge-url">Deluge Web UI address</label>
+          <input id="deluge-url" style={INPUT} value={form.delugeUrl} onChange={set('delugeUrl')} placeholder="http://192.168.1.20:8112" />
+        </div>
+        <div>
+          <label style={LABEL} htmlFor="deluge-password">Web UI password</label>
+          <input id="deluge-password" style={INPUT} type="password" value={form.delugePassword} onChange={set('delugePassword')} autoComplete="off"
+            placeholder={settings.deluge?.passwordSet ? '•••••••• (saved — type to replace)' : 'The password you sign in to Deluge with'} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+        <button style={BTN} onClick={testDeluge} disabled={!!busy || !form.delugeUrl} data-action="test-deluge">{busy === 'deluge' ? 'Connecting…' : 'Test Deluge'}</button>
+        {delugeOk != null && <span style={{ fontSize: '13px', color: '#00c864' }}>✓ Connected · {delugeOk} torrent{delugeOk === 1 ? '' : 's'}</span>}
+        {settings.deluge?.error && delugeOk == null && <span style={{ fontSize: '13px', color: '#ffb38a' }}>{settings.deluge.error}</span>}
+      </div>
+
       <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', margin: '22px 0 10px' }}>Requests</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#ccc', cursor: 'pointer' }}>
@@ -304,6 +343,20 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
         <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#ccc', cursor: 'pointer' }}>
           <input type="checkbox" checked={form.notifyAdmins} onChange={set('notifyAdmins')} style={{ accentColor: '#00c2ff', width: '16px', height: '16px' }} />
           Email admins when someone asks for a film
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#ccc', flexWrap: 'wrap' }}>
+          Check progress and refresh pages every
+          <select value={String(form.refreshSeconds)} onChange={set('refreshSeconds')} aria-label="Refresh every" data-setting="refresh"
+            style={{ ...SELECT, width: 'auto', padding: '7px 10px' }}>
+            {!['1', '2', '3', '5', '10', '15', '30'].includes(String(form.refreshSeconds)) && <option value={String(form.refreshSeconds)}>{form.refreshSeconds} seconds</option>}
+            <option value="1">1 second</option>
+            <option value="2">2 seconds (default)</option>
+            <option value="3">3 seconds</option>
+            <option value="5">5 seconds</option>
+            <option value="10">10 seconds</option>
+            <option value="15">15 seconds</option>
+            <option value="30">30 seconds</option>
+          </select>
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#ccc' }}>
           Each person can have up to

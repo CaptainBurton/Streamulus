@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../database/db');
 const radarr = require('./radarr');
+const deluge = require('./deluge');
 const mailer = require('./mailer');
 const templates = require('./emailTemplates');
 const tmdb = require('./tmdb');
@@ -34,7 +35,9 @@ const ACTIVE = ['searching', 'waiting_release', 'not_found', 'downloading', 'imp
 // monitored films by itself, so "not found" and "not released" still turn into
 // downloads later — they're just checked less often.
 const RECHECK = { not_found: 5 * 60 * 1000, waiting_release: 30 * 60 * 1000, missing: 10 * 60 * 1000 };
-const POLL_MS = Number(process.env.REQUESTS_POLL_MS) || 15 * 1000;
+// Radarr itself only hears from the download client about once a minute, so it
+// isn't asked more often than this; Deluge (when set up) is asked every refresh.
+const RADARR_MIN_MS = Number(process.env.REQUESTS_RADARR_MIN_MS) || 4000;
 
 const now = () => Date.now();
 const getConf = (key, fallback) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? fallback;
@@ -45,8 +48,11 @@ function settings() {
     enabled: getConf('requests_enabled', 'true') === 'true',
     limit: Math.max(1, parseInt(getConf('requests_limit', '10'), 10) || 10),
     notifyAdmins: getConf('requests_notify_admins', 'true') === 'true',
+    // How often progress is checked, and how often the pages refresh (seconds).
+    refreshSeconds: Math.min(60, Math.max(1, parseFloat(getConf('requests_refresh_seconds', '2')) || 2)),
   };
 }
+const refreshMs = () => Number(process.env.REQUESTS_POLL_MS) || settings().refreshSeconds * 1000;
 
 // Requests are open when they're turned on and Radarr is set up.
 const isOpen = () => settings().enabled && radarr.configured();
@@ -79,6 +85,8 @@ function shape(r, { forUser = null, withRequesters = false } = {}) {
     progress: r.progress,
     eta: r.eta,
     size: r.size,
+    speed: r.speed || null, // bytes per second, when Deluge reports it
+    live: !!(r.live_at && now() - r.live_at < 60 * 1000), // progress straight from Deluge
     needsAdmin: !!r.needs_admin,
     declineReason: r.decline_reason,
     decidedBy: r.decided_by,
@@ -137,7 +145,7 @@ async function emailPeople(r, templateId, extra = {}, req = null) {
 async function emailAdmins(r, requester, req) {
   if (!settings().notifyAdmins || !mailer.configured()) return;
   const site = mailer.siteUrl(req);
-  const admins = db.prepare("SELECT username, email FROM users WHERE role = 'admin' AND email IS NOT NULL AND email != '' AND (status IS NULL OR status = 'active')").all();
+  const admins = db.prepare("SELECT id, username, email FROM users WHERE role = 'admin' AND email IS NOT NULL AND email != '' AND (status IS NULL OR status = 'active') AND id != ?").all(requester.id);
   for (const admin of admins) {
     try {
       await mailer.send({
@@ -164,7 +172,7 @@ function openCount(userId) {
 
 /**
  * Ask for a film. → { request, joined } or throws { status, message, movieId }.
- * Admins' own requests are approved straight away.
+ * Every request — admins' too — waits for approval in Admin › Requests.
  */
 async function create({ user, tmdbId, note, req }) {
   if (!isOpen()) throw Object.assign(new Error('Requests are turned off'), { status: 403 });
@@ -197,13 +205,8 @@ async function create({ user, tmdbId, note, req }) {
   ).lastInsertRowid;
   db.prepare('INSERT INTO media_request_users (request_id, user_id, created_at) VALUES (?, ?, ?)').run(id, user.id, t);
 
-  let r = get(id);
-  if (user.role === 'admin') {
-    await approve({ id, admin: user, req, notify: false });
-    r = get(id);
-  } else {
-    emailAdmins(r, user, req).catch(() => {});
-  }
+  const r = get(id);
+  emailAdmins(r, user, req).catch(() => {});
   return { request: r, joined: false };
 }
 
@@ -361,6 +364,30 @@ function queueDetail(item) {
   return { status: 'downloading', progress, eta: etaMs > 0 ? now() + etaMs : null, size, detail, needs_admin: 0 };
 }
 
+const speedText = (bps) => (bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : bps >= 1e3 ? `${Math.round(bps / 1e3)} KB/s` : null);
+
+// Live numbers from Deluge for a downloading request → fields to save.
+function delugeDetail(t) {
+  const pct = `${Math.round(t.progress * 100)}%`;
+  const state = String(t.state || '').toLowerCase();
+  let detail;
+  if (t.progress >= 1 || state === 'seeding') detail = 'Downloaded — Radarr is about to move it into the library';
+  else if (state === 'paused') detail = `Paused at ${pct}`;
+  else if (state === 'queued') detail = `Waiting to start in Deluge (${pct})`;
+  else if (state === 'checking' || state === 'allocating') detail = `Checking the files… ${pct}`;
+  else if (state === 'error') detail = `${pct} · Deluge reports an error with this download`;
+  else detail = [pct, speedText(t.speed), t.speed > 0 && t.eta ? timeLeft(t.eta * 1000) : t.speed === 0 ? 'waiting for peers' : null].filter(Boolean).join(' · ');
+  return {
+    progress: t.progress,
+    eta: t.eta && t.progress < 1 ? now() + t.eta * 1000 : null,
+    speed: t.speed || 0,
+    size: t.size || null,
+    detail,
+    needs_admin: state === 'error' ? 1 : 0,
+    live_at: now(),
+  };
+}
+
 // Look one approved request up in Radarr and record how it's getting on.
 async function refresh(r, queue = null) {
   if (!r || !ACTIVE.includes(r.status) || !r.radarr_id) return;
@@ -398,7 +425,13 @@ async function refresh(r, queue = null) {
     // The furthest-along download if there's more than one.
     const order = { imported: 4, importing: 3, importPending: 2, downloading: 1 };
     const item = [...items].sort((a, b) => (order[b.trackedDownloadState] || 0) - (order[a.trackedDownloadState] || 0))[0];
-    return update(r.id, { ...queueDetail(item), checked_at: now() });
+    const fields = { ...queueDetail(item), download_id: item.downloadId ? String(item.downloadId).toLowerCase() : null, checked_at: now() };
+    // Deluge's numbers (fresh) win over Radarr's (up to a minute old) while downloading.
+    const liveFresh = r.live_at && now() - r.live_at < 30 * 1000 && r.download_id === fields.download_id;
+    if (fields.status === 'downloading' && liveFresh) {
+      delete fields.progress; delete fields.eta; delete fields.detail; delete fields.size; delete fields.needs_admin;
+    }
+    return update(r.id, fields);
   }
 
   // Nothing downloading: still searching, grabbed a moment ago, not out yet, or nothing found.
@@ -433,24 +466,54 @@ async function refresh(r, queue = null) {
 let polling = false;
 async function poll() {
   if (polling || !radarr.configured()) return;
-  const due = db.prepare(`SELECT * FROM media_requests WHERE status IN (${ACTIVE.map(() => '?').join(',')})`).all(...ACTIVE)
-    .filter(r => !r.checked_at || now() - r.checked_at >= (RECHECK[r.status] || 0));
-  if (!due.length) return;
+  const active = db.prepare(`SELECT * FROM media_requests WHERE status IN (${ACTIVE.map(() => '?').join(',')})`).all(...ACTIVE);
+  if (!active.length) return;
   polling = true;
   try {
-    const queue = await radarr.queueByMovie().catch(() => null);
-    for (const r of due) {
-      try { await refresh(r, queue); } catch (err) { console.error(`[requests] ${r.title}: ${err.message}`); }
+    const radarrEvery = Math.max(refreshMs(), RADARR_MIN_MS);
+    const due = active.filter(r => !r.checked_at || now() - r.checked_at >= Math.max(radarrEvery, RECHECK[r.status] || 0));
+    if (due.length) {
+      const queue = await radarr.queueByMovie().catch(() => null);
+      for (const r of due) {
+        try { await refresh(r, queue); } catch (err) { console.error(`[requests] ${r.title}: ${err.message}`); }
+      }
     }
+    await liveProgress();
   } finally {
     polling = false;
+  }
+}
+
+// Every refresh: percentages, speed and time left for downloads, from Deluge.
+let delugeError = null;
+async function liveProgress() {
+  if (!deluge.configured()) return;
+  const rows = db.prepare("SELECT * FROM media_requests WHERE status = 'downloading' AND download_id IS NOT NULL").all();
+  if (!rows.length) return;
+  let stats;
+  try {
+    stats = await deluge.torrents(rows.map(r => r.download_id));
+    delugeError = null;
+  } catch (err) {
+    const msg = deluge.errorText(err);
+    if (msg !== delugeError) console.error(`[requests] Deluge: ${msg}`);
+    delugeError = msg;
+    return;
+  }
+  for (const r of rows) {
+    const t = stats[r.download_id];
+    if (t) update(r.id, delugeDetail(t));
   }
 }
 
 let timer = null;
 function start() {
   if (timer) return;
-  timer = setInterval(() => poll().catch(err => console.error(`[requests] Poll failed: ${err.message}`)), POLL_MS);
+  const tick = () => {
+    poll().catch(err => console.error(`[requests] Poll failed: ${err.message}`))
+      .finally(() => { timer = setTimeout(tick, refreshMs()); timer.unref?.(); });
+  };
+  timer = setTimeout(tick, refreshMs());
   timer.unref?.();
 }
 
@@ -462,6 +525,10 @@ function saveSettings(input = {}) {
   if (input.enabled !== undefined) setConf('requests_enabled', input.enabled ? 'true' : 'false');
   if (input.limit !== undefined) setConf('requests_limit', String(Math.max(1, Math.min(100, parseInt(input.limit, 10) || 10))));
   if (input.notifyAdmins !== undefined) setConf('requests_notify_admins', input.notifyAdmins ? 'true' : 'false');
+  if (input.refreshSeconds !== undefined) setConf('requests_refresh_seconds', String(Math.min(60, Math.max(1, Number(input.refreshSeconds) || 2))));
+  if (input.delugeUrl !== undefined) setConf('deluge_url', String(input.delugeUrl || '').trim());
+  if (typeof input.delugePassword === 'string' && input.delugePassword !== '') setConf('deluge_password', input.delugePassword);
+  if (input.clearDelugePassword) setConf('deluge_password', '');
 }
 
 function settingsView() {
@@ -472,6 +539,10 @@ function settingsView() {
     radarr: {
       url: r.url, apiKeySet: !!r.apiKey, rootFolder: r.rootFolder, qualityProfileId: r.qualityProfileId,
       minimumAvailability: r.minimumAvailability, configured: radarr.configured(),
+    },
+    deluge: {
+      url: deluge.settings().url, passwordSet: !!deluge.settings().password, configured: deluge.configured(),
+      error: delugeError,
     },
   };
 }

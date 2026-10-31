@@ -6,6 +6,7 @@ const db = require('../database/db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const requests = require('../services/requests');
 const radarr = require('../services/radarr');
+const deluge = require('../services/deluge');
 const tmdb = require('../services/tmdb');
 const activity = require('../services/activity');
 
@@ -23,11 +24,11 @@ function noKids(req, res, next) {
 
 user.get('/config', authenticate, (req, res) => {
   const s = requests.settings();
-  res.json({ open: requests.isOpen() && !req.profile?.is_kids, limit: s.limit });
+  res.json({ open: requests.isOpen() && !req.profile?.is_kids, limit: s.limit, refreshSeconds: s.refreshSeconds });
 });
 
-// Films to choose from: a search, or this week's popular ones. Each says whether
-// it's already here or already asked for.
+// Films to choose from: a search, or this week's popular ones — leaving out the
+// ones already on the server. Each says whether it's already been asked for.
 user.get('/search', authenticate, noKids, async (req, res) => {
   const q = String(req.query.q || '').trim().slice(0, 100);
   let results;
@@ -38,7 +39,7 @@ user.get('/search', authenticate, noKids, async (req, res) => {
   }
   res.json({
     query: q,
-    results: results.filter(m => m.id && m.title).map(m => {
+    results: results.filter(m => m.id && m.title && !requests.inLibrary(m.id)).map(m => {
       const open = requests.openFor(m.id);
       const mine = open ? !!db.prepare('SELECT 1 FROM media_request_users WHERE request_id = ? AND user_id = ?').get(open.id, req.user.id) : false;
       return {
@@ -118,9 +119,24 @@ admin.put('/settings', requireAdmin, (req, res) => {
   if (b.url !== undefined && b.url && !/^https?:\/\//i.test(String(b.url).trim())) {
     return res.status(400).json({ error: 'The Radarr address should start with http:// or https://' });
   }
+  if (b.delugeUrl !== undefined && b.delugeUrl && !/^https?:\/\//i.test(String(b.delugeUrl).trim())) {
+    return res.status(400).json({ error: 'The Deluge address should start with http:// or https://' });
+  }
+  if (b.refreshSeconds !== undefined && !(Number(b.refreshSeconds) >= 1 && Number(b.refreshSeconds) <= 60)) {
+    return res.status(400).json({ error: 'Refresh every 1 to 60 seconds' });
+  }
   requests.saveSettings(b);
   activity.log(req, { category: 'admin', action: 'settings_changed', detail: 'Requests / Radarr settings' });
   res.json(requests.settingsView());
+});
+
+// { url?, password? } — the saved ones when left out. → { torrents }
+admin.post('/settings/deluge-test', requireAdmin, async (req, res) => {
+  try {
+    res.json(await deluge.test({ url: req.body?.url, password: req.body?.password }));
+  } catch (err) {
+    res.status(502).json({ error: deluge.errorText(err, req.body?.url) });
+  }
 });
 
 // { url?, apiKey? } — the saved ones when left out.

@@ -37,32 +37,37 @@ export function StatusPill({ status, label }) {
 }
 
 // Downloading: the real percentage. Moving into the library / adding: a full bar
-// that shimmers, since there's no percentage for those steps.
+// that gently pulses, since there's no percentage for those steps. Searching: a
+// short bar sliding across, from fully off the left edge to fully off the right,
+// so the loop starting again can't be seen.
 export function ProgressBar({ status, progress }) {
   const busy = ['importing', 'adding'].includes(status);
   const searching = status === 'searching';
   if (!busy && !searching && status !== 'downloading') return null;
-  const pct = busy ? 100 : searching ? 100 : Math.round((progress || 0) * 100);
   const color = STATUS_COLORS[status] || '#00c2ff';
+  const pct = busy ? 100 : Math.round((progress || 0) * 100);
   return (
     <div data-progress={busy || searching ? status : pct} style={{ height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', position: 'relative' }}>
-      <div style={{
-        width: `${pct}%`, height: '100%', borderRadius: '4px', transition: 'width 0.6s ease',
-        background: searching ? `linear-gradient(90deg, transparent, ${color}55, transparent)` : `linear-gradient(90deg, ${color}, #7b2fff)`,
-        backgroundSize: searching ? '40% 100%' : undefined,
-        backgroundRepeat: searching ? 'no-repeat' : undefined,
-        animation: searching ? 'reqSweep 1.6s linear infinite' : busy ? 'reqShimmer 1.6s ease-in-out infinite' : undefined,
-      }} />
+      {searching ? (
+        <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: '30%', borderRadius: '4px', background: `linear-gradient(90deg, transparent, ${color}, transparent)`, animation: 'reqSlide 1.6s ease-in-out infinite', willChange: 'transform' }} />
+      ) : (
+        <div style={{
+          width: `${pct}%`, height: '100%', borderRadius: '4px', transition: 'width 0.8s ease',
+          background: `linear-gradient(90deg, ${color}, #7b2fff)`,
+          animation: busy ? 'reqShimmer 1.6s ease-in-out infinite' : undefined,
+        }} />
+      )}
     </div>
   );
 }
 
-// The keyframes the pill and bar use (rendered once per page).
+// The keyframes the pill and bar use (rendered once per page). The sliding bar is
+// 30% wide: -100% puts it just off the left edge, 340% just off the right.
 export const RequestStyles = () => (
   <style>{`
     @keyframes reqPulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.3 } }
     @keyframes reqShimmer { 0%, 100% { opacity: 1 } 50% { opacity: 0.55 } }
-    @keyframes reqSweep { from { background-position: -40% 0 } to { background-position: 140% 0 } }
+    @keyframes reqSlide { from { transform: translateX(-100%) } to { transform: translateX(340%) } }
   `}</style>
 );
 
