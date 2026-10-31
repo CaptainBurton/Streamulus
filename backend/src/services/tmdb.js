@@ -82,6 +82,14 @@ async function getMovieDetails(tmdbId) {
   } catch { return null; }
 }
 
+// This week's most popular films — what the Requests page shows before a search.
+async function trendingMovies() {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+  const res = await axios.get(`${TMDB_BASE}/trending/movie/week`, { params: { api_key: apiKey }, timeout: 10000 });
+  return (res.data.results || []).slice(0, 20);
+}
+
 async function getMovieCredits(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
@@ -237,7 +245,7 @@ function resolveGenreNames(genreIds, isTV = false) {
 }
 
 module.exports = {
-  getApiKey, searchMovieList, searchTVList, getEnglish,
+  getApiKey, searchMovieList, searchTVList, getEnglish, trendingMovies,
   searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating, getMovieCertification, getTVCertification, getWatchProviders,
   getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
   getMovieImages, getTVImages, getSeasonImages,

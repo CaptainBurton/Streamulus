@@ -33,7 +33,12 @@ router.get('/stats', requireAdmin, (req, res) => {
   const libraries = db.prepare('SELECT * FROM libraries').all();
   // Feedback with something new from the person (Admin › Feedback).
   const feedbackUnread = require('./feedback').countUnreadForAdmin();
-  res.json({ movieCount, showCount, episodeCount, userCount, pendingCount, feedbackUnread, libraries });
+  // Movie requests waiting for a decision, and approved ones that need a look.
+  const asked = db.prepare("SELECT SUM(status = 'pending') AS waiting, SUM(needs_admin = 1 AND status != 'available') AS attention FROM media_requests").get();
+  res.json({
+    movieCount, showCount, episodeCount, userCount, pendingCount, feedbackUnread, libraries,
+    requestsPending: asked.waiting || 0, requestsAttention: asked.attention || 0,
+  });
 });
 
 // SSE endpoint — streams scan progress events in real time
@@ -93,6 +98,7 @@ router.post('/libraries', requireAdmin, async (req, res) => {
 
   const { exists, fileCount } = await validatePath(libPath);
   const result = db.prepare('INSERT INTO libraries (name, path, type) VALUES (?, ?, ?)').run(name, libPath, type);
+  require('../services/autoScan').restart().catch(() => {}); // watch the new / changed folders
   res.json({ id: result.lastInsertRowid, name, path: libPath, type, pathExists: exists, fileCount });
 });
 
@@ -126,6 +132,7 @@ router.put('/libraries/:id', requireAdmin, async (req, res) => {
   })();
 
   const { exists, fileCount } = await validatePath(newPath);
+  require('../services/autoScan').restart().catch(() => {}); // watch the new / changed folders
   res.json({ success: true, remapped, pathExists: exists, fileCount });
 });
 
@@ -152,6 +159,7 @@ router.delete('/libraries/:id', requireAdmin, (req, res) => {
     return res.status(500).json({ error: `Could not remove library: ${err.message}` });
   }
 
+  require('../services/autoScan').restart().catch(() => {}); // watch the new / changed folders
   res.json({ success: true });
 });
 

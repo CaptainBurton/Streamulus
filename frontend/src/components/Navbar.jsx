@@ -168,7 +168,10 @@ function makeCounter(event, url, pick, initial) {
 }
 
 const adminCounts = makeCounter('streamulus:admin-counts', '/api/admin/stats',
-  d => ({ pending: d.pendingCount || 0, feedback: d.feedbackUnread || 0 }), { pending: 0, feedback: 0 });
+  d => ({ pending: d.pendingCount || 0, feedback: d.feedbackUnread || 0, requests: d.requestsPending || 0, requestsAttention: d.requestsAttention || 0 }),
+  { pending: 0, feedback: 0, requests: 0, requestsAttention: 0 });
+// Whether film requests are open to this profile (adds Requests to the menu).
+const requestsOpen = makeCounter('streamulus:requests-open', '/api/requests/config', d => !!d.open, false);
 const feedbackReplies = makeCounter('streamulus:feedback-replies', '/api/feedback/unread', d => d.count || 0, 0);
 
 export const noteAdminCounts = adminCounts.note;
@@ -184,7 +187,8 @@ export default function Navbar() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const isAdmin = user?.role === 'admin' && !profile?.is_kids;
   const admin = adminCounts.useCounter(isAdmin);
-  const adminAttention = admin.pending + admin.feedback;
+  const adminAttention = admin.pending + admin.feedback + (admin.requests || 0) + (admin.requestsAttention || 0);
+  const canRequest = requestsOpen.useCounter(!!user && !profile?.is_kids);
   const newReplies = feedbackReplies.useCounter(!!user);
 
   useEffect(() => {
@@ -210,6 +214,7 @@ export default function Navbar() {
     { to: '/movies', label: 'Movies' },
     { to: '/tv', label: 'TV Shows' },
     { to: '/genres', label: 'Genres' },
+    ...(canRequest ? [{ to: '/requests', label: 'Requests' }] : []),
   ];
   // A genre's own page (/genre/Action) keeps "Genres" highlighted.
   const isActive = (to) => location.pathname === to || (to === '/genres' && location.pathname.startsWith('/genre/'));
@@ -281,6 +286,8 @@ export default function Navbar() {
                 <span title={[
                   admin.pending ? `${admin.pending} account request${admin.pending === 1 ? '' : 's'} waiting` : null,
                   admin.feedback ? `${admin.feedback} feedback to read` : null,
+                  admin.requests ? `${admin.requests} film request${admin.requests === 1 ? '' : 's'} to approve` : null,
+                  admin.requestsAttention ? `${admin.requestsAttention} film request${admin.requestsAttention === 1 ? '' : 's'} need${admin.requestsAttention === 1 ? 's' : ''} a look` : null,
                   newReplies ? `${newReplies} new feedback repl${newReplies === 1 ? 'y' : 'ies'}` : null,
                 ].filter(Boolean).join(' · ')}
                   style={{ position: 'absolute', top: '-2px', right: '-2px', width: '12px', height: '12px', borderRadius: '50%', background: '#00c2ff', border: '2px solid #0f0f0f' }} />

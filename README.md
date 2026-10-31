@@ -36,6 +36,7 @@
 - **Quick Login** — Sign a TV or phone in by approving a code from a device that's already signed in
 - **Create an account** — On the web or in the iPhone / iPad app (display name + password); an admin approves it with a single-use **Admin Passphrase** that works for 1 hour
 - **Forgot password** — *Forgot password?* on the sign-in page emails a branded reset link (sent from Gmail by default — set up in **Admin › Emails › Sending**); new accounts need an email address
+- **Film requests** — people search for a film that isn't in the library and ask for it (with a note); admins approve (choosing the Radarr quality profile) or decline with a reason, and everyone who asked is emailed. Approved films are added to Radarr and searched for, and the Requests page follows each one — searching, downloading with a progress bar and time left, moving into the library — until it's ready to watch (another email). Films Radarr can't find, failed downloads and films removed from Radarr are flagged for an admin (Search Again). Set up in **Admin › Requests**
 - **Emails** — reword the Password Reset, Admin Passphrase and Custom emails with a live preview and test sends; email an account request its Admin Passphrase (only when an admin presses the button); write a personal email to chosen people, signed by whoever sends it
 - **Feedback** — Send feedback or app suggestions from Profile & Settings (apps) or Profile & Account (web); admins read and reply in **Admin › Feedback**
 - **Movies, TV Shows & Genres** — A–Z libraries, genre pages (incl. Anime), search, "More Like This", cast
@@ -46,6 +47,7 @@
 - **Dual audio** — Pick the audio track in any player (e.g. Japanese or English on dual-audio anime); the choice is remembered per show. Each profile can prefer a language (or the original language) and turn on English subtitles automatically for other languages
 - **Metadata** — TMDB / TVDB / IMDb, Fix Match, custom artwork, English titles for foreign-language titles
 - **Watch progress** — Resume where you left off, Continue Watching with stills, mark as watched
+- **Automatic scanning** — new, changed and removed files are found by themselves within a minute (only the folders that changed are scanned), with an optional full scan every few hours for network shares; on/off in **Admin › Libraries**
 - **Library management** — One show per series folder (Season 00 / Specials / Extras stay with their show), Sonarr / Radarr-style naming formats, gone files cleaned up after scans, and Edit Details, season posters and Remove (from Streamulus only, or with the files) on every title
 - **Fix split shows** — Move a season to the show it belongs to (optionally renumbered, or into a new show), or merge a whole show into another; Streamulus remembers it, so later scans keep the files there
 - **Admin dashboard** — Libraries, users, Streamlings, genres, branding (logo / text), remote access

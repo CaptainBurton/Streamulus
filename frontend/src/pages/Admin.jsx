@@ -6,6 +6,8 @@ import StreamlingsAdmin from '../components/StreamlingsAdmin';
 import AccountRequests from '../components/AccountRequests';
 import UsersAdmin from '../components/UsersAdmin';
 import EmailsAdmin from '../components/EmailsAdmin';
+import RequestsAdmin from '../components/RequestsAdmin';
+import AutoScanSettings from '../components/AutoScanSettings';
 import AvatarLibraryAdmin from '../components/AvatarLibraryAdmin';
 import FeedbackAdmin from '../components/FeedbackAdmin';
 import GenresAdmin from '../components/GenresAdmin';
@@ -267,7 +269,8 @@ export default function Admin() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [config, setConfig] = useState({});
-  const [activeTab, setActiveTab] = useState('overview');
+  // ?tab=requests (e.g. from the "new request" email) opens that tab.
+  const [activeTab, setActiveTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'overview');
   const [composeTo, setComposeTo] = useState(null); // Users › Email someone → Emails tab
   const [feedbackCount, setFeedbackCount] = useState(null);
   const [tmdbKey, setTmdbKey] = useState('');
@@ -497,8 +500,10 @@ export default function Admin() {
 
   const inputStyle = { padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 };
   const selectStyle = { ...inputStyle, cursor: 'pointer', flex: 'none', width: '130px' };
-  const tabs = ['overview', 'libraries', 'users', 'streamlings', 'pictures', 'genres', 'services', 'feedback', 'emails', 'settings'];
+  const tabs = ['overview', 'libraries', 'users', 'requests', 'streamlings', 'pictures', 'genres', 'services', 'feedback', 'emails', 'settings'];
   const TAB_LABELS = { pictures: 'Profile Pictures', services: 'Streaming Services' };
+  // Film requests waiting for a decision or needing a look.
+  const requestsWaiting = (stats?.requestsPending || 0) + (stats?.requestsAttention || 0);
   // Feedback with something new from the person (kept current by the Feedback tab).
   const feedbackUnread = feedbackCount ?? stats?.feedbackUnread ?? 0;
   // Accounts people created themselves, waiting for an Admin Passphrase.
@@ -524,6 +529,9 @@ export default function Admin() {
               {TAB_LABELS[tab] || tab}
               {tab === 'users' && pendingUsers.length > 0 && (
                 <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{pendingUsers.length}</span>
+              )}
+              {tab === 'requests' && requestsWaiting > 0 && (
+                <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{requestsWaiting}</span>
               )}
               {tab === 'feedback' && feedbackUnread > 0 && (
                 <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#00c2ff', color: '#000', fontSize: '11px', fontWeight: 800 }}>{feedbackUnread}</span>
@@ -677,6 +685,7 @@ export default function Admin() {
             </div>
 
             <NamingFormats flash={flash} />
+            <AutoScanSettings flash={flash} />
             <LibraryMaintenance flash={flash} onChanged={loadData} />
           </div>
         )}
@@ -699,6 +708,8 @@ export default function Admin() {
         {activeTab === 'services' && <StreamingServicesAdmin flash={flash} />}
 
         {activeTab === 'feedback' && <FeedbackAdmin flash={flash} onCountsChanged={setFeedbackCount} />}
+
+        {activeTab === 'requests' && <RequestsAdmin flash={flash} />}
 
         {activeTab === 'emails' && <EmailsAdmin flash={flash} composeTo={composeTo} onComposeUsed={() => setComposeTo(null)} />}
 

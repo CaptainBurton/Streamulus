@@ -19,6 +19,7 @@ import ProfilePicker from './pages/ProfilePicker';
 import ProfileSettings from './pages/ProfileSettings';
 import QuickLogin from './pages/QuickLogin';
 import Feedback from './pages/Feedback';
+import Requests from './pages/Requests';
 import ResetPassword from './pages/ResetPassword';
 
 function AppRoutes() {
@@ -63,6 +64,7 @@ function AppRoutes() {
       <Route path="/profile" element={<ProfileSettings />} />
       <Route path="/quick-login" element={<QuickLogin />} />
       <Route path="/feedback" element={<Feedback />} />
+      <Route path="/requests" element={<Requests />} />
       <Route path="/admin" element={user.role === 'admin' && !profile?.is_kids ? <Admin /> : <Navigate to="/" />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

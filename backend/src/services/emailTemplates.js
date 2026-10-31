@@ -29,6 +29,10 @@ const PLACEHOLDERS = {
   passphrase: 'The Admin Passphrase',
   minutes: 'Minutes until it runs out',
   link: 'The link the button opens',
+  title: 'The film',
+  year: "The film's year",
+  reason: 'Why it was declined (what the admin wrote)',
+  note: 'What they wrote with the request',
 };
 
 const TEMPLATES = [
@@ -80,6 +84,74 @@ const TEMPLATES = [
     },
   },
 ];
+
+// Movie requests (services/requests.js).
+const REQUEST_FOOTER = "You're getting this because you asked for this film on Streamulus.";
+TEMPLATES.push(
+  {
+    id: 'request_approved',
+    name: 'Request Approved',
+    description: 'Sent to everyone who asked for a film when an admin approves the request.',
+    fields: ['subject', 'heading', 'message', 'button', 'note', 'footer'],
+    required: ['subject', 'message', 'button'],
+    placeholders: ['name', 'title', 'year', 'admin', 'link', 'site', 'contact'],
+    defaults: {
+      subject: 'Your request for {{title}} was approved',
+      heading: '{{title}} is on its way',
+      message: 'Hi {{name}},\n\nGood news — {{admin}} approved your request for **{{title}} ({{year}})**. Streamulus is finding and downloading it now, and you can follow its progress on your Requests page.',
+      button: 'See My Requests',
+      note: "We'll email you again when it's ready to watch.",
+      footer: REQUEST_FOOTER,
+    },
+  },
+  {
+    id: 'request_declined',
+    name: 'Request Declined',
+    description: "Sent to everyone who asked for a film when an admin declines it, with the reason they gave (if any).",
+    fields: ['subject', 'heading', 'message', 'button', 'note', 'footer'],
+    required: ['subject', 'message', 'button'],
+    placeholders: ['name', 'title', 'year', 'reason', 'admin', 'link', 'site', 'contact'],
+    defaults: {
+      subject: 'Your request for {{title}}',
+      heading: 'Request not approved',
+      message: "Hi {{name}},\n\nSorry — your request for **{{title}} ({{year}})** wasn't approved this time.\n\n{{reason}}",
+      button: 'See My Requests',
+      note: 'Questions? Ask {{contact}}.',
+      footer: REQUEST_FOOTER,
+    },
+  },
+  {
+    id: 'request_available',
+    name: 'Request Ready to Watch',
+    description: 'Sent to everyone who asked for a film once it has downloaded and is in the library.',
+    fields: ['subject', 'heading', 'message', 'button', 'note', 'footer'],
+    required: ['subject', 'message', 'button'],
+    placeholders: ['name', 'title', 'year', 'link', 'site', 'contact'],
+    defaults: {
+      subject: '{{title}} is ready to watch',
+      heading: 'Ready to watch',
+      message: 'Hi {{name}},\n\n**{{title}} ({{year}})**, which you asked for, is now on Streamulus. Enjoy the film!',
+      button: 'Watch Now',
+      note: '',
+      footer: REQUEST_FOOTER,
+    },
+  },
+  {
+    id: 'request_new',
+    name: 'New Request (to admins)',
+    description: 'Sent to admins with an email address when someone asks for a film (can be turned off in Admin › Requests).',
+    fields: ['subject', 'heading', 'message', 'button', 'footer'],
+    required: ['subject', 'message', 'button'],
+    placeholders: ['name', 'title', 'year', 'note', 'link', 'site'],
+    defaults: {
+      subject: 'New request: {{title}} ({{year}})',
+      heading: 'New film request',
+      message: '**{{name}}** asked for **{{title}} ({{year}})**.\n\n{{note}}',
+      button: 'Review Requests',
+      footer: "You're getting this because you're a Streamulus admin.",
+    },
+  },
+);
 
 const byId = (id) => TEMPLATES.find(t => t.id === id);
 
@@ -227,6 +299,14 @@ function sampleValues(id, { site, contact, admin }) {
   const base = { name: admin || 'Alex', site, contact, admin: admin || 'Admin', minutes: 60 };
   if (id === 'passphrase') return { ...base, passphrase: 'maple-otter-river-comet', link: `${site}/` };
   if (id === 'reset') return { ...base, link: `${site}/reset-password?token=example-only` };
+  if (id.startsWith('request_')) {
+    return {
+      ...base, title: 'Dune', year: 2021,
+      reason: id === 'request_declined' ? 'Reason: it\'s already on another service everyone here uses.' : '',
+      note: id === 'request_new' ? '“Could we get the extended edition if there is one?”' : '',
+      link: id === 'request_available' ? `${site}/movie/1` : id === 'request_new' ? `${site}/admin?tab=requests` : `${site}/requests`,
+    };
+  }
   return base;
 }
 

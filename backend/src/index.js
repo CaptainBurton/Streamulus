@@ -45,6 +45,9 @@ app.use('/api/admin/users', require('./routes/adminUsers').users);
 app.use('/api/admin/activity', require('./routes/adminUsers').log);
 app.use('/api/admin/email', require('./routes/adminEmail'));
 app.use('/api/admin/emails', require('./routes/adminEmails'));
+const requestRoutes = require('./routes/requests');
+app.use('/api/requests', requestRoutes.user);
+app.use('/api/admin/requests', requestRoutes.admin);
 app.use('/api/admin', require('./routes/admin'));
 
 // Serve user-uploaded artwork stored in /data/uploads/
@@ -106,4 +109,10 @@ app.listen(PORT, '0.0.0.0', () => {
     .catch(err => console.error('[english] Failed:', err.message))
     .then(() => require('./services/ratings').refreshRatings()) // age ratings for the chosen country
     .catch(err => console.error('[ratings] Failed:', err.message));
+
+  // Follow approved movie requests through Radarr (services/requests.js).
+  require('./services/requests').start();
+
+  // Find new and removed files by itself (Admin › Libraries › Automatic Scanning).
+  require('./services/autoScan').restart().catch(err => console.error('[auto-scan] Failed to start:', err.message));
 });

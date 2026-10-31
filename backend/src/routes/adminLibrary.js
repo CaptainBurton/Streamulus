@@ -214,6 +214,22 @@ router.post('/moved/forget', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
+// ── Automatic scanning ───────────────────────────────────────────────────────
+// { enabled, intervalHours, watching, pending, error, lastRun }
+
+router.get('/auto-scan', requireAdmin, (req, res) => res.json(require('../services/autoScan').status()));
+
+router.put('/auto-scan', requireAdmin, (req, res) => {
+  const autoScan = require('../services/autoScan');
+  const { enabled, intervalHours } = req.body || {};
+  if (intervalHours !== undefined && !(Number(intervalHours) >= 0 && Number(intervalHours) <= 168)) {
+    return res.status(400).json({ error: 'Full scan interval must be between 0 (off) and 168 hours' });
+  }
+  autoScan.update({ enabled: enabled === undefined ? undefined : !!enabled, intervalHours });
+  require('../services/activity').log(req, { category: 'admin', action: 'settings_changed', detail: `Automatic scanning: ${autoScan.status().enabled ? 'on' : 'off'}${autoScan.status().intervalHours ? `, full scan every ${autoScan.status().intervalHours} h` : ''}` });
+  res.json(autoScan.status());
+});
+
 // ── Tidy ─────────────────────────────────────────────────────────────────────
 
 router.post('/regroup', requireAdmin, (req, res) => {

@@ -261,6 +261,28 @@ function removeMissing(lib, foundFiles) {
   return { removed: missing.length };
 }
 
+// Entries under these paths (folders or single files) whose files are gone —
+// for scans of just what changed. Same rules as removeMissing: only rows whose
+// file really isn't there any more. Returns how many were removed.
+function removeMissingUnder(lib, targets, foundFiles) {
+  if (!fs.existsSync(lib.path)) return 0; // drive not mounted — touch nothing
+  const prefixes = [...new Set(targets)].map(t => t.replace(/[\\/]+$/, ''));
+  const under = (p) => prefixes.some(t => p === t || p.startsWith(t + path.sep));
+  const rows = lib.type === 'movies'
+    ? db.prepare('SELECT id, file_path FROM movies WHERE library_id = ?').all(lib.id)
+    : db.prepare('SELECT e.id, e.file_path FROM episodes e JOIN tv_shows s ON s.id = e.show_id WHERE s.library_id = ?').all(lib.id);
+  const missing = rows.filter(r => under(r.file_path) && !foundFiles.has(r.file_path) && !fs.existsSync(r.file_path));
+  if (!missing.length) return 0;
+  db.transaction(() => {
+    if (lib.type === 'movies') deleteMovieRows(missing.map(r => r.id));
+    else {
+      deleteEpisodeRows(missing.map(r => r.id));
+      deleteEmptyShows();
+    }
+  })();
+  return missing.length;
+}
+
 /**
  * One show per series folder: move episodes that ended up under other show rows
  * (from older scans) into the show for their folder, and remove the emptied rows.
@@ -340,5 +362,5 @@ function regroupShows() {
 
 module.exports = {
   excludedMatcher, addExclusion, listExclusions, removeExclusion,
-  removeMedia, removeMissing, regroupShows, deleteEmptyShows,
+  removeMedia, removeMissing, removeMissingUnder, regroupShows, deleteEmptyShows,
 };

@@ -304,7 +304,26 @@ async function processTVFile(filePath, lib, ctx) {
 
 const extrasPath = (f) => path.dirname(f).split(path.sep).some(naming.isExtrasFolder);
 
-async function scanAllWithProgress(onProgress, filterLibraryId = null) {
+// One scan at a time: a full scan from the admin panel, the periodic scan and
+// the folder watcher's small scans (services/autoScan.js) take turns.
+let scanChain = Promise.resolve();
+let scanBusy = false;
+function exclusive(fn) {
+  const run = scanChain.then(async () => {
+    scanBusy = true;
+    try { return await fn(); } finally { scanBusy = false; }
+  });
+  scanChain = run.catch(() => {});
+  return run;
+}
+const isScanning = () => scanBusy;
+
+function scanAllWithProgress(onProgress, filterLibraryId = null) {
+  if (scanBusy) onProgress({ type: 'waiting', message: 'Waiting for the scan already running to finish…' });
+  return exclusive(() => scanAll_(onProgress, filterLibraryId));
+}
+
+async function scanAll_(onProgress, filterLibraryId = null) {
   const libraries = filterLibraryId
     ? db.prepare('SELECT * FROM libraries WHERE id = ?').all(filterLibraryId)
     : db.prepare('SELECT * FROM libraries').all();
@@ -387,6 +406,11 @@ async function scanAllWithProgress(onProgress, filterLibraryId = null) {
   }
 
   onProgress({ type: 'complete', ...grandTotal });
+  afterScan();
+}
+
+// After new titles arrive: metadata that's filled in in the background.
+function afterScan() {
   // Newly added animated titles: find out which are anime (in the background).
   require('./languages').fillMissingLanguages()
     .catch(err => console.error('[languages] Failed:', err.message))
@@ -398,6 +422,44 @@ async function scanAllWithProgress(onProgress, filterLibraryId = null) {
     .catch(err => console.error('[services] Failed:', err.message));
   // Read runtimes of newly added files in the background ("Ends at" times).
   require('./durations').fillMissingDurations().catch(() => {});
+}
+
+// Scan just these paths (folders or files) in one library — what changed, as
+// noticed by the folder watcher or a finished Radarr download — instead of the
+// whole library. New files are added, entries whose files are gone from those
+// paths are removed, and shows are regrouped. { added, removed, files }
+function scanPaths(lib, targets) {
+  return exclusive(async () => {
+    if (!fs.existsSync(lib.path)) return { added: 0, removed: 0, files: 0, error: `Path not found: ${lib.path}` };
+    const files = [];
+    for (const target of new Set(targets)) {
+      let stat = null;
+      try { stat = await fs.promises.stat(target); } catch {}
+      if (stat?.isDirectory()) files.push(...await getVideoFiles(target));
+      else if (stat?.isFile() && VIDEO_EXTENSIONS.has(path.extname(target).toLowerCase())) files.push(target);
+    }
+    const ordered = [...files.filter(f => !extrasPath(f)), ...files.filter(extrasPath)];
+    const ctx = { cfg: naming.getConfig(), isExcluded: library.excludedMatcher(), shows: new Map() };
+    let added = 0;
+    for (const filePath of ordered) {
+      try {
+        const res = lib.type === 'movies' ? await processMovieFile(filePath, lib, ctx) : await processTVFile(filePath, lib, ctx);
+        if (res.status === 'added') added++;
+      } catch (err) {
+        console.error(`[scan] ${path.basename(filePath)}: ${err.message}`);
+      }
+    }
+    const removed = getSource('library_remove_missing', 'true') === 'true'
+      ? library.removeMissingUnder(lib, targets, new Set(files)) : 0;
+    if (lib.type === 'tv') {
+      try { library.regroupShows(); } catch (err) { console.error('[scan] Regrouping shows failed:', err.message); }
+    }
+    if (added || removed) {
+      db.prepare('UPDATE libraries SET last_scanned = CURRENT_TIMESTAMP WHERE id = ?').run(lib.id);
+      afterScan();
+    }
+    return { added, removed, files: files.length };
+  });
 }
 
 async function scanAll() {
@@ -417,4 +479,4 @@ async function validatePath(dirPath) {
   return { exists, fileCount: files.length };
 }
 
-module.exports = { scanAll, scanAllWithProgress, getVideoFiles, validatePath };
+module.exports = { scanAll, scanAllWithProgress, scanPaths, isScanning, getVideoFiles, validatePath, VIDEO_EXTENSIONS };

@@ -334,6 +334,46 @@ db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
   ip TEXT
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id)');
+// Movie requests (services/requests.js): one row per requested film, the people
+// who asked for it, and how it's getting on in Radarr.
+db.exec(`CREATE TABLE IF NOT EXISTS media_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  media_type TEXT NOT NULL DEFAULT 'movie',
+  tmdb_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  year INTEGER,
+  poster_path TEXT,
+  backdrop_path TEXT,
+  overview TEXT,
+  user_id INTEGER NOT NULL,
+  note TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  detail TEXT,
+  progress REAL,
+  eta INTEGER,
+  size INTEGER,
+  needs_admin INTEGER NOT NULL DEFAULT 0,
+  decline_reason TEXT,
+  decided_by TEXT,
+  decided_at INTEGER,
+  radarr_id INTEGER,
+  search_command_id INTEGER,
+  searched_at INTEGER,
+  scan_requested_at INTEGER,
+  movie_id INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  checked_at INTEGER
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_requests_tmdb ON media_requests(media_type, tmdb_id)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_requests_status ON media_requests(status)');
+db.exec(`CREATE TABLE IF NOT EXISTS media_request_users (
+  request_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (request_id, user_id)
+)`);
+
 // Admin › Emails: wording changed from the defaults (services/emailTemplates.js).
 db.exec(`CREATE TABLE IF NOT EXISTS email_templates (
   id TEXT PRIMARY KEY,

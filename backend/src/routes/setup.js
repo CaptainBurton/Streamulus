@@ -52,8 +52,9 @@ router.post('/complete', async (req, res) => {
     insertConfig.run('setup_complete', 'true');
   })();
 
-  // Kick off background scan
+  // Kick off background scan, and start watching the new libraries for changes
   scanAll().catch(() => {});
+  require('../services/autoScan').restart().catch(() => {});
 
   res.json({ success: true, message: 'Setup complete. Media scan started.' });
 });
