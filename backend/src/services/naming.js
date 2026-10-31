@@ -166,12 +166,20 @@ function episodeFromName(base, cfg) {
   return null;
 }
 
+// Season folders as people (and downloaders) name them: "Season 1", "S01",
+// "Series 3", and also with the show's name or release details around it —
+// "Breaking Bad Season 4 (1080p)", "Show - Season 5 [WEB-DL]", "Bluey S03",
+// "Breaking.Bad.S03.1080p.BluRay-GRP", "S05 Part 2". Those used to be taken for
+// separate shows, which split their episodes off the real one.
+const SEASON_WORD = /(?:^|[\s._\-[(])(?:Season|Series|Saison|Staffel|Temporada|Seizoen|Stagione)[\s._-]*(?<season>\d{1,4})(?![\d])/i;
+const SEASON_CODE = /(?:^|[\s._\-[(])S(?<season>\d{1,2})(?![\dE])(?:[\s._\-\])]|$)/i;
+
 function seasonFromFolder(name, cfg) {
   const lower = String(name).toLowerCase().trim();
   const specials = cfg.naming_specials_folders.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   if (specials.includes(lower) || isExtrasFolder(lower)) return 0;
   const custom = compileFormat(cfg.naming_season_folder, { whole: true });
-  const m = (custom && name.match(custom)) || name.match(/^(?:Season|Series|Saison|Staffel|Temporada|S)[\s._-]*(?<season>\d{1,4})\b/i);
+  const m = (custom && name.match(custom)) || name.match(SEASON_WORD) || name.match(SEASON_CODE);
   if (m?.groups?.season != null) return parseInt(m.groups.season, 10);
   return null;
 }
@@ -201,14 +209,17 @@ function parseEpisode(libraryRoot, filePath, cfg = getConfig()) {
   const parts = relParts(libraryRoot, filePath);
   const file = parts[parts.length - 1];
   const base = path.basename(file, path.extname(file));
-  if (/(^|[\s._-])sample$/i.test(base) || /-trailer$/i.test(base)) return null;
+  // Release samples ("….S01E01-sample", "sample-….mkv") — not an episode titled "Sample".
+  if (/(^|[._-])sample$/i.test(base) || /^sample[._-]/i.test(base) || /-trailer$/i.test(base)) return null;
 
   const folders = parts.slice(0, -1);
   const fromName = episodeFromName(base, cfg);
 
   // The series folder is the one above the first Season / Specials / Extras folder,
-  // or the folder the file is in (so "TV/Anime/Show/Season 1" works too).
-  const firstSeason = folders.findIndex(f => isSeasonLike(f, cfg));
+  // or the folder the file is in (so "TV/Anime/Show/Season 1" works too). Only
+  // season-like folders with nothing but season-like folders below them count,
+  // so a category folder such as "TV/Other/Show/Season 1" isn't taken for extras.
+  const firstSeason = folders.findIndex((f, i) => isSeasonLike(f, cfg) && folders.slice(i + 1).every(g => isSeasonLike(g, cfg)));
   const seriesIndex = firstSeason > 0 ? firstSeason - 1 : (firstSeason === 0 ? -1 : folders.length - 1);
 
   let series;
