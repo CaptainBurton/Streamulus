@@ -90,6 +90,49 @@ async function trendingMovies() {
   return (res.data.results || []).slice(0, 20);
 }
 
+// ── Requests: browsing films that aren't on the server ───────────────────────
+
+// A film's page in one call: details, cast and crew, trailers, age ratings.
+async function getMovieFull(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  const res = await axios.get(`${TMDB_BASE}/movie/${tmdbId}`, {
+    params: { api_key: apiKey, append_to_response: 'credits,videos,release_dates' }, timeout: 10000,
+  });
+  return res.data;
+}
+
+// People by name (actors first), most popular first.
+async function searchPeople(query) {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+  const res = await axios.get(`${TMDB_BASE}/search/person`, { params: { api_key: apiKey, query, include_adult: false }, timeout: 10000 });
+  return (res.data.results || []).slice(0, 20);
+}
+
+// A person and every film they've been in (or directed).
+async function getPersonWithMovies(personId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  const res = await axios.get(`${TMDB_BASE}/person/${personId}`, {
+    params: { api_key: apiKey, append_to_response: 'movie_credits' }, timeout: 10000,
+  });
+  return res.data;
+}
+
+// Popular films from a year and/or in a genre (no search words).
+async function discoverMovies({ year, genre, page = 1 } = {}) {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+  const params = { api_key: apiKey, sort_by: 'popularity.desc', include_adult: false, page, 'vote_count.gte': 20 };
+  if (year) params.primary_release_year = year;
+  if (genre) params.with_genres = genre;
+  const res = await axios.get(`${TMDB_BASE}/discover/movie`, { params, timeout: 10000 });
+  return res.data.results || [];
+}
+
+const movieGenres = () => Object.entries(MOVIE_GENRES).map(([id, name]) => ({ id: Number(id), name }));
+
 async function getMovieCredits(tmdbId) {
   const apiKey = getApiKey();
   if (!apiKey) return null;
@@ -246,6 +289,7 @@ function resolveGenreNames(genreIds, isTV = false) {
 
 module.exports = {
   getApiKey, searchMovieList, searchTVList, getEnglish, trendingMovies,
+  getMovieFull, searchPeople, getPersonWithMovies, discoverMovies, movieGenres,
   searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating, getMovieCertification, getTVCertification, getWatchProviders,
   getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
   getMovieImages, getTVImages, getSeasonImages,

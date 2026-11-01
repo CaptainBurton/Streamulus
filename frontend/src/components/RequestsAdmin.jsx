@@ -16,6 +16,15 @@ const BTN = { padding: '8px 14px', borderRadius: '8px', fontSize: '13px', fontWe
 const PRIMARY = { ...BTN, background: '#00c2ff', border: '1px solid #00c2ff', color: '#000', fontWeight: 700 };
 const DANGER = { ...BTN, border: '1px solid rgba(255,77,77,0.35)', color: '#ff6b6b' };
 
+// Quick notes for a declined request (the admin can still write their own).
+const DECLINE_NOTES = [
+  "Not released yet — ask again once it's out",
+  "It's already on a streaming service we all use",
+  "Couldn't find a good-quality copy",
+  'Not suitable for this server',
+  "We've got too many requests right now — try again later",
+];
+
 const FILTERS = [['pending', 'Waiting'], ['attention', 'Needs attention'], ['active', 'In progress'], ['available', 'Ready'], ['declined', 'Declined'], ['all', 'All']];
 const when = (ms) => (ms ? new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
 
@@ -147,7 +156,7 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
             </div>
           )}
           {r.detail && <div style={{ fontSize: '13px', color: r.needsAdmin ? '#ffb38a' : '#999' }}>{r.detail}</div>}
-          {r.declineReason && <div style={{ fontSize: '13px', color: '#ff9a9a' }}>Reason given: “{r.declineReason}”</div>}
+          {r.declineReason && <div style={{ fontSize: '13px', color: '#ff9a9a' }}>Note to them: “{r.declineReason}”</div>}
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {['pending', 'declined'].includes(r.status) && !mode && (
@@ -187,9 +196,17 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
       )}
       {mode === 'decline' && (
         <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: '1 1 320px' }}>
-            <label style={LABEL}>Reason · optional, included in their email</label>
-            <input style={INPUT} value={reason} onChange={e => setReason(e.target.value)} maxLength={500} placeholder="e.g. it's already on Netflix" aria-label="Reason" />
+          <div style={{ flex: '1 1 100%' }}>
+            <label style={LABEL}>Note for {r.requesters.map(p => p.username).join(', ') || 'them'} · optional — shown in their Requests and included in their email</label>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              {DECLINE_NOTES.map(n => (
+                <button key={n} type="button" onClick={() => setReason(n)} data-note={n}
+                  style={{ ...BTN, padding: '5px 11px', fontSize: '12px', borderRadius: '999px', ...(reason === n ? { background: 'rgba(255,77,77,0.18)', color: '#fff', border: '1px solid rgba(255,77,77,0.5)' } : {}) }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <input style={INPUT} value={reason} onChange={e => setReason(e.target.value)} maxLength={500} placeholder="Or write your own, e.g. it's already on Netflix" aria-label="Reason" />
           </div>
           <button style={{ ...DANGER, background: '#ff4444', color: '#fff', border: '1px solid #ff4444' }} disabled={busy} onClick={decline} data-action="confirm-decline">{busy ? 'Declining…' : 'Decline Request'}</button>
           <button style={BTN} disabled={busy} onClick={() => setMode(null)}>Cancel</button>

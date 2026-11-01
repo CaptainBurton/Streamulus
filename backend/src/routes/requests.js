@@ -24,35 +24,151 @@ function noKids(req, res, next) {
 
 user.get('/config', authenticate, (req, res) => {
   const s = requests.settings();
-  res.json({ open: requests.isOpen() && !req.profile?.is_kids, limit: s.limit, refreshSeconds: s.refreshSeconds });
+  res.json({
+    open: requests.isOpen() && !req.profile?.is_kids, limit: s.limit, refreshSeconds: s.refreshSeconds,
+    genres: tmdb.movieGenres().sort((a, b) => a.name.localeCompare(b.name)), // for the Genre filter
+  });
 });
 
-// Films to choose from: a search, or this week's popular ones — leaving out the
-// ones already on the server. Each says whether it's already been asked for.
+const yearOf = (date) => (date ? parseInt(date, 10) || null : null);
+const img = (p, size) => (p ? `https://image.tmdb.org/t/p/${size}${p}` : null);
+
+// Who has already asked for a film (and whether it's you).
+function requestState(tmdbId, userId) {
+  const open = requests.openFor(tmdbId);
+  if (!open) return null;
+  const mine = !!db.prepare('SELECT 1 FROM media_request_users WHERE request_id = ? AND user_id = ?').get(open.id, userId);
+  return { id: open.id, status: open.status, label: requests.LABELS[open.status], mine };
+}
+
+// A TMDB film as the Requests pages list it.
+const filmResult = (m, userId) => ({
+  tmdbId: m.id,
+  title: m.title,
+  year: yearOf(m.release_date),
+  overview: m.overview || '',
+  posterUrl: requests.posterUrl(m.poster_path),
+  rating: m.vote_average || null,
+  movieId: requests.inLibrary(m.id),
+  request: requestState(m.id, userId),
+});
+
+const tmdbDown = (res) => res.status(502).json({ error: "Couldn't reach TMDB right now — try again in a moment" });
+
+// Films to choose from, leaving out the ones already on the server. Each says
+// whether it's already been asked for.
+//   ?q=        search by title (optionally ?year= to narrow it, ?genre= to filter)
+//   ?year= / ?genre= with no q: that year's / genre's most popular films
+//   nothing:   this week's popular films
 user.get('/search', authenticate, noKids, async (req, res) => {
   const q = String(req.query.q || '').trim().slice(0, 100);
+  const year = /^\d{4}$/.test(String(req.query.year || '')) ? Number(req.query.year) : null;
+  const genre = parseInt(req.query.genre, 10) || null;
   let results;
+  let mode;
   try {
-    results = q ? await tmdb.searchMovieList(q) : await tmdb.trendingMovies();
+    if (q) {
+      mode = 'search';
+      results = await tmdb.searchMovieList(q, year);
+      if (genre) results = results.filter(m => (m.genre_ids || []).includes(genre));
+    } else if (year || genre) {
+      mode = 'discover';
+      const [one, two] = await Promise.all([tmdb.discoverMovies({ year, genre }), tmdb.discoverMovies({ year, genre, page: 2 })]);
+      results = [...one, ...two];
+    } else {
+      mode = 'popular';
+      results = await tmdb.trendingMovies();
+    }
   } catch (err) {
-    return res.status(502).json({ error: "Couldn't search TMDB right now — try again in a moment" });
+    return tmdbDown(res);
   }
+  const seen = new Set();
+  res.json({
+    query: q, year, genre, mode,
+    results: results
+      .filter(m => m.id && m.title && !seen.has(m.id) && seen.add(m.id) && !requests.inLibrary(m.id))
+      .map(m => filmResult(m, req.user.id)),
+  });
+});
+
+// People by name — to see everything an actor (or director) has made.
+user.get('/people', authenticate, noKids, async (req, res) => {
+  const q = String(req.query.q || '').trim().slice(0, 100);
+  if (!q) return res.json({ query: q, people: [] });
+  let people;
+  try { people = await tmdb.searchPeople(q); } catch { return tmdbDown(res); }
   res.json({
     query: q,
-    results: results.filter(m => m.id && m.title && !requests.inLibrary(m.id)).map(m => {
-      const open = requests.openFor(m.id);
-      const mine = open ? !!db.prepare('SELECT 1 FROM media_request_users WHERE request_id = ? AND user_id = ?').get(open.id, req.user.id) : false;
-      return {
-        tmdbId: m.id,
-        title: m.title,
-        year: m.release_date ? parseInt(m.release_date, 10) : null,
-        overview: m.overview || '',
-        posterUrl: requests.posterUrl(m.poster_path),
-        rating: m.vote_average || null,
-        movieId: requests.inLibrary(m.id),
-        request: open ? { id: open.id, status: open.status, label: requests.LABELS[open.status], mine } : null,
-      };
-    }),
+    people: people.filter(p => p.id && p.name).map(p => ({
+      id: p.id,
+      name: p.name,
+      department: p.known_for_department || null,
+      profileUrl: img(p.profile_path, 'w185'),
+      knownFor: (p.known_for || []).map(k => k.title || k.name).filter(Boolean).slice(0, 3),
+    })),
+  });
+});
+
+// A person's page: who they are, and their films that aren't on the server yet
+// (most popular first), with how many of theirs already are.
+user.get('/person/:id', authenticate, noKids, async (req, res) => {
+  let p;
+  try { p = await tmdb.getPersonWithMovies(parseInt(req.params.id, 10)); } catch (err) {
+    return err.response?.status === 404 ? res.status(404).json({ error: 'Person not found' }) : tmdbDown(res);
+  }
+  if (!p) return tmdbDown(res);
+  const credits = p.movie_credits || {};
+  // Directors etc.: their crew credits; everyone else: the films they're in.
+  const acting = (p.known_for_department || 'Acting') === 'Acting';
+  const pool = acting ? (credits.cast || []) : (credits.crew || []).filter(c => ['Director', 'Screenplay', 'Writer', 'Producer'].includes(c.job));
+  const byId = new Map();
+  for (const m of pool) if (m.id && m.title && !byId.has(m.id)) byId.set(m.id, m);
+  const all = [...byId.values()].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+  const here = all.filter(m => requests.inLibrary(m.id));
+  res.json({
+    person: {
+      id: p.id,
+      name: p.name,
+      department: p.known_for_department || null,
+      profileUrl: img(p.profile_path, 'w342'),
+      biography: p.biography || '',
+      birthday: p.birthday || null,
+      deathday: p.deathday || null,
+      placeOfBirth: p.place_of_birth || null,
+    },
+    films: all.filter(m => !requests.inLibrary(m.id)).map(m => ({ ...filmResult(m, req.user.id), role: m.character || m.job || null })),
+    onServer: here.length,
+  });
+});
+
+// A film's page: synopsis, cast, trailer, and whether it's here or asked for.
+user.get('/film/:tmdbId', authenticate, noKids, async (req, res) => {
+  const tmdbId = parseInt(req.params.tmdbId, 10);
+  let m;
+  try { m = await tmdb.getMovieFull(tmdbId); } catch (err) {
+    return err.response?.status === 404 ? res.status(404).json({ error: 'Film not found' }) : tmdbDown(res);
+  }
+  if (!m) return tmdbDown(res);
+  const country = require('../services/ratings').country();
+  const dates = m.release_dates?.results || [];
+  const certFor = (c) => (dates.find(d => d.iso_3166_1 === c)?.release_dates || []).map(d => d.certification).find(Boolean) || null;
+  const videos = (m.videos?.results || []).filter(v => v.site === 'YouTube' && v.key);
+  const trailer = videos.find(v => v.type === 'Trailer' && v.official) || videos.find(v => v.type === 'Trailer') || videos.find(v => v.type === 'Teaser') || null;
+  res.json({
+    film: {
+      ...filmResult(m, req.user.id),
+      originalTitle: m.original_title && m.original_title !== m.title ? m.original_title : null,
+      tagline: m.tagline || null,
+      releaseDate: m.release_date || null,
+      runtime: m.runtime || null,
+      voteCount: m.vote_count || 0,
+      genres: (m.genres || []).map(g => g.name),
+      certification: certFor(country) || certFor('US'),
+      backdropUrl: img(m.backdrop_path, 'w1280'),
+      directors: (m.credits?.crew || []).filter(c => c.job === 'Director').map(c => ({ id: c.id, name: c.name })),
+      cast: (m.credits?.cast || []).slice(0, 16).map(c => ({ id: c.id, name: c.name, character: c.character || null, profileUrl: img(c.profile_path, 'w185') })),
+      trailer: trailer ? { name: trailer.name, url: `https://www.youtube.com/watch?v=${trailer.key}` } : null,
+    },
   });
 });
 
