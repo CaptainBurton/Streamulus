@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Public
@@ -66,6 +67,9 @@ import com.streamulus.android.ui.components.ProfileAvatar
 import com.streamulus.android.ui.components.TopBar
 import com.streamulus.android.ui.theme.Brand
 import kotlinx.coroutines.launch
+import com.streamulus.android.data.MovieRequest
+import com.streamulus.android.data.bool
+import com.streamulus.android.data.objects
 
 /** Profile & Settings (opened from your profile picture, top-right). */
 @Composable
@@ -80,6 +84,17 @@ fun AccountScreen() {
 
     // Runs again when you come back from Feedback (this page is rebuilt), so the badge stays current.
     LaunchedEffect(Unit) { unreadFeedback = session.unreadFeedbackCount() }
+    // Film requests: shown when the admin has them turned on, with how many of yours are on the go.
+    var requestsOpen by remember { mutableStateOf(false) }
+    var activeRequests by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        requestsOpen = runCatching { session.getObject("/api/requests/config").bool("open") }.getOrDefault(false)
+        if (requestsOpen) {
+            activeRequests = runCatching {
+                session.getObject("/api/requests").objects("requests").map(MovieRequest::from).count { it.isActive }
+            }.getOrDefault(0)
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         TopBar("Profile & Settings", onBack = { navigator.pop() })
@@ -173,6 +188,12 @@ fun AccountScreen() {
                 if (!profile.isKids) {
                     Group(footer = "Signing in on an Apple TV, another phone or a browser? Choose Quick Login there, then scan its QR code or enter its code here.") {
                         LinkRow(Icons.Filled.QrCodeScanner, "Approve a Sign-In") { navigator.push(Screen.ApproveSignIn) }
+                    }
+                }
+
+                if (requestsOpen) {
+                    Group(footer = "Ask for a film that isn't on Streamulus yet, and follow it until it's ready to watch.") {
+                        LinkRow(Icons.Filled.Movie, "Requests", badge = activeRequests) { navigator.push(Screen.Requests(mine = activeRequests > 0)) }
                     }
                 }
 

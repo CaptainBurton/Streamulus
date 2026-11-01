@@ -173,25 +173,46 @@ struct SearchView: View {
     @State private var movies: [Movie] = []
     @State private var shows: [Show] = []
     @State private var searching = false
+    /// Film requests: whether they're open here, and how many of yours are on the go.
+    @State private var requestsOpen = false
+    @State private var activeRequests = 0
 
     var body: some View {
         let m = Metrics(sizeClass)
         let text = query.trimmingCharacters(in: .whitespaces)
         ScrollView {
             if text.isEmpty {
+                if requestsOpen { requestsCard(m) }
                 ContentUnavailableView("Search Streamulus", systemImage: "magnifyingglass",
                                        description: Text("Find movies and TV shows by title."))
-                    .padding(.top, 80)
+                    .padding(.top, requestsOpen ? 40 : 80)
             } else if movies.isEmpty && shows.isEmpty && !searching {
                 ContentUnavailableView.search(text: text).padding(.top, 80)
+                if requestsOpen {
+                    NavigationLink {
+                        RequestsView(query: text)
+                    } label: {
+                        Label("Request “\(text)”", systemImage: "plus.circle.fill").font(.headline)
+                    }
+                    .buttonStyle(.glassProminent)
+                }
             } else {
                 VStack(alignment: .leading, spacing: 22) {
                     if !movies.isEmpty { results("Movies", movies.map(GenreItem.movie), m) }
                     if !shows.isEmpty { results("TV Shows", shows.map(GenreItem.show), m) }
+                    if requestsOpen {
+                        NavigationLink {
+                            RequestsView(query: text)
+                        } label: {
+                            Label("Not here? Request a film", systemImage: "plus.circle")
+                        }
+                        .padding(.horizontal, m.margin)
+                    }
                 }
                 .padding(.bottom, 24)
             }
         }
+        .task { await loadRequests() }
         .background(Theme.background)
         .navigationTitle("Search")
         .searchable(text: $query, prompt: "Movies and TV shows")
@@ -218,6 +239,39 @@ struct SearchView: View {
             shows = showResults?.shows ?? []
             searching = false
         }
+    }
+
+    // Search › Request a Film, with how many of your requests are on the go.
+    private func requestsCard(_ m: Metrics) -> some View {
+        NavigationLink {
+            RequestsView(page: activeRequests > 0 ? .mine : .find)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "film.stack.fill")
+                    .font(.title2)
+                    .foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Request a Film").font(.headline).foregroundStyle(.primary)
+                    Text(activeRequests > 0 ? "\(activeRequests) of your requests on the go" : "Ask for a film that isn't on Streamulus yet")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .glassEffect(.regular.tint(Theme.accent.opacity(0.12)), in: .rect(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, m.margin)
+        .padding(.top, 16)
+    }
+
+    private func loadRequests() async {
+        let config = try? await session.get("/api/requests/config", as: RequestsConfig.self)
+        requestsOpen = config?.open == true
+        guard requestsOpen else { return }
+        let mine = try? await session.get("/api/requests", as: MyRequestsResponse.self)
+        activeRequests = mine?.requests.filter { $0.isActive }.count ?? 0
     }
 
     private func results(_ title: String, _ items: [GenreItem], _ m: Metrics) -> some View {

@@ -446,3 +446,90 @@ data class FeedbackItem(
 }
 
 data class FeedbackMessage(val id: Int, val fromAdmin: Boolean, val author: String?, val body: String, val createdAt: Long)
+
+// ── Film requests (/api/requests) ────────────────────────────────────────────
+
+/** Whether requests are open for this profile, and how often to refresh progress (seconds). */
+data class RequestsConfig(val open: Boolean, val refreshSeconds: Double) {
+    companion object {
+        fun from(o: JsonObject) = RequestsConfig(o.bool("open"), o.double("refreshSeconds") ?: 2.0)
+    }
+}
+
+/** Someone has already asked for this film. */
+data class FilmRequestState(val id: Int, val status: String, val label: String, val mine: Boolean)
+
+/** A film to choose on the Requests page (films already on the server are left out). */
+data class FilmResult(
+    val tmdbId: Int,
+    val title: String,
+    val year: Int?,
+    val overview: String?,
+    val posterUrl: String?,
+    val rating: Double?,
+    val request: FilmRequestState?,
+) {
+    companion object {
+        fun from(o: JsonObject) = FilmResult(
+            tmdbId = o.int("tmdbId") ?: 0,
+            title = o.str("title") ?: "Untitled",
+            year = o.int("year"),
+            overview = o.str("overview"),
+            posterUrl = o.str("posterUrl"),
+            rating = o.double("rating"),
+            request = o.obj("request")?.let { FilmRequestState(it.int("id") ?: 0, it.str("status") ?: "", it.str("label") ?: "", it.bool("mine")) },
+        )
+    }
+}
+
+data class MovieRequest(
+    val id: Int,
+    val tmdbId: Int,
+    val title: String,
+    val year: Int?,
+    val posterUrl: String?,
+    val status: String,
+    val label: String,
+    val detail: String?,
+    /** 0…1 while downloading. */
+    val progress: Double?,
+    /** When it should finish (ms since 1970). */
+    val eta: Double?,
+    /** Bytes per second, when Deluge reports it. */
+    val speed: Double?,
+    val declineReason: String?,
+    val decidedBy: String?,
+    /** The film on the server once it's ready. */
+    val movieId: Int?,
+    val createdAt: Double,
+    val mine: Boolean,
+    val requestedBy: String?,
+    val others: Int,
+) {
+    val isActive: Boolean get() = status in ACTIVE
+
+    companion object {
+        val ACTIVE = setOf("pending", "searching", "waiting_release", "not_found", "downloading", "importing", "failed", "adding", "missing")
+
+        fun from(o: JsonObject) = MovieRequest(
+            id = o.int("id") ?: 0,
+            tmdbId = o.int("tmdbId") ?: 0,
+            title = o.str("title") ?: "Untitled",
+            year = o.int("year"),
+            posterUrl = o.str("posterUrl"),
+            status = o.str("status") ?: "pending",
+            label = o.str("label") ?: "",
+            detail = o.str("detail"),
+            progress = o.double("progress"),
+            eta = o.double("eta"),
+            speed = o.double("speed"),
+            declineReason = o.str("declineReason"),
+            decidedBy = o.str("decidedBy"),
+            movieId = o.int("movieId"),
+            createdAt = o.double("createdAt") ?: 0.0,
+            mine = o.bool("mine", default = true),
+            requestedBy = o.str("requestedBy"),
+            others = o.int("others") ?: 0,
+        )
+    }
+}

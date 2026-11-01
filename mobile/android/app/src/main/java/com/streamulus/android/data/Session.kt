@@ -373,6 +373,9 @@ class Session(private val app: Application) {
     suspend fun put(path: String, body: JsonObject = JsonObject(emptyMap())): JsonObject =
         signedIn { it.put(path, body) as? JsonObject ?: JsonObject(emptyMap()) }
 
+    suspend fun delete(path: String): JsonObject =
+        signedIn { it.delete(path) as? JsonObject ?: JsonObject(emptyMap()) }
+
     /** Subtitles: the WebVTT text and whether it's complete (the server may still be reading the file). */
     suspend fun subtitles(path: String): Pair<String, Boolean> = signedIn { client ->
         val (text, headers) = client.getText(path)

@@ -60,6 +60,14 @@ import com.streamulus.android.ui.components.attempt
 import com.streamulus.android.ui.library.LibraryGrid
 import com.streamulus.android.ui.theme.Brand
 import kotlinx.coroutines.delay
+import com.streamulus.android.data.MovieRequest
+import com.streamulus.android.data.bool
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Row
 
 /** Genre tiles: the admin's image or a random title's banner art. */
 @Composable
@@ -206,6 +214,17 @@ fun SearchScreen() {
     var shows by remember { mutableStateOf<List<Show>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     val text = query.trim()
+    // Film requests: Request a Film here when the admin has them turned on.
+    var requestsOpen by remember { mutableStateOf(false) }
+    var activeRequests by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        requestsOpen = runCatching { session.getObject("/api/requests/config").bool("open") }.getOrDefault(false)
+        if (requestsOpen) {
+            activeRequests = runCatching {
+                session.getObject("/api/requests").objects("requests").map(MovieRequest::from).count { it.isActive }
+            }.getOrDefault(0)
+        }
+    }
 
     LaunchedEffect(text) {
         if (text.isEmpty()) {
@@ -244,6 +263,11 @@ fun SearchScreen() {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
+                if (requestsOpen && text.isEmpty()) {
+                    item(key = "request", span = { GridItemSpan(maxLineSpan) }) {
+                        RequestFilmCard(activeRequests) { navigator.push(Screen.Requests(mine = activeRequests > 0)) }
+                    }
+                }
                 if (movies.isNotEmpty()) {
                     item(key = "movies-title", span = { GridItemSpan(maxLineSpan) }) { ResultsTitle("Movies") }
                     items(movies, key = { "m${it.id}" }) { movie ->
@@ -256,12 +280,41 @@ fun SearchScreen() {
                         PosterCard(show.title, show.year, session.imageUrl(show.posterPath), { navigator.push(Screen.ShowDetail(show)) })
                     }
                 }
+                if (requestsOpen && text.isNotEmpty() && !searching) {
+                    item(key = "request-this", span = { GridItemSpan(maxLineSpan) }) {
+                        Box(Modifier.fillMaxWidth().padding(top = if (movies.isEmpty() && shows.isEmpty()) 160.dp else 8.dp), contentAlignment = Alignment.Center) {
+                            if (movies.isEmpty() && shows.isEmpty()) {
+                                Button(onClick = { navigator.push(Screen.Requests(query = text)) }) { Text("Request “$text”") }
+                            } else {
+                                TextButton(onClick = { navigator.push(Screen.Requests(query = text)) }) { Text("Not here? Request a film") }
+                            }
+                        }
+                    }
+                }
             }
             when {
                 text.isEmpty() -> ListStatus(loading = false, error = null, isEmpty = true, emptyText = "Find movies and TV shows by title.")
                 !searching && movies.isEmpty() && shows.isEmpty() -> ListStatus(loading = false, error = null, isEmpty = true, emptyText = "No results for “$text”")
             }
         }
+    }
+}
+
+// Search › Request a Film, with how many of your requests are on the go.
+@Composable
+private fun RequestFilmCard(active: Int, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(16.dp))
+            .background(Brand.Accent.copy(alpha = 0.1f)).clickable(onClick = onClick).padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(Icons.Filled.Movie, contentDescription = null, tint = Brand.Accent)
+        Column(Modifier.weight(1f)) {
+            Text("Request a Film", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(if (active > 0) "$active of your requests on the go" else "Ask for a film that isn't on Streamulus yet", style = MaterialTheme.typography.bodyMedium, color = Brand.Secondary)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Brand.Secondary)
     }
 }
 

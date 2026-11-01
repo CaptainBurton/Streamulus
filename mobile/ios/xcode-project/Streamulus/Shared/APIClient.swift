@@ -74,6 +74,10 @@ final class APIClient {
         try await send(method: "PUT", path: path, query: [], body: body)
     }
 
+    func delete<T: Decodable>(_ path: String, as type: T.Type = T.self) async throws -> T {
+        try await send(method: "DELETE", path: path, query: [], body: nil)
+    }
+
     /// A text response (e.g. WebVTT subtitles). `timeout` is generous because the
     /// server may need to read a whole video file the first time.
     func getText(_ path: String, timeout: TimeInterval = 600) async throws -> String {

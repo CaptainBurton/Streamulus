@@ -357,6 +357,10 @@ final class Session: ObservableObject {
         try await signedIn { try await $0.post(path, body: body) }
     }
 
+    func delete<T: Decodable>(_ path: String, as type: T.Type = T.self) async throws -> T {
+        try await signedIn { try await $0.delete(path) }
+    }
+
     func getText(_ path: String) async throws -> String {
         try await signedIn { try await $0.getText(path) }
     }

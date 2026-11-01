@@ -832,3 +832,77 @@ struct Branding: Decodable, Equatable {
         if !showLogo && !showText { showText = true }
     }
 }
+
+// MARK: - Film requests (/api/requests)
+
+struct RequestsConfig: Decodable {
+    let open: Bool
+    let limit: Int?
+    /// How often to refresh progress (Admin › Requests).
+    let refreshSeconds: Double?
+}
+
+/// A film to choose on the Requests page (films already on the server are left out).
+struct FilmResult: Decodable, Identifiable, Hashable {
+    let tmdbId: Int
+    let title: String
+    let year: Int?
+    let overview: String?
+    let posterUrl: String?
+    let rating: Double?
+    let request: FilmRequestState?
+    var id: Int { tmdbId }
+}
+
+/// Someone has already asked for this film.
+struct FilmRequestState: Decodable, Hashable {
+    let id: Int
+    let status: String
+    let label: String?
+    let mine: Bool
+}
+
+struct FilmSearchResponse: Decodable {
+    let query: String?
+    let results: [FilmResult]
+}
+
+struct MovieRequest: Decodable, Identifiable, Hashable {
+    let id: Int
+    let tmdbId: Int
+    let title: String
+    let year: Int?
+    let posterUrl: String?
+    let status: String
+    let label: String
+    let detail: String?
+    /// 0…1 while downloading.
+    let progress: Double?
+    /// When it should finish (ms since 1970).
+    let eta: Double?
+    /// Bytes per second, when Deluge reports it.
+    let speed: Double?
+    let declineReason: String?
+    let decidedBy: String?
+    /// The film on the server once it's ready.
+    let movieId: Int?
+    let createdAt: Double
+    let mine: Bool?
+    let requestedBy: String?
+    let others: Int?
+
+    static let active: Set<String> = ["pending", "searching", "waiting_release", "not_found", "downloading", "importing", "failed", "adding", "missing"]
+    var isActive: Bool { Self.active.contains(status) }
+}
+
+struct MyRequestsResponse: Decodable { let requests: [MovieRequest] }
+
+struct CreateRequestResponse: Decodable {
+    let request: MovieRequest
+    let joined: Bool?
+    let already: Bool?
+}
+
+struct CancelRequestResponse: Decodable { let removed: Bool? }
+
+struct MovieEnvelope: Decodable { let movie: Movie }

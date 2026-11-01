@@ -37,6 +37,8 @@ sealed interface Screen {
     data object ApproveSignIn : Screen
     data object AvatarPicker : Screen
     data object Feedback : Screen
+    /** Film requests: `mine` opens My Requests; `query` starts a search. */
+    data class Requests(val mine: Boolean = false, val query: String = "") : Screen
     data class FeedbackThread(val id: Int) : Screen
 }
 

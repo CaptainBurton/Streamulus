@@ -47,6 +47,7 @@ import com.streamulus.android.ui.home.HomeScreen
 import com.streamulus.android.ui.library.MoviesScreen
 import com.streamulus.android.ui.library.ShowsScreen
 import com.streamulus.android.ui.theme.Brand
+import com.streamulus.android.ui.requests.RequestsScreen
 
 /** The signed-in app: tabs (bottom bar on phones, rail on tablets), each with its own pages. */
 @Composable
@@ -154,6 +155,7 @@ private fun Page(screen: Screen) {
         Screen.ApproveSignIn -> ApproveSignInScreen()
         Screen.AvatarPicker -> AvatarPickerScreen()
         Screen.Feedback -> FeedbackScreen()
+        is Screen.Requests -> RequestsScreen(startOnMine = screen.mine, startQuery = screen.query)
         is Screen.FeedbackThread -> FeedbackThreadScreen(screen.id)
     }
 }
