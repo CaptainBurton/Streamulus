@@ -450,11 +450,16 @@ data class FeedbackMessage(val id: Int, val fromAdmin: Boolean, val author: Stri
 // ── Film requests (/api/requests) ────────────────────────────────────────────
 
 /** Whether requests are open for this profile, and how often to refresh progress (seconds). */
-data class RequestsConfig(val open: Boolean, val refreshSeconds: Double) {
+data class RequestsConfig(val open: Boolean, val refreshSeconds: Double, val genres: List<GenreOption> = emptyList()) {
     companion object {
-        fun from(o: JsonObject) = RequestsConfig(o.bool("open"), o.double("refreshSeconds") ?: 2.0)
+        fun from(o: JsonObject) = RequestsConfig(
+            o.bool("open"), o.double("refreshSeconds") ?: 2.0,
+            o.objects("genres").map { GenreOption(it.int("id") ?: 0, it.str("name") ?: "") },
+        )
     }
 }
+
+data class GenreOption(val id: Int, val name: String)
 
 /** Someone has already asked for this film. */
 data class FilmRequestState(val id: Int, val status: String, val label: String, val mine: Boolean)
@@ -468,6 +473,8 @@ data class FilmResult(
     val posterUrl: String?,
     val rating: Double?,
     val request: FilmRequestState?,
+    /** On a person's page: their character, or "Director". */
+    val role: String? = null,
 ) {
     companion object {
         fun from(o: JsonObject) = FilmResult(
@@ -478,7 +485,78 @@ data class FilmResult(
             posterUrl = o.str("posterUrl"),
             rating = o.double("rating"),
             request = o.obj("request")?.let { FilmRequestState(it.int("id") ?: 0, it.str("status") ?: "", it.str("label") ?: "", it.bool("mine")) },
+            role = o.str("role"),
         )
+    }
+}
+
+/** Someone in a film: id (for their page), name, and their character. */
+data class FilmCredit(val id: Int, val name: String, val character: String?, val profileUrl: String?) {
+    companion object {
+        fun from(o: JsonObject) = FilmCredit(o.int("id") ?: 0, o.str("name") ?: "", o.str("character"), o.str("profileUrl"))
+    }
+}
+
+/** A film's page on the Requests screen (/api/requests/film/:tmdbId). */
+data class FilmDetail(
+    val film: FilmResult,
+    val backdropUrl: String?,
+    val voteCount: Int,
+    /** The film on the server, if it's already here. */
+    val movieId: Int?,
+    val tagline: String?,
+    val originalTitle: String?,
+    val runtime: Int?,
+    val genres: List<String>,
+    val certification: String?,
+    val directors: List<FilmCredit>,
+    val cast: List<FilmCredit>,
+    val trailerUrl: String?,
+) {
+    companion object {
+        fun from(o: JsonObject) = FilmDetail(
+            film = FilmResult.from(o),
+            backdropUrl = o.str("backdropUrl"),
+            voteCount = o.int("voteCount") ?: 0,
+            movieId = o.int("movieId"),
+            tagline = o.str("tagline"),
+            originalTitle = o.str("originalTitle"),
+            runtime = o.int("runtime"),
+            genres = o.strings("genres"),
+            certification = o.str("certification"),
+            directors = o.objects("directors").map(FilmCredit::from),
+            cast = o.objects("cast").map(FilmCredit::from),
+            trailerUrl = o.obj("trailer")?.str("url"),
+        )
+    }
+}
+
+/** An actor or director found by name. */
+data class PersonResult(val id: Int, val name: String, val department: String?, val profileUrl: String?, val knownFor: List<String>) {
+    companion object {
+        fun from(o: JsonObject) = PersonResult(o.int("id") ?: 0, o.str("name") ?: "", o.str("department"), o.str("profileUrl"), o.strings("knownFor"))
+    }
+}
+
+/** A person's page: who they are, their films not on the server yet, and how many are. */
+data class PersonPage(
+    val name: String,
+    val department: String?,
+    val profileUrl: String?,
+    val biography: String?,
+    val birthday: String?,
+    val placeOfBirth: String?,
+    val films: List<FilmResult>,
+    val onServer: Int,
+) {
+    companion object {
+        fun from(o: JsonObject): PersonPage {
+            val p = o.obj("person") ?: JsonObject(emptyMap())
+            return PersonPage(
+                p.str("name") ?: "", p.str("department"), p.str("profileUrl"), p.str("biography"), p.str("birthday"), p.str("placeOfBirth"),
+                o.objects("films").map(FilmResult::from), o.int("onServer") ?: 0,
+            )
+        }
     }
 }
 

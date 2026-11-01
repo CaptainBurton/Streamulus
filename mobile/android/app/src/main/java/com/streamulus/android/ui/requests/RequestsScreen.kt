@@ -88,6 +88,13 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.math.roundToInt
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import com.streamulus.android.data.GenreOption
+import com.streamulus.android.data.PersonResult
 
 /**
  * Requests (Search › Request a Film, or Profile & Settings › Requests): find a
@@ -107,6 +114,10 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
     var query by rememberSaveable { mutableStateOf(startQuery) }
     var config by remember { mutableStateOf<RequestsConfig?>(null) }
     var films by remember { mutableStateOf<List<FilmResult>>(emptyList()) }
+    var people by remember { mutableStateOf<List<PersonResult>>(emptyList()) }
+    var actors by rememberSaveable { mutableStateOf(false) } // searching people, not films
+    var year by rememberSaveable { mutableStateOf<Int?>(null) }
+    var genre by rememberSaveable { mutableStateOf<Int?>(null) }
     var searchedFor by remember { mutableStateOf<String?>(null) }
     var searching by remember { mutableStateOf(false) }
     var mine by remember { mutableStateOf<List<MovieRequest>?>(null) }
@@ -128,11 +139,20 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
     }
 
     suspend fun search() {
+        if (actors && text.isEmpty()) { people = emptyList(); searchedFor = null; return }
         searching = true
         attempt({ say(it, error = true) }) {
-            val response = session.getObject("/api/requests/search", mapOf("q" to text))
-            films = response.objects("results").map(FilmResult::from)
-            searchedFor = response.str("query") ?: text
+            if (actors) {
+                people = session.getObject("/api/requests/people", mapOf("q" to text)).objects("people").map(PersonResult::from)
+            } else {
+                val params = buildMap {
+                    put("q", text)
+                    year?.let { put("year", it.toString()) }
+                    genre?.let { put("genre", it.toString()) }
+                }
+                films = session.getObject("/api/requests/search", params).objects("results").map(FilmResult::from)
+            }
+            searchedFor = text
         }
         searching = false
     }
@@ -173,7 +193,7 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
             if (!startOnMine && text.isEmpty() && mine.orEmpty().any { it.isActive || it.status == "available" }) showMine = true
         }
     }
-    LaunchedEffect(text, config?.open) {
+    LaunchedEffect(text, config?.open, actors, year, genre) {
         if (config?.open != true) return@LaunchedEffect
         if (text.isNotEmpty()) delay(350) // wait until typing pauses
         search()
@@ -229,7 +249,7 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                             OutlinedTextField(
                                 value = query,
                                 onValueChange = { query = it },
-                                placeholder = { Text("Search for a film") },
+                                placeholder = { Text(if (actors) "Search actors and directors" else "Search for a film") },
                                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                                 trailingIcon = {
                                     if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, contentDescription = "Clear") }
@@ -238,26 +258,45 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             )
+                            FilterRow(
+                                actors = actors, onActors = { actors = it },
+                                year = year, onYear = { year = it },
+                                genre = genre, onGenre = { genre = it },
+                                genres = config?.genres.orEmpty(),
+                            )
+                            val genreName = config?.genres?.firstOrNull { it.id == genre }?.name
                             Text(
                                 when {
-                                    searchedFor == null -> ""
-                                    searchedFor!!.isEmpty() -> "Popular this week"
-                                    else -> "Results for “$searchedFor”"
+                                    actors && text.isEmpty() -> "Actors & Directors"
+                                    actors -> "People matching “$text”"
+                                    text.isNotEmpty() -> "Results for “$text”" + (year?.let { " · $it" } ?: "") + (genreName?.let { " · $it" } ?: "")
+                                    year != null && genreName != null -> "$genreName films from $year"
+                                    year != null -> "Films from $year"
+                                    genreName != null -> "$genreName films"
+                                    else -> "Popular this week"
                                 } + if (searching) " · searching…" else "",
-                                style = MaterialTheme.typography.labelLarge, color = Brand.Secondary,
+                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
                             )
-                            if (films.isEmpty() && !searching && searchedFor != null) {
-                                Text("No films found — try another spelling or the year.", color = Brand.Secondary)
+                            when {
+                                actors && text.isEmpty() -> Text("Search for an actor or director to see all of their films.", color = Brand.Secondary)
+                                actors && people.isEmpty() && !searching && searchedFor != null -> Text("Nobody found — check the spelling.", color = Brand.Secondary)
+                                !actors && films.isEmpty() && !searching && searchedFor != null -> Text("No films found — try another spelling, or change the year or genre.", color = Brand.Secondary)
                             }
                         }
                     }
-                    items(films, key = { "f${it.tmdbId}" }) { film ->
-                        FilmCard(film) {
-                            val state = film.request
-                            when {
-                                state == null -> asking = film
-                                state.mine -> { showMine = true; scope.launch { loadMine() } }
-                                else -> send(film, "")
+                    if (actors) {
+                        items(people, key = { "p${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { person ->
+                            PersonRow(person) { navigator.push(Screen.Person(person.id, person.name)) }
+                        }
+                    } else {
+                        items(films, key = { "f${it.tmdbId}" }) { film ->
+                            FilmCard(film, onOpen = { navigator.push(Screen.Film(film.tmdbId, film.title)) }) {
+                                val state = film.request
+                                when {
+                                    state == null -> asking = film
+                                    state.mine -> { showMine = true; scope.launch { loadMine() } }
+                                    else -> send(film, "")
+                                }
                             }
                         }
                     }
@@ -273,7 +312,7 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                         }
                     }
                     items(list.orEmpty(), key = { "r${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { request ->
-                        RequestCard(request, onWatch = { watch(request) }, onCancel = { cancelling = request })
+                        RequestCard(request, onOpen = { navigator.push(Screen.Film(request.tmdbId, request.title)) }, onWatch = { watch(request) }, onCancel = { cancelling = request })
                     }
                 }
             }
@@ -327,7 +366,7 @@ private fun stepOf(status: String) = when (status) {
 }
 
 @Composable
-private fun StatusPill(status: String, label: String) {
+internal fun StatusPill(status: String, label: String) {
     val color = statusColor(status)
     Text(
         label.uppercase(),
@@ -393,18 +432,27 @@ private fun RequestProgressBar(status: String, progress: Double) {
     }
 }
 
+/** A film: tap the poster for its page; the button underneath requests it. */
 @Composable
-private fun FilmCard(film: FilmResult, onClick: () -> Unit) {
+internal fun FilmCard(film: FilmResult, onOpen: () -> Unit, onClick: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp))) {
-            RemoteImage(film.posterUrl, Modifier.fillMaxSize(), placeholder = film.title)
-            film.request?.let { Box(Modifier.padding(6.dp)) { StatusPill(it.status, it.label) } }
+        Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onOpen), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp))) {
+                RemoteImage(film.posterUrl, Modifier.fillMaxSize(), placeholder = film.title)
+                film.request?.let { Box(Modifier.padding(6.dp)) { StatusPill(it.status, it.label) } }
+                film.rating?.takeIf { it > 0 }?.let {
+                    Text(
+                        "★ %.1f".format(it), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.65f)).padding(horizontal = 7.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            Text(film.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOfNotNull(film.year?.toString(), film.role).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = Brand.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
-        Text(film.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(
-            listOfNotNull(film.year?.toString(), film.rating?.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString(" · "),
-            style = MaterialTheme.typography.bodySmall, color = Brand.Secondary,
-        )
         val state = film.request
         if (state == null) {
             Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text("Request") }
@@ -415,10 +463,11 @@ private fun FilmCard(film: FilmResult, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RequestCard(request: MovieRequest, onWatch: () -> Unit, onCancel: () -> Unit) {
+private fun RequestCard(request: MovieRequest, onOpen: () -> Unit, onWatch: () -> Unit, onCancel: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Brand.Card)
             .border(1.dp, if (request.status == "available") Brand.Success.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+            .clickable(onClick = onOpen)
             .padding(14.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -444,12 +493,7 @@ private fun RequestCard(request: MovieRequest, onWatch: () -> Unit, onCancel: ()
             if (request.status == "pending") {
                 Text("Waiting for an admin to approve it — you'll get an email either way.", style = MaterialTheme.typography.bodySmall, color = Brand.Secondary)
             }
-            if (request.status == "declined") {
-                Text(
-                    "Not approved" + (request.decidedBy?.let { " by $it" } ?: "") + "." + (request.declineReason?.let { " “$it”" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall, color = Color(0xFFFF9A9A),
-                )
-            }
+            if (request.status == "declined") DeclineNote(request.decidedBy, request.declineReason)
             Text(
                 if (!request.mine) "Asked for by ${request.requestedBy ?: "someone"}"
                 else "You asked" + if (request.others > 0) " · and ${request.others} other${if (request.others == 1) "" else "s"}" else "",
@@ -470,7 +514,7 @@ private fun RequestCard(request: MovieRequest, onWatch: () -> Unit, onCancel: ()
 }
 
 @Composable
-private fun AskDialog(film: FilmResult, onCancel: () -> Unit, onSend: (String) -> Unit) {
+internal fun AskDialog(film: FilmResult, onCancel: () -> Unit, onSend: (String) -> Unit) {
     var note by rememberSaveable { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     AlertDialog(
@@ -497,4 +541,91 @@ private fun AskDialog(film: FilmResult, onCancel: () -> Unit, onSend: (String) -
         },
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
     )
+}
+
+/** Films / Actors, and the Year and Genre menus. */
+@Composable
+private fun FilterRow(
+    actors: Boolean, onActors: (Boolean) -> Unit,
+    year: Int?, onYear: (Int?) -> Unit,
+    genre: Int?, onGenre: (Int?) -> Unit,
+    genres: List<GenreOption>,
+) {
+    var yearOpen by remember { mutableStateOf(false) }
+    var genreOpen by remember { mutableStateOf(false) }
+    val thisYear = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Chip("Films", selected = !actors) { onActors(false) }
+        Chip("Actors", selected = actors) { onActors(true) }
+        if (!actors) {
+            Box {
+                Chip(year?.toString() ?: "Year ▾", selected = year != null) { yearOpen = true }
+                DropdownMenu(expanded = yearOpen, onDismissRequest = { yearOpen = false }) {
+                    DropdownMenuItem(text = { Text("Any year") }, onClick = { onYear(null); yearOpen = false })
+                    (thisYear + 1 downTo 1920).forEach { y ->
+                        DropdownMenuItem(text = { Text(y.toString()) }, onClick = { onYear(y); yearOpen = false })
+                    }
+                }
+            }
+            Box {
+                Chip(genres.firstOrNull { it.id == genre }?.name ?: "Genre ▾", selected = genre != null) { genreOpen = true }
+                DropdownMenu(expanded = genreOpen, onDismissRequest = { genreOpen = false }) {
+                    DropdownMenuItem(text = { Text("Any genre") }, onClick = { onGenre(null); genreOpen = false })
+                    genres.forEach { g -> DropdownMenuItem(text = { Text(g.name) }, onClick = { onGenre(g.id); genreOpen = false }) }
+                }
+            }
+            if (year != null || genre != null) {
+                TextButton(onClick = { onYear(null); onGenre(null) }) { Text("Clear", color = Brand.Secondary) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = if (selected) Color.Black else Color.White,
+        modifier = Modifier.clip(CircleShape)
+            .background(if (selected) Color.White else Color.White.copy(alpha = 0.1f))
+            .border(1.dp, if (selected) Color.Transparent else Color.White.copy(alpha = 0.15f), CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun PersonRow(person: PersonResult, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.06f)).clickable(onClick = onClick).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        RemoteImage(person.profileUrl, Modifier.size(56.dp).clip(CircleShape), placeholder = person.name.take(1))
+        Column(Modifier.weight(1f)) {
+            Text(person.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                listOfNotNull(if (person.department == "Acting") "Actor" else person.department, person.knownFor.takeIf { it.isNotEmpty() }?.joinToString(", ")).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = Brand.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Why a request was declined, in the admin's words. */
+@Composable
+private fun DeclineNote(by: String?, note: String?) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFFFF4444).copy(alpha = 0.12f))
+            .border(1.dp, Color(0xFFFF4444).copy(alpha = 0.35f), RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            if (note == null) "Not approved" + (by?.let { " by $it" } ?: "") else "Note from ${by ?: "the admin"}",
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFFF8A8A),
+        )
+        note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Color.White) }
+    }
 }

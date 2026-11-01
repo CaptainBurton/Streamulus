@@ -39,6 +39,10 @@ sealed interface Screen {
     data object Feedback : Screen
     /** Film requests: `mine` opens My Requests; `query` starts a search. */
     data class Requests(val mine: Boolean = false, val query: String = "") : Screen
+    /** A film on the Requests screen (not on the server, or asked for). */
+    data class Film(val tmdbId: Int, val title: String) : Screen
+    /** An actor's or director's films, for requesting. */
+    data class Person(val id: Int, val name: String) : Screen
     data class FeedbackThread(val id: Int) : Screen
 }
 

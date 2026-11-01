@@ -840,6 +840,13 @@ struct RequestsConfig: Decodable {
     let limit: Int?
     /// How often to refresh progress (Admin › Requests).
     let refreshSeconds: Double?
+    /// For the Genre filter.
+    let genres: [GenreOption]?
+}
+
+struct GenreOption: Decodable, Hashable, Identifiable {
+    let id: Int
+    let name: String
 }
 
 /// A film to choose on the Requests page (films already on the server are left out).
@@ -851,6 +858,8 @@ struct FilmResult: Decodable, Identifiable, Hashable {
     let posterUrl: String?
     let rating: Double?
     let request: FilmRequestState?
+    /// On a person's page: their character, or "Director".
+    let role: String?
     var id: Int { tmdbId }
 }
 
@@ -865,6 +874,74 @@ struct FilmRequestState: Decodable, Hashable {
 struct FilmSearchResponse: Decodable {
     let query: String?
     let results: [FilmResult]
+}
+
+/// A film's page on the Requests screen (/api/requests/film/:tmdbId).
+struct FilmDetail: Decodable {
+    let tmdbId: Int
+    let title: String
+    let year: Int?
+    let overview: String?
+    let posterUrl: String?
+    let backdropUrl: String?
+    let rating: Double?
+    let voteCount: Int?
+    /// The film on the server, if it's already here.
+    let movieId: Int?
+    let request: FilmRequestState?
+    let originalTitle: String?
+    let tagline: String?
+    let releaseDate: String?
+    let runtime: Int?
+    let genres: [String]
+    let certification: String?
+    let directors: [FilmCredit]
+    let cast: [FilmCredit]
+    let trailer: FilmTrailer?
+}
+
+/// Someone in a film: id (for their page), name, and their character.
+struct FilmCredit: Decodable, Hashable, Identifiable {
+    let id: Int
+    let name: String
+    let character: String?
+    let profileUrl: String?
+}
+
+struct FilmTrailer: Decodable, Hashable {
+    let name: String?
+    let url: String
+}
+
+struct FilmDetailResponse: Decodable { let film: FilmDetail }
+
+/// An actor or director found by name.
+struct PersonResult: Decodable, Hashable, Identifiable {
+    let id: Int
+    let name: String
+    let department: String?
+    let profileUrl: String?
+    let knownFor: [String]
+}
+
+struct PeopleResponse: Decodable { let people: [PersonResult] }
+
+struct PersonDetail: Decodable {
+    let id: Int
+    let name: String
+    let department: String?
+    let profileUrl: String?
+    let biography: String?
+    let birthday: String?
+    let deathday: String?
+    let placeOfBirth: String?
+}
+
+/// A person's page: their films that aren't on the server yet, and how many are.
+struct PersonPageResponse: Decodable {
+    let person: PersonDetail
+    let films: [FilmResult]
+    let onServer: Int
 }
 
 struct MovieRequest: Decodable, Identifiable, Hashable {
