@@ -68,6 +68,34 @@ export const RequestStyles = () => (
     @keyframes reqPulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.3 } }
     @keyframes reqShimmer { 0%, 100% { opacity: 1 } 50% { opacity: 0.55 } }
     @keyframes reqSlide { from { transform: translateX(-100%) } to { transform: translateX(340%) } }
+
+    /* Film posters on the Requests page lift like the posters on Home
+       (MediaCard): grow and rise with a deeper shadow, the title, year,
+       rating and More Info fade up, and the rating badge fades away. They
+       opt out of the general button hover (brighten + tint), which made
+       them look different. */
+    .req-poster, .req-poster:hover, .req-poster:active { filter: none; box-shadow: none; transform: none; }
+    .req-poster { position: relative; display: block; width: 100%; padding: 0; border: none; background: none; cursor: pointer; text-align: left; color: #fff; font-family: inherit; z-index: 1; }
+    .req-poster:hover, .req-poster:focus-visible { z-index: 10; }
+    .req-poster:focus-visible { outline: none; }
+    .req-art { position: relative; border-radius: 8px; transition: transform 0.25s, box-shadow 0.25s; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+    .req-art-clip { border-radius: 8px; overflow: hidden; position: relative; aspect-ratio: 2 / 3; background: #1e1e1e; -webkit-mask-image: -webkit-radial-gradient(white, black); }
+    .req-hover { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; opacity: 0; transition: opacity 0.25s;
+      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.2) 60%, transparent 100%); }
+    .req-badge { transition: opacity 0.2s; }
+    @media (hover: hover) {
+      .req-poster:hover .req-art { transform: scale(1.06) translateY(-4px); box-shadow: 0 16px 40px rgba(0,0,0,0.8); }
+      .req-poster:hover .req-hover { opacity: 1; }
+      .req-poster:hover .req-badge { opacity: 0; }
+    }
+    .req-poster:focus-visible .req-art { transform: scale(1.06) translateY(-4px); box-shadow: 0 0 0 2px #00c2ff, 0 16px 40px rgba(0,0,0,0.8); }
+    .req-poster:focus-visible .req-hover { opacity: 1; }
+    .req-poster:focus-visible .req-badge { opacity: 0; }
+
+    /* Cast and crew photos: the photo grows a little, like a poster. */
+    .req-face, .req-face:hover, .req-face:active { filter: none; box-shadow: none; transform: none; }
+    .req-face > span:first-child { transition: transform 0.25s, box-shadow 0.25s; }
+    @media (hover: hover) { .req-face:hover > span:first-child { transform: scale(1.08); box-shadow: 0 10px 26px rgba(0,0,0,0.7); } }
   `}</style>
 );
 

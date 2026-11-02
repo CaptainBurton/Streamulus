@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 import { StatusPill, ProgressBar, Steps, RequestStyles, STATUS_COLORS } from '../components/RequestStatus';
+import { FilmsIcon, ActorsIcon } from '../components/RequestIcons';
 
 // Requests: find a film that isn't in the library — by title, actor or director,
 // year or genre — open it to read about it, and ask for it. An admin approves or
@@ -13,6 +14,7 @@ const BTN = { padding: '9px 16px', borderRadius: '8px', fontSize: '13px', fontWe
 const PRIMARY = { ...BTN, background: '#00c2ff', border: '1px solid #00c2ff', color: '#000' };
 const CHIP = { ...BTN, borderRadius: '999px', padding: '7px 14px', fontSize: '13px' };
 const CHIP_ON = { background: '#fff', color: '#000', border: '1px solid #fff' };
+const ICON_CHIP = { display: 'inline-flex', alignItems: 'center', gap: '7px' };
 const SELECT = { ...CHIP, background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', colorScheme: 'dark', paddingRight: '10px' };
 
 export default function Requests() {
@@ -168,8 +170,8 @@ function FindFilm({ config, say, stamp, onOpen, onAct }) {
         </div>
       </div>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '20px' }} data-section="filters">
-        <button style={{ ...CHIP, ...(mode === 'films' ? CHIP_ON : {}) }} onClick={() => setMode('films')} data-mode="films">🎬 Films</button>
-        <button style={{ ...CHIP, ...(mode === 'people' ? CHIP_ON : {}) }} onClick={() => setMode('people')} data-mode="people">👤 Actors & Directors</button>
+        <button style={{ ...CHIP, ...ICON_CHIP, ...(mode === 'films' ? CHIP_ON : {}) }} onClick={() => setMode('films')} data-mode="films"><FilmsIcon /> Films</button>
+        <button style={{ ...CHIP, ...ICON_CHIP, ...(mode === 'people' ? CHIP_ON : {}) }} onClick={() => setMode('people')} data-mode="people"><ActorsIcon /> Actors & Directors</button>
         {mode === 'films' && (
           <>
             <span style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
@@ -220,28 +222,42 @@ function FindFilm({ config, say, stamp, onOpen, onAct }) {
 
 function FilmGrid({ films, onOpen, onAct }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(170px, 45%), 1fr))', gap: '18px' }}>
-      {films.map(film => (
-        <div key={film.tmdbId} data-film={film.title} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <button onClick={() => onOpen(film.tmdbId)} aria-label={`About ${film.title}`} data-action="open-film"
-            style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', color: '#fff', fontFamily: 'inherit' }}>
-            <div style={{ position: 'relative', aspectRatio: '2 / 3', borderRadius: '12px', overflow: 'hidden', background: '#1c1c1e', boxShadow: '0 6px 18px rgba(0,0,0,0.45)' }}>
-              {film.posterUrl
-                ? <img src={film.posterUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#555', fontSize: '13px', padding: '10px', textAlign: 'center' }}>{film.title}</div>}
-              {film.request && <div style={{ position: 'absolute', top: '8px', left: '8px' }}><StatusPill status={film.request.status} label={film.request.label} /></div>}
-              {film.rating > 0 && <div style={{ position: 'absolute', bottom: '8px', right: '8px', padding: '2px 8px', borderRadius: '999px', background: 'rgba(0,0,0,0.7)', fontSize: '12px', fontWeight: 700 }}>★ {film.rating.toFixed(1)}</div>}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(160px, 45%), 1fr))', gap: '18px 16px' }}>
+      {films.map(film => {
+        const rating = film.rating > 0 ? film.rating.toFixed(1) : null;
+        return (
+          <div key={film.tmdbId} data-film={film.title} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <button className="req-poster" onClick={() => onOpen(film.tmdbId)} aria-label={`About ${film.title}`} data-action="open-film">
+              <div className="req-art">
+                <div className="req-art-clip">
+                  {film.posterUrl
+                    ? <img src={film.posterUrl} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#555', fontSize: '13px', padding: '10px', textAlign: 'center' }}>{film.title}</div>}
+                  {film.request && <div style={{ position: 'absolute', top: '8px', left: '8px' }}><StatusPill status={film.request.status} label={film.request.label} /></div>}
+                  {rating && (
+                    <div className="req-badge" style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.75)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', fontWeight: 600, color: '#00c2ff' }}>★ {rating}</div>
+                  )}
+                  <div className="req-hover" aria-hidden="true">
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff', marginBottom: '4px', lineHeight: 1.3 }}>{film.title}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {film.year && <span style={{ fontSize: '11px', color: '#aaa' }}>{film.year}</span>}
+                      {rating && <span style={{ fontSize: '11px', color: '#00c2ff', fontWeight: 600 }}>★ {rating}</span>}
+                    </div>
+                    <div style={{ marginTop: '8px', background: '#00c2ff', color: '#000', borderRadius: '4px', padding: '5px 0', textAlign: 'center', fontSize: '12px', fontWeight: 700 }}>More Info</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: '14px', marginTop: '10px', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{film.title}</div>
+              <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[film.year, film.role].filter(Boolean).join(' · ') || '—'}</div>
+            </button>
+            <div style={{ marginTop: 'auto' }}>
+              {film.request
+                ? <button style={{ ...BTN, width: '100%' }} onClick={() => onAct(film)} data-action={film.request.mine ? 'progress' : 'join'}>{film.request.mine ? 'See Progress' : 'Me Too'}</button>
+                : <button style={{ ...PRIMARY, width: '100%' }} onClick={() => onAct(film)} data-action="request">Request</button>}
             </div>
-            <div style={{ fontWeight: 700, fontSize: '14px', marginTop: '8px', lineHeight: 1.3 }}>{film.title}</div>
-            <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>{[film.year, film.role].filter(Boolean).join(' · ') || '—'}</div>
-          </button>
-          <div style={{ marginTop: 'auto' }}>
-            {film.request
-              ? <button style={{ ...BTN, width: '100%' }} onClick={() => onAct(film)} data-action={film.request.mine ? 'progress' : 'join'}>{film.request.mine ? 'See Progress' : 'Me Too'}</button>
-              : <button style={{ ...PRIMARY, width: '100%' }} onClick={() => onAct(film)} data-action="request">Request</button>}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -375,8 +391,8 @@ function FilmModal({ tmdbId, stamp, onClose, onAct, onOpen, say }) {
                   <div style={{ fontSize: '17px', fontWeight: 800, marginBottom: '10px' }}>Cast</div>
                   <div style={{ display: 'flex', gap: '14px', overflowX: 'auto', paddingBottom: '6px' }}>
                     {film.cast.map(c => (
-                      <button key={c.id} onClick={() => setPersonFilms(c.id)} data-cast={c.name}
-                        style={{ width: '92px', flexShrink: 0, background: 'none', border: 'none', color: '#fff', cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit', padding: 0 }}>
+                      <button key={c.id} className="req-face" onClick={() => setPersonFilms(c.id)} data-cast={c.name}
+                        style={{ width: '92px', flexShrink: 0, background: 'none', border: 'none', color: '#fff', cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit', padding: '6px 0 0' }}>
                         <Avatar url={c.profileUrl} size={76} />
                         <div style={{ fontSize: '12px', fontWeight: 700, marginTop: '6px', lineHeight: 1.3 }}>{c.name}</div>
                         {c.character && <div style={{ fontSize: '11px', color: '#888', lineHeight: 1.3 }}>{c.character}</div>}
