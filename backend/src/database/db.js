@@ -375,6 +375,40 @@ try { db.exec('ALTER TABLE media_requests ADD COLUMN manual_name TEXT'); } catch
 try { db.exec('ALTER TABLE media_requests ADD COLUMN manual_by TEXT'); } catch {}
 try { db.exec('ALTER TABLE media_requests ADD COLUMN manual_at INTEGER'); } catch {}
 try { db.exec('ALTER TABLE media_requests ADD COLUMN import_plan TEXT'); } catch {}
+// Series requests (media_type 'tv'): the whole series or one season, followed in
+// Sonarr episode by episode. tv_progress holds the latest per-season /
+// per-episode picture (JSON) for the progress checklists.
+try { db.exec("ALTER TABLE media_requests ADD COLUMN scope TEXT"); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN season_number INTEGER'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN tvdb_id INTEGER'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN sonarr_id INTEGER'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN show_id INTEGER'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN tv_progress TEXT'); } catch {}
+// Magnet links an admin added for a series request — several per request (a
+// season pack, a single episode…), each followed in Deluge and moved into the
+// right season folder when done.
+db.exec(`CREATE TABLE IF NOT EXISTS request_downloads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id INTEGER NOT NULL,
+  hash TEXT NOT NULL,
+  name TEXT,
+  scope TEXT NOT NULL,
+  season INTEGER,
+  episode INTEGER,
+  status TEXT NOT NULL DEFAULT 'downloading',
+  progress REAL,
+  eta INTEGER,
+  speed INTEGER,
+  detail TEXT,
+  files TEXT,
+  import_plan TEXT,
+  needs_admin INTEGER NOT NULL DEFAULT 0,
+  added_by TEXT,
+  added_at INTEGER,
+  updated_at INTEGER,
+  checked_at INTEGER
+)`);
+try { db.exec('CREATE INDEX IF NOT EXISTS request_downloads_request ON request_downloads (request_id)'); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_requests_tmdb ON media_requests(media_type, tmdb_id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_requests_status ON media_requests(status)');
 db.exec(`CREATE TABLE IF NOT EXISTS media_request_users (

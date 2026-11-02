@@ -85,13 +85,13 @@ const TEMPLATES = [
   },
 ];
 
-// Movie requests (services/requests.js).
-const REQUEST_FOOTER = "You're getting this because you asked for this film on Streamulus.";
+// Film and series requests (services/requests.js, tvRequests.js).
+const REQUEST_FOOTER = "You're getting this because you asked for this on Streamulus.";
 TEMPLATES.push(
   {
     id: 'request_approved',
     name: 'Request Approved',
-    description: 'Sent to everyone who asked for a film when an admin approves the request.',
+    description: 'Sent to everyone who asked for a film or series when an admin approves the request.',
     fields: ['subject', 'heading', 'message', 'button', 'note', 'footer'],
     required: ['subject', 'message', 'button'],
     placeholders: ['name', 'title', 'year', 'admin', 'link', 'site', 'contact'],
@@ -107,7 +107,7 @@ TEMPLATES.push(
   {
     id: 'request_declined',
     name: 'Request Declined',
-    description: "Sent to everyone who asked for a film when an admin declines it, with the reason they gave (if any).",
+    description: "Sent to everyone who asked for a film or series when an admin declines it, with the reason they gave (if any).",
     fields: ['subject', 'heading', 'message', 'button', 'note', 'footer'],
     required: ['subject', 'message', 'button'],
     placeholders: ['name', 'title', 'year', 'reason', 'admin', 'link', 'site', 'contact'],
@@ -123,14 +123,14 @@ TEMPLATES.push(
   {
     id: 'request_available',
     name: 'Request Ready to Watch',
-    description: 'Sent to everyone who asked for a film once it has downloaded and is in the library.',
+    description: 'Sent to everyone who asked for a film or series once it has downloaded and is in the library.',
     fields: ['subject', 'heading', 'message', 'button', 'note', 'footer'],
     required: ['subject', 'message', 'button'],
     placeholders: ['name', 'title', 'year', 'link', 'site', 'contact'],
     defaults: {
       subject: '{{title}} is ready to watch',
       heading: 'Ready to watch',
-      message: 'Hi {{name}},\n\n**{{title}} ({{year}})**, which you asked for, is now on Streamulus. Enjoy the film!',
+      message: 'Hi {{name}},\n\n**{{title}} ({{year}})**, which you asked for, is now on Streamulus. Enjoy!',
       button: 'Watch Now',
       note: '',
       footer: REQUEST_FOOTER,

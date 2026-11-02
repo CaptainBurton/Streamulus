@@ -305,20 +305,28 @@ function parseMovie(libraryRoot, filePath, cfg = getConfig()) {
   return fromFile.title ? fromFile : null;
 }
 
-// A folder or file name for a film from a naming format, e.g. "{Movie Title}
-// ({Release Year})" → "Dune (2021)". Tokens Streamulus doesn't know (quality,
-// release group…) are left out, along with brackets they leave empty. Characters
-// that aren't allowed in file names are replaced, as Radarr does.
-function renderMovieName(format, { title, year, tmdbId, imdbId } = {}) {
+// A folder or file name from a naming format, e.g. "{Movie Title} ({Release
+// Year})" → "Dune (2021)", "{Series Title} - S{season:00}E{episode:00} - {Episode
+// Title}" → "Arcane - S01E03 - The Base Violence Necessary for Change". Tokens
+// Streamulus doesn't know (quality, release group…) are left out, along with
+// brackets they leave empty. Characters that aren't allowed in file names are
+// replaced, as Radarr and Sonarr do.
+function renderName(format, { title, year, tmdbId, imdbId, tvdbId, season, episode, episodeTitle } = {}) {
   const theLast = (t) => { const m = String(t).match(/^(the|a|an)\s+(.+)$/i); return m ? `${m[2]}, ${m[1]}` : String(t); };
   const cleanTitle = (t) => String(t).replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+  const pad = (n, spec) => (n == null ? '' : spec ? String(n).padStart(spec.length, '0') : String(n));
   let out = String(format || DEFAULTS.naming_movie_file).replace(/\{([^{}]+)\}/g, (_, token) => {
-    const t = token.toLowerCase().replace(/[\s_.-]+/g, '');
+    const spec = (token.match(/:(0+)\s*$/) || [])[1] || '';
+    const t = token.toLowerCase().replace(/:0+\s*$/, '').replace(/[\s_.-]+/g, '');
+    if (/^episode(clean)?title$/.test(t)) return /clean/.test(t) ? cleanTitle(episodeTitle || '') : String(episodeTitle || '');
     const base = /clean/.test(t) ? cleanTitle(title || '') : /the$|theyear$/.test(t) ? theLast(title || '') : String(title || '');
-    if (/^moviecleantitle(the)?year$|^movie(original)?title(the)?year$/.test(t)) return year ? `${base} (${year})` : base;
-    if (/^moviecleantitle(the)?$|^movie(original)?title(the)?$/.test(t)) return base;
+    if (/^(movie|series)(clean)?title(the)?year$|^(movie|series)(original)?title(the)?year$/.test(t)) return year ? `${base} (${year})` : base;
+    if (/^(movie|series)(clean)?title(the)?$|^(movie|series)(original)?title(the)?$/.test(t)) return base;
     if (/^(release)?year$/.test(t)) return year ? String(year) : '';
+    if (t === 'season') return pad(season, spec);
+    if (t === 'episode') return pad(episode, spec);
     if (t === 'tmdbid') return tmdbId ? String(tmdbId) : '';
+    if (t === 'tvdbid') return tvdbId ? String(tvdbId) : '';
     if (t === 'imdbid') return imdbId || '';
     return '';
   });
@@ -328,9 +336,18 @@ function renderMovieName(format, { title, year, tmdbId, imdbId } = {}) {
     .replace(/:\s+/g, ' - ').replace(/:/g, '-')
     .replace(/[<>"/\\|?*\u0000-\u001f]/g, '')
     .replace(/\s+-\s+-\s+/g, ' - ')
+    .replace(/\s+-\s*$/g, '')
     .replace(/\s+/g, ' ')
     .replace(/^[\s.-]+|[\s.-]+$/g, '');
-  return out || cleanTitle(title || 'Movie') || 'Movie';
+  return out || cleanTitle(title || '') || 'Untitled';
+}
+const renderMovieName = (format, values) => renderName(format, values);
+
+// The season and episode a downloaded file holds, from its name (null if none).
+function episodeFromFile(name, cfg = getConfig()) {
+  const base = path.basename(name, path.extname(name));
+  if (/(^|[._-])sample$/i.test(base) || /^sample[._-]/i.test(base)) return null;
+  return episodeFromName(base, cfg);
 }
 
-module.exports = { DEFAULTS, getConfig, compileFormat, parseEpisode, parseMovie, isExtrasFolder, idsFrom, renderMovieName };
+module.exports = { DEFAULTS, getConfig, compileFormat, parseEpisode, parseMovie, isExtrasFolder, idsFrom, renderMovieName, renderName, seasonFromFolder, episodeFromFile };

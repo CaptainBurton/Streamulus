@@ -1,16 +1,18 @@
-// Movie requests.
-//   /api/requests        — people: search films, ask for one, follow their requests
-//   /api/admin/requests  — admins: approve / decline, search again, Radarr settings
+// Film and series requests.
+//   /api/requests        — people: search films and series, ask for one (or a season), follow their requests
+//   /api/admin/requests  — admins: approve / decline, search again, magnet links, Radarr / Sonarr / Deluge settings
 const express = require('express');
 const db = require('../database/db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const requests = require('../services/requests');
 const radarr = require('../services/radarr');
+const sonarr = require('../services/sonarr');
+const tvRequests = require('../services/tvRequests');
 const deluge = require('../services/deluge');
 const tmdb = require('../services/tmdb');
 const activity = require('../services/activity');
 
-const fail = (res, err) => res.status(err.status || 500).json({ error: err.message, ...(err.movieId ? { movieId: err.movieId } : {}) });
+const fail = (res, err) => res.status(err.status || 500).json({ error: err.message, ...(err.movieId ? { movieId: err.movieId } : {}), ...(err.showId ? { showId: err.showId } : {}) });
 
 // ── People ───────────────────────────────────────────────────────────────────
 
@@ -24,9 +26,13 @@ function noKids(req, res, next) {
 
 user.get('/config', authenticate, (req, res) => {
   const s = requests.settings();
+  const kid = !!req.profile?.is_kids;
+  const films = requests.isOpen() && !kid;
+  const tv = requests.isTvOpen() && !kid;
   res.json({
-    open: requests.isOpen() && !req.profile?.is_kids, limit: s.limit, refreshSeconds: s.refreshSeconds,
+    open: films || tv, films, tv, limit: s.limit, seriesLimit: s.seriesLimit, seasonLimit: s.seasonLimit, refreshSeconds: s.refreshSeconds,
     genres: tmdb.movieGenres().sort((a, b) => a.name.localeCompare(b.name)), // for the Genre filter
+    tvGenres: tmdb.tvGenres().sort((a, b) => a.name.localeCompare(b.name)),
   });
 });
 
@@ -55,6 +61,30 @@ const filmResult = (m, userId) => ({
 
 const tmdbDown = (res) => res.status(502).json({ error: "Couldn't reach TMDB right now — try again in a moment" });
 
+// Who has already asked for a series (or this season of it), and whether it's you.
+function showState(tmdbId, userId, season = null) {
+  const open = (season != null ? tvRequests.openSeason(tmdbId, season) : null) || tvRequests.openSeries(tmdbId);
+  if (!open) return null;
+  const mine = !!db.prepare('SELECT 1 FROM media_request_users WHERE request_id = ? AND user_id = ?').get(open.id, userId);
+  return { id: open.id, status: open.status, label: requests.LABELS[open.status], mine, scope: open.scope, season: open.season_number };
+}
+
+// A TMDB series as the Requests pages list it.
+function showResult(m, userId) {
+  const local = tvRequests.localShow(m.id);
+  return {
+    mediaType: 'tv',
+    tmdbId: m.id,
+    title: m.name,
+    year: yearOf(m.first_air_date),
+    overview: m.overview || '',
+    posterUrl: requests.posterUrl(m.poster_path),
+    rating: m.vote_average || null,
+    showId: local?.id || null,
+    request: showState(m.id, userId),
+  };
+}
+
 // Films to choose from, leaving out the ones already on the server. Each says
 // whether it's already been asked for.
 //   ?q=        search by title (optionally ?year= to narrow it, ?genre= to filter)
@@ -66,6 +96,30 @@ user.get('/search', authenticate, noKids, async (req, res) => {
   const genre = parseInt(req.query.genre, 10) || null;
   let results;
   let mode;
+  // Series (?type=tv): shows already on Streamulus stay in (missing seasons can be asked for).
+  if (req.query.type === 'tv') {
+    try {
+      if (q) {
+        mode = 'search';
+        results = await tmdb.searchTVList(q, year);
+        if (genre) results = results.filter(m => (m.genre_ids || []).includes(genre));
+      } else if (year || genre) {
+        mode = 'discover';
+        const [one, two] = await Promise.all([tmdb.discoverTV({ year, genre }), tmdb.discoverTV({ year, genre, page: 2 })]);
+        results = [...one, ...two];
+      } else {
+        mode = 'popular';
+        results = await tmdb.trendingTV();
+      }
+    } catch {
+      return tmdbDown(res);
+    }
+    const seen = new Set();
+    return res.json({
+      type: 'tv', query: q, year, genre, mode,
+      results: results.filter(m => m.id && m.name && !seen.has(m.id) && seen.add(m.id)).map(m => showResult(m, req.user.id)),
+    });
+  }
   try {
     if (q) {
       mode = 'search';
@@ -172,6 +226,101 @@ user.get('/film/:tmdbId', authenticate, noKids, async (req, res) => {
   });
 });
 
+// A series' page: details, cast, trailer, and its seasons — how much of each is
+// on Streamulus already, and whether it's been asked for. Single seasons can be
+// asked for once the show is on Streamulus; before that, the whole series.
+user.get('/show/:tmdbId', authenticate, noKids, async (req, res) => {
+  const tmdbId = parseInt(req.params.tmdbId, 10);
+  let d;
+  try { d = await tvRequests.showDetails(tmdbId); } catch (err) {
+    return err.response?.status === 404 ? res.status(404).json({ error: 'Series not found' }) : tmdbDown(res);
+  }
+  if (!d) return tmdbDown(res);
+  const local = tvRequests.localShow(tmdbId);
+  const have = tvRequests.localEpisodes(tmdbId);
+  const numbers = (d.seasons || []).map(x => x.season_number).filter(n => n > 0);
+  const eps = await tvRequests.tmdbEpisodes(tmdbId, numbers).catch(() => []);
+  const series = showState(tmdbId, req.user.id);
+  const country = require('../services/ratings').country();
+  const ratings = d.content_ratings?.results || [];
+  const certFor = (c) => ratings.find(x => x.iso_3166_1 === c)?.rating || null;
+  const videos = (d.videos?.results || []).filter(v => v.site === 'YouTube' && v.key);
+  const trailer = videos.find(v => v.type === 'Trailer' && v.official) || videos.find(v => v.type === 'Trailer') || videos.find(v => v.type === 'Teaser') || null;
+  const seasons = (d.seasons || []).filter(x => x.season_number > 0).map(x => {
+    const list = eps.filter(e => e.season === x.season_number);
+    const airedEps = list.filter(e => tvRequests.aired(e.airDate));
+    const onServer = airedEps.filter(e => have.has(`${e.season}:${e.episode}`)).length;
+    const request = showState(tmdbId, req.user.id, x.season_number);
+    const complete = airedEps.length > 0 && onServer === airedEps.length;
+    return {
+      season: x.season_number,
+      name: x.name || `Season ${x.season_number}`,
+      episodeCount: x.episode_count || list.length,
+      aired: airedEps.length,
+      onServer,
+      complete,
+      airDate: x.air_date || null,
+      year: yearOf(x.air_date),
+      posterUrl: requests.posterUrl(x.poster_path),
+      overview: x.overview || '',
+      request,
+      // Asked for on its own: the show's on Streamulus, it has aired episodes missing, nobody has asked yet.
+      canRequest: !!local && !request && airedEps.length > 0 && !complete,
+    };
+  });
+  const missing = seasons.some(x => x.aired > 0 && !x.complete);
+  res.json({
+    show: {
+      ...showResult(d, req.user.id),
+      originalTitle: d.original_name && d.original_name !== d.name ? d.original_name : null,
+      tagline: d.tagline || null,
+      firstAirDate: d.first_air_date || null,
+      lastAirDate: d.last_air_date || null,
+      status: d.status || null, // Returning Series, Ended, Canceled…
+      voteCount: d.vote_count || 0,
+      genres: (d.genres || []).map(g => g.name),
+      networks: (d.networks || []).map(n => n.name),
+      certification: certFor(country) || certFor('US'),
+      backdropUrl: img(d.backdrop_path, 'w1280'),
+      runtime: (d.episode_run_time || [])[0] || null,
+      numberOfSeasons: d.number_of_seasons || seasons.length,
+      numberOfEpisodes: d.number_of_episodes || null,
+      creators: (d.created_by || []).map(c => ({ id: c.id, name: c.name })),
+      cast: (d.credits?.cast || []).slice(0, 16).map(c => ({ id: c.id, name: c.name, character: c.character || null, profileUrl: img(c.profile_path, 'w185') })),
+      trailer: trailer ? { name: trailer.name, url: `https://www.youtube.com/watch?v=${trailer.key}` } : null,
+      onServer: local ? { showId: local.id, episodes: have.size } : null,
+      seasons,
+      // The whole series: anything still missing and nobody has asked for it all.
+      canRequestSeries: !series && (!local || missing),
+    },
+  });
+});
+
+// One season's episodes, and which are on Streamulus.
+user.get('/show/:tmdbId/season/:season', authenticate, noKids, async (req, res) => {
+  const tmdbId = parseInt(req.params.tmdbId, 10);
+  const season = parseInt(req.params.season, 10);
+  let data;
+  try { data = await tmdb.getSeason(tmdbId, season); } catch (err) {
+    return err.response?.status === 404 ? res.status(404).json({ error: 'Season not found' }) : tmdbDown(res);
+  }
+  const have = tvRequests.localEpisodes(tmdbId);
+  res.json({
+    season,
+    name: data?.name || `Season ${season}`,
+    episodes: (data?.episodes || []).map(e => ({
+      episode: e.episode_number,
+      title: e.name || null,
+      airDate: e.air_date || null,
+      aired: tvRequests.aired(e.air_date),
+      overview: e.overview || '',
+      runtime: e.runtime || null,
+      stillUrl: img(e.still_path, 'w300'),
+      onServer: have.has(`${season}:${e.episode_number}`),
+    })),
+  });
+});
+
 // Your requests (and ones you added your name to), newest first.
 user.get('/', authenticate, noKids, (req, res) => {
   const rows = db.prepare(`
@@ -181,12 +330,15 @@ user.get('/', authenticate, noKids, (req, res) => {
   res.json({ requests: rows.map(r => requests.shape(r, { forUser: req.user.id })) });
 });
 
-// { tmdbId, note? }
+// { tmdbId, note? } — a film; { mediaType: 'tv', tmdbId, scope: 'series' | 'season', season?, note? } — a series or one season.
 user.post('/', authenticate, noKids, async (req, res) => {
   try {
-    const { request, joined, already } = await requests.create({ user: req.user, tmdbId: req.body?.tmdbId, note: req.body?.note, req });
+    const b = req.body || {};
+    const { request, joined, already } = await requests.create({
+      user: req.user, tmdbId: b.tmdbId, note: b.note, req, mediaType: b.mediaType === 'tv' ? 'tv' : 'movie', scope: b.scope, season: b.season,
+    });
     if (!already) {
-      activity.log(req, { category: 'account', action: joined ? 'request_joined' : 'request_created', detail: `${request.title}${request.year ? ` (${request.year})` : ''}` });
+      activity.log(req, { category: 'account', action: joined ? 'request_joined' : 'request_created', detail: `${requests.titleOf(request)}${request.year ? ` (${request.year})` : ''}` });
     }
     res.status(joined || already ? 200 : 201).json({ request: requests.shape(request, { forUser: req.user.id }), joined, already });
   } catch (err) {
@@ -198,7 +350,7 @@ user.delete('/:id', authenticate, noKids, (req, res) => {
   try {
     const r = requests.get(Number(req.params.id));
     const result = requests.cancel({ id: Number(req.params.id), user: req.user });
-    if (r) activity.log(req, { category: 'account', action: 'request_cancelled', detail: `${r.title}${r.year ? ` (${r.year})` : ''}` });
+    if (r) activity.log(req, { category: 'account', action: 'request_cancelled', detail: `${requests.titleOf(r)}${r.year ? ` (${r.year})` : ''}` });
     res.json(result);
   } catch (err) {
     fail(res, err);
@@ -238,6 +390,9 @@ admin.put('/settings', requireAdmin, (req, res) => {
   if (b.delugeUrl !== undefined && b.delugeUrl && !/^https?:\/\//i.test(String(b.delugeUrl).trim())) {
     return res.status(400).json({ error: 'The Deluge address should start with http:// or https://' });
   }
+  if (b.sonarrUrl !== undefined && b.sonarrUrl && !/^https?:\/\//i.test(String(b.sonarrUrl).trim())) {
+    return res.status(400).json({ error: 'The Sonarr address should start with http:// or https://' });
+  }
   if (b.refreshSeconds !== undefined && !(Number(b.refreshSeconds) >= 1 && Number(b.refreshSeconds) <= 60)) {
     return res.status(400).json({ error: 'Refresh every 1 to 60 seconds' });
   }
@@ -254,6 +409,15 @@ admin.post('/settings/deluge-test', requireAdmin, async (req, res) => {
     res.json(await deluge.test({ url: b.url, password: b.password, remotePath: b.remotePath, localPath: b.localPath }));
   } catch (err) {
     res.status(502).json({ error: deluge.errorText(err, req.body?.url) });
+  }
+});
+
+// { url?, apiKey? } — the saved ones when left out. → { version, rootFolders, qualityProfiles, languageProfiles }
+admin.post('/settings/sonarr-test', requireAdmin, async (req, res) => {
+  try {
+    res.json(await sonarr.test({ url: req.body?.url, apiKey: req.body?.apiKey }));
+  } catch (err) {
+    res.status(err.response || err.code ? 502 : 400).json({ error: err.response || err.code ? sonarr.errorText(err, req.body?.url) : err.message });
   }
 });
 
@@ -282,8 +446,9 @@ const act = (fn) => async (req, res) => {
 };
 
 // { qualityProfileId?, rootFolder? } — the saved ones when left out.
+// For a series, Sonarr's: { qualityProfileId?, rootFolder?, languageProfileId? }
 admin.post('/:id/approve', requireAdmin, act(req => requests.approve({
-  id: Number(req.params.id), admin: req.user, req, qualityProfileId: req.body?.qualityProfileId, rootFolder: req.body?.rootFolder,
+  id: Number(req.params.id), admin: req.user, req, qualityProfileId: req.body?.qualityProfileId, rootFolder: req.body?.rootFolder, languageProfileId: req.body?.languageProfileId,
 })));
 
 // { reason? }
@@ -293,7 +458,10 @@ admin.post('/:id/search', requireAdmin, act(req => requests.searchAgain({ id: Nu
 
 // { magnet } — the admin's backup when Radarr can't find it: download this in
 // Deluge, then move it into the movie library.
-admin.post('/:id/magnet', requireAdmin, act(req => requests.startMagnet({ id: Number(req.params.id), admin: req.user, magnet: req.body?.magnet, req })));
+// For a series also { scope: 'series' | 'season' | 'episode', season?, episode? }.
+admin.post('/:id/magnet', requireAdmin, act(req => requests.startMagnet({
+  id: Number(req.params.id), admin: req.user, magnet: req.body?.magnet, scope: req.body?.scope, season: req.body?.season, episode: req.body?.episode, req,
+})));
 
 // Check on it (in Radarr, or Deluge for a magnet link) now rather than at the next regular look.
 admin.post('/:id/refresh', requireAdmin, act(async req => {
@@ -308,7 +476,7 @@ admin.post('/:id/refresh', requireAdmin, act(async req => {
 admin.delete('/:id', requireAdmin, (req, res) => {
   const r = requests.get(Number(req.params.id));
   if (!r || !requests.remove(r.id)) return res.status(404).json({ error: 'Request not found' });
-  activity.log(req, { category: 'admin', action: 'request_removed', detail: `${r.title}${r.year ? ` (${r.year})` : ''}` });
+  activity.log(req, { category: 'admin', action: 'request_removed', detail: `${requests.titleOf(r)}${r.year ? ` (${r.year})` : ''}` });
   res.json({ success: true });
 });
 

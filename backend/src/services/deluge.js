@@ -220,13 +220,15 @@ async function addMagnet(uri) {
 
 // One torrent with its files: { name, progress (0–1), state, savePath, files: [{ path, size }], … } or null.
 async function torrent(hash) {
-  const t = await call('core.get_torrent_status', [String(hash).toLowerCase(), [...FIELDS, 'save_path', 'files', 'is_finished']]);
+  const t = await call('core.get_torrent_status', [String(hash).toLowerCase(), [...FIELDS, 'save_path', 'files', 'file_progress', 'is_finished']]);
   if (!t || !Object.keys(t).length) return null;
+  const each = Array.isArray(t.file_progress) ? t.file_progress : [];
   return {
     ...shape(t),
     finished: !!t.is_finished || Number(t.progress) >= 100,
     savePath: t.save_path || '',
-    files: (t.files || []).map(f => ({ path: String(f.path || ''), size: Number(f.size) || 0 })),
+    // progress: 0–1 per file (Deluge's file_progress), for per-episode progress in season packs.
+    files: (t.files || []).map((f, i) => ({ path: String(f.path || ''), size: Number(f.size) || 0, progress: each[i] != null ? Math.min(1, Math.max(0, Number(each[i]))) : null })),
   };
 }
 
@@ -282,4 +284,4 @@ function errorText(err, url = settings().url) {
   return err?.message || String(err);
 }
 
-module.exports = { settings, configured, torrents, test, errorText, toLocal, magnetHash, magnetName, addMagnet, torrent, remove, folderHelp, inDocker };
+module.exports = { settings, configured, torrents, test, errorText, toLocal, magnetHash, magnetName, addMagnet, torrent, remove, folderHelp, inDocker, shape };

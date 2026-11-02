@@ -132,6 +132,53 @@ async function discoverMovies({ year, genre, page = 1 } = {}) {
 }
 
 const movieGenres = () => Object.entries(MOVIE_GENRES).map(([id, name]) => ({ id: Number(id), name }));
+const tvGenres = () => Object.entries(TV_GENRES).map(([id, name]) => ({ id: Number(id), name }));
+
+// ── Requests: browsing series ────────────────────────────────────────────────
+
+// This week's most popular series.
+async function trendingTV() {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+  const res = await axios.get(`${TMDB_BASE}/trending/tv/week`, { params: { api_key: apiKey }, timeout: 10000 });
+  return (res.data.results || []).slice(0, 20);
+}
+
+// Popular series first aired in a year and/or in a genre.
+async function discoverTV({ year, genre, page = 1 } = {}) {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+  const params = { api_key: apiKey, sort_by: 'popularity.desc', include_adult: false, page, 'vote_count.gte': 20 };
+  if (year) params.first_air_date_year = year;
+  if (genre) params.with_genres = genre;
+  const res = await axios.get(`${TMDB_BASE}/discover/tv`, { params, timeout: 10000 });
+  return res.data.results || [];
+}
+
+// A series' page in one call: details (with its seasons), cast, trailers, age
+// ratings and its TVDB id (what Sonarr goes by).
+async function getTVFull(tmdbId) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}`, {
+    params: { api_key: apiKey, append_to_response: 'credits,videos,content_ratings,external_ids' }, timeout: 10000,
+  });
+  return res.data;
+}
+
+// One season's episodes (cached for a few hours — episode lists rarely change
+// and series requests look at them often).
+const seasonCache = new Map();
+async function getSeason(tmdbId, season) {
+  const key = `${tmdbId}:${season}`;
+  const hit = seasonCache.get(key);
+  if (hit && Date.now() - hit.at < 3 * 3600 * 1000) return hit.data;
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  const res = await axios.get(`${TMDB_BASE}/tv/${tmdbId}/season/${season}`, { params: { api_key: apiKey }, timeout: 10000 });
+  seasonCache.set(key, { at: Date.now(), data: res.data });
+  return res.data;
+}
 
 async function getMovieCredits(tmdbId) {
   const apiKey = getApiKey();
@@ -290,6 +337,7 @@ function resolveGenreNames(genreIds, isTV = false) {
 module.exports = {
   getApiKey, searchMovieList, searchTVList, getEnglish, trendingMovies,
   getMovieFull, searchPeople, getPersonWithMovies, discoverMovies, movieGenres,
+  tvGenres, trendingTV, discoverTV, getTVFull, getSeason,
   searchMovie, searchTV, getMovieDetails, getMovieCredits, getSimilarMovies, getMovieContentRating, getMovieCertification, getTVCertification, getWatchProviders,
   getTVDetails, getTVCredits, getTVContentRating, getSimilarTV, getEpisodeDetails,
   getMovieImages, getTVImages, getSeasonImages,

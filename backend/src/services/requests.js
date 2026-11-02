@@ -1,8 +1,10 @@
-// Movie requests. People ask for a film (Requests page); an admin approves or
+// Requests. People ask for a film or a series (Requests page); an admin approves or
 // declines it (Admin › Requests), and everyone who asked gets an email either
 // way. Approved films are added to Radarr and searched for, and a poller follows
 // them through Radarr — searching, downloading (with progress), moving into the
 // library — until Streamulus has the film, then emails them that it's ready.
+// Series (and single seasons of shows already here) go through Sonarr the same
+// way, episode by episode — see tvRequests.js.
 //
 // One request per film: anyone else who asks for the same film is added to it
 // (media_request_users) and hears about it too.
@@ -58,12 +60,19 @@ function settings() {
     notifyAdmins: getConf('requests_notify_admins', 'true') === 'true',
     // How often progress is checked, and how often the pages refresh (seconds).
     refreshSeconds: Math.min(60, Math.max(1, parseFloat(getConf('requests_refresh_seconds', '2')) || 2)),
+    // Series requests on the go per person, and single-season requests.
+    seriesLimit: Math.max(1, parseInt(getConf('requests_series_limit', '3'), 10) || 3),
+    seasonLimit: Math.max(1, parseInt(getConf('requests_season_limit', '5'), 10) || 5),
   };
 }
+const tv = () => require('./tvRequests');
 const refreshMs = () => Number(process.env.REQUESTS_POLL_MS) || settings().refreshSeconds * 1000;
 
-// Requests are open when they're turned on and Radarr is set up.
+// Film requests are open when they're turned on and Radarr is set up; series
+// requests when Sonarr is (tvRequests.isOpen).
 const isOpen = () => settings().enabled && radarr.configured();
+const isTvOpen = () => tv().isOpen();
+const titleOf = (r) => (r.media_type === 'tv' ? tv().displayTitle(r) : r.title);
 
 const posterUrl = (p, size = 'w342') => (p ? (/^https?:/.test(p) ? p : `https://image.tmdb.org/t/p/${size}${p}`) : null);
 
@@ -101,6 +110,11 @@ function shape(r, { forUser = null, withRequesters = false } = {}) {
     decidedAt: r.decided_at,
     movieId: r.movie_id,
     radarrId: r.radarr_id,
+    ...(r.media_type === 'tv' ? {
+      scope: r.scope, season: r.season_number, showId: r.show_id, sonarrId: r.sonarr_id, displayTitle: titleOf(r),
+      tv: r.tv_progress ? JSON.parse(r.tv_progress) : null,
+      ...(withRequesters ? { downloads: tv().downloads(r.id) } : {}),
+    } : {}),
     createdAt: r.created_at,
     ...(withRequesters ? { manual: r.manual_hash ? { name: r.manual_name, by: r.manual_by, at: r.manual_at } : null } : {}),
     updatedAt: r.updated_at,
@@ -138,7 +152,7 @@ async function emailPeople(r, templateId, extra = {}, req = null) {
   for (const person of requesters(r.id)) {
     if (!person.email || person.status === 'disabled') continue;
     const values = {
-      name: person.username, title: r.title, year: r.year || '', site, contact: s.support_contact,
+      name: person.username, title: titleOf(r), year: r.year || '', site, contact: s.support_contact,
       link: `${site}/requests`, ...extra,
     };
     try {
@@ -160,7 +174,7 @@ async function emailAdmins(r, requester, req) {
       await mailer.send({
         to: admin.email,
         ...templates.render('request_new', {
-          name: requester.username, title: r.title, year: r.year || '', site,
+          name: requester.username, title: titleOf(r), year: r.year || '', site,
           note: r.note ? `“${r.note}”` : '', link: `${site}/admin?tab=requests`,
         }),
       });
@@ -175,7 +189,7 @@ async function emailAdmins(r, requester, req) {
 function openCount(userId) {
   return db.prepare(`
     SELECT COUNT(*) AS n FROM media_requests r JOIN media_request_users ru ON ru.request_id = r.id
-    WHERE ru.user_id = ? AND r.status NOT IN ('declined', 'available')
+    WHERE ru.user_id = ? AND r.media_type = 'movie' AND r.status NOT IN ('declined', 'available')
   `).get(userId).n;
 }
 
@@ -183,7 +197,8 @@ function openCount(userId) {
  * Ask for a film. → { request, joined } or throws { status, message, movieId }.
  * Every request — admins' too — waits for approval in Admin › Requests.
  */
-async function create({ user, tmdbId, note, req }) {
+async function create({ user, tmdbId, note, req, mediaType, scope, season }) {
+  if (mediaType === 'tv') return tv().create({ user, tmdbId, scope, season, note, req });
   if (!isOpen()) throw Object.assign(new Error('Requests are turned off'), { status: 403 });
   tmdbId = parseInt(tmdbId, 10);
   if (!tmdbId) throw Object.assign(new Error('Choose a film to request'), { status: 400 });
@@ -237,9 +252,10 @@ function cancel({ id, user }) {
 
 // ── Deciding ─────────────────────────────────────────────────────────────────
 
-async function approve({ id, admin, req, qualityProfileId, rootFolder, notify = true }) {
+async function approve({ id, admin, req, qualityProfileId, rootFolder, languageProfileId, notify = true }) {
   const r = get(id);
   if (!r) throw Object.assign(new Error('Request not found'), { status: 404 });
+  if (r.media_type === 'tv') return tv().approve({ id, admin, req, qualityProfileId, rootFolder, languageProfileId, notify });
   if (!['pending', 'declined'].includes(r.status)) throw Object.assign(new Error('That request was already approved'), { status: 400 });
   if (!radarr.configured()) throw Object.assign(new Error('Set up Radarr in Admin › Requests first'), { status: 400 });
   let result;
@@ -268,7 +284,7 @@ async function decline({ id, admin, reason, req }) {
   if (r.status !== 'pending') throw Object.assign(new Error('Only requests waiting for approval can be declined'), { status: 400 });
   const why = String(reason || '').trim().slice(0, 500);
   update(id, { status: 'declined', detail: null, decline_reason: why || null, decided_by: admin.username, decided_at: now() });
-  require('./activity').log(req, { category: 'admin', action: 'request_declined', detail: `${r.title}${r.year ? ` (${r.year})` : ''}${why ? ` — ${why}` : ''}` });
+  require('./activity').log(req, { category: 'admin', action: 'request_declined', detail: `${titleOf(r)}${r.year ? ` (${r.year})` : ''}${why ? ` — ${why}` : ''}` });
   await emailPeople(get(id), 'request_declined', { admin: admin.username, reason: why ? `Reason: ${why}` : '' }, req);
   return get(id);
 }
@@ -277,6 +293,7 @@ async function decline({ id, admin, reason, req }) {
 async function searchAgain({ id, admin, req }) {
   const r = get(id);
   if (!r) throw Object.assign(new Error('Request not found'), { status: 404 });
+  if (r.media_type === 'tv') return tv().searchAgain({ id, admin, req });
   if (!r.radarr_id && !r.manual_hash) throw Object.assign(new Error('That request isn\'t in Radarr'), { status: 400 });
   let cmd;
   try {
@@ -313,6 +330,7 @@ function remove(id) {
   if (r?.manual_hash && ['downloading', 'failed'].includes(r.status) && !r.import_plan && deluge.configured()) {
     deluge.remove(r.manual_hash, true).catch(() => {});
   }
+  if (r?.media_type === 'tv') tv().removeDownloads(id);
   db.prepare('DELETE FROM media_request_users WHERE request_id = ?').run(id);
   return db.prepare('DELETE FROM media_requests WHERE id = ?').run(id).changes > 0;
 }
@@ -422,6 +440,7 @@ async function markAvailable(r, movieId) {
 
 // Check on one approved request and record how it's getting on.
 async function refresh(r, queue = null) {
+  if (r?.media_type === 'tv') return tv().refresh(r);
   if (r?.manual_hash) return refreshManual(r);
   return refreshRadarr(r, queue);
 }
@@ -498,26 +517,36 @@ async function refreshRadarr(r, queue = null) {
 
 let polling = false;
 async function poll() {
-  if (polling || (!radarr.configured() && !deluge.configured())) return;
+  if (polling || (!radarr.configured() && !deluge.configured() && !require('./sonarr').configured())) return;
   const active = db.prepare(`SELECT * FROM media_requests WHERE status IN (${ACTIVE.map(() => '?').join(',')})`).all(...ACTIVE);
   if (!active.length) return;
   polling = true;
   try {
     // Hand-added downloads: straight from Deluge, every refresh (a failed one
     // is retried every minute — e.g. once the folder mapping is fixed).
-    for (const r of active.filter(x => x.manual_hash)) {
+    for (const r of active.filter(x => x.manual_hash && x.media_type !== 'tv')) {
       const every = r.status === 'failed' ? MANUAL_RETRY_MS : refreshMs();
       if (r.checked_at && now() - r.checked_at < every) continue;
       try { await refreshManual(r); } catch (err) { console.error(`[requests] ${r.title}: ${err.message}`); }
     }
     const radarrEvery = Math.max(refreshMs(), RADARR_MIN_MS);
     const due = radarr.configured()
-      ? active.filter(r => !r.manual_hash && (!r.checked_at || now() - r.checked_at >= Math.max(radarrEvery, RECHECK[r.status] || 0)))
+      ? active.filter(r => r.media_type !== 'tv' && !r.manual_hash && (!r.checked_at || now() - r.checked_at >= Math.max(radarrEvery, RECHECK[r.status] || 0)))
       : [];
     if (due.length) {
       const queue = await radarr.queueByMovie().catch(() => null);
       for (const r of due) {
         try { await refreshRadarr(r, queue); } catch (err) { console.error(`[requests] ${r.title}: ${err.message}`); }
+      }
+    }
+    // Series: Sonarr (as often as Radarr), or every refresh while a magnet link downloads.
+    const shows = active.filter(r => r.media_type === 'tv' && (
+      !r.checked_at || now() - r.checked_at >= (tv().hasDownloads(r.id) ? refreshMs() : Math.max(radarrEvery, RECHECK[r.status] || 0))));
+    if (shows.length) {
+      const sonarr = require('./sonarr');
+      const queue = sonarr.configured() ? await sonarr.queueBySeries().catch(() => null) : null;
+      for (const r of shows) {
+        try { await tv().refresh(r, { queue }); } catch (err) { console.error(`[requests] ${r.title}: ${err.message}`); }
       }
     }
     await liveProgress();
@@ -530,7 +559,7 @@ async function poll() {
 let delugeError = null;
 async function liveProgress() {
   if (!deluge.configured()) return;
-  const rows = db.prepare("SELECT * FROM media_requests WHERE status = 'downloading' AND download_id IS NOT NULL AND manual_hash IS NULL").all();
+  const rows = db.prepare("SELECT * FROM media_requests WHERE status = 'downloading' AND download_id IS NOT NULL AND manual_hash IS NULL AND media_type = 'movie'").all();
   if (!rows.length) return;
   let stats;
   try {
@@ -560,9 +589,10 @@ const movieLibrary = () => db.prepare("SELECT * FROM libraries WHERE type = 'mov
  * it, or its download failed or stalled). Counts as approving it if it was
  * waiting or declined (they're emailed, as with Approve).
  */
-async function startMagnet({ id, admin, magnet, req }) {
+async function startMagnet({ id, admin, magnet, req, scope, season, episode }) {
   const r = get(id);
   if (!r) throw Object.assign(new Error('Request not found'), { status: 404 });
+  if (r.media_type === 'tv') return tv().startMagnet({ id, admin, magnet, scope, season, episode, req });
   const allowed = ['pending', 'declined', 'searching', 'waiting_release', 'not_found', 'failed', 'missing', 'downloading'];
   if (!allowed.includes(r.status)) {
     throw Object.assign(new Error(r.status === 'available' ? "It's already in the library" : "It's already being added to the library"), { status: 400 });
@@ -768,6 +798,11 @@ function saveSettings(input = {}) {
   if (input.delugeUrl !== undefined) setConf('deluge_url', String(input.delugeUrl || '').trim());
   if (typeof input.delugePassword === 'string' && input.delugePassword !== '') setConf('deluge_password', input.delugePassword);
   if (input.clearDelugePassword) setConf('deluge_password', '');
+  const sonarrMap = { sonarrUrl: 'sonarr_url', sonarrRootFolder: 'sonarr_root_folder', sonarrQualityProfileId: 'sonarr_quality_profile', sonarrLanguageProfileId: 'sonarr_language_profile' };
+  for (const [k, key] of Object.entries(sonarrMap)) if (input[k] !== undefined) setConf(key, String(input[k] ?? '').trim());
+  if (typeof input.sonarrApiKey === 'string' && input.sonarrApiKey.trim()) setConf('sonarr_api_key', input.sonarrApiKey.trim());
+  if (input.seriesLimit !== undefined) setConf('requests_series_limit', String(Math.max(1, Math.min(100, parseInt(input.seriesLimit, 10) || 3))));
+  if (input.seasonLimit !== undefined) setConf('requests_season_limit', String(Math.max(1, Math.min(100, parseInt(input.seasonLimit, 10) || 5))));
   if (input.delugeRemotePath !== undefined) setConf('deluge_remote_path', String(input.delugeRemotePath || '').trim());
   if (input.delugeLocalPath !== undefined) setConf('deluge_local_path', String(input.delugeLocalPath || '').trim());
 }
@@ -781,6 +816,12 @@ function settingsView() {
       url: r.url, apiKeySet: !!r.apiKey, rootFolder: r.rootFolder, qualityProfileId: r.qualityProfileId,
       minimumAvailability: r.minimumAvailability, configured: radarr.configured(),
     },
+    tvOpen: isTvOpen(),
+    sonarr: (() => {
+      const so = require('./sonarr');
+      const x = so.settings();
+      return { url: x.url, apiKeySet: !!x.apiKey, rootFolder: x.rootFolder, qualityProfileId: x.qualityProfileId, languageProfileId: x.languageProfileId, configured: so.configured() };
+    })(),
     deluge: {
       url: deluge.settings().url, passwordSet: !!deluge.settings().password, configured: deluge.configured(),
       remotePath: deluge.settings().remotePath, localPath: deluge.settings().localPath,
@@ -792,4 +833,5 @@ function settingsView() {
 module.exports = {
   LABELS, ACTIVE, settings, settingsView, saveSettings, isOpen, shape, get, openFor, inLibrary, posterUrl,
   create, cancel, approve, decline, searchAgain, remove, refresh, poll, start, requesters, startMagnet,
+  isTvOpen, titleOf, update, emailPeople, emailAdmins, moveInto,
 };
