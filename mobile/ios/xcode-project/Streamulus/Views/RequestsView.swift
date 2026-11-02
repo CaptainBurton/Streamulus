@@ -125,8 +125,8 @@ struct RequestsView: View {
     private var filterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                FilterChip(title: "Films", systemImage: "film", selected: mode == .films) { mode = .films }
-                FilterChip(title: "Actors", systemImage: "person.2", selected: mode == .people) { mode = .people }
+                FilterChip(title: "Films", systemImage: "film", asset: "RequestsFilms", selected: mode == .films) { mode = .films }
+                FilterChip(title: "Actors", systemImage: "person.fill", asset: "RequestsActors", selected: mode == .people) { mode = .people }
                 if mode == .films {
                     Divider().frame(height: 22).padding(.horizontal, 2)
                     Menu {
@@ -347,12 +347,13 @@ struct StatusPill: View {
 struct FilterChip: View {
     let title: String
     let systemImage: String
+    var asset: String? = nil
     let selected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: { withAnimation(.snappy) { action() } }) {
-            FilterChipLabel(title: title, systemImage: systemImage, selected: selected, menu: false)
+            FilterChipLabel(title: title, systemImage: systemImage, asset: asset, selected: selected, menu: false)
         }
         .buttonStyle(.plain)
     }
@@ -361,12 +362,18 @@ struct FilterChip: View {
 struct FilterChipLabel: View {
     let title: String
     let systemImage: String
+    /// An icon from the asset catalog (drawn in the text colour) in place of the SF Symbol.
+    var asset: String? = nil
     let selected: Bool
     let menu: Bool
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: systemImage).font(.footnote.weight(.semibold))
+            if let asset {
+                Image(asset).renderingMode(.template).resizable().scaledToFit().frame(height: 15)
+            } else {
+                Image(systemName: systemImage).font(.footnote.weight(.semibold))
+            }
             Text(title).font(.subheadline.weight(.semibold))
             if menu { Image(systemName: "chevron.down").font(.caption2.weight(.bold)).opacity(0.7) }
         }

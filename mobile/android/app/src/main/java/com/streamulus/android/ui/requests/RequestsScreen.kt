@@ -1,5 +1,7 @@
 package com.streamulus.android.ui.requests
 
+import com.streamulus.android.R
+import androidx.compose.ui.res.painterResource
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -555,8 +557,8 @@ private fun FilterRow(
     var genreOpen by remember { mutableStateOf(false) }
     val thisYear = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Chip("Films", selected = !actors) { onActors(false) }
-        Chip("Actors", selected = actors) { onActors(true) }
+        Chip("Films", selected = !actors, icon = R.drawable.ic_requests_films) { onActors(false) }
+        Chip("Actors", selected = actors, icon = R.drawable.ic_requests_actors) { onActors(true) }
         if (!actors) {
             Box {
                 Chip(year?.toString() ?: "Year ▾", selected = year != null) { yearOpen = true }
@@ -582,18 +584,20 @@ private fun FilterRow(
 }
 
 @Composable
-private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.SemiBold,
-        color = if (selected) Color.Black else Color.White,
-        modifier = Modifier.clip(CircleShape)
+private fun Chip(text: String, selected: Boolean, icon: Int? = null, onClick: () -> Unit) {
+    val color = if (selected) Color.Black else Color.White
+    Row(
+        Modifier.clip(CircleShape)
             .background(if (selected) Color.White else Color.White.copy(alpha = 0.1f))
             .border(1.dp, if (selected) Color.Transparent else Color.White.copy(alpha = 0.15f), CircleShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        if (icon != null) Icon(painterResource(icon), contentDescription = null, tint = color, modifier = Modifier.size(15.dp))
+        Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = color)
+    }
 }
 
 @Composable
