@@ -3,13 +3,15 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
 import { StatusPill, ProgressBar, Steps, RequestStyles, STATUS_COLORS } from '../components/RequestStatus';
-import { FilmsIcon, ActorsIcon } from '../components/RequestIcons';
+import { FilmsIcon, ActorsIcon, SeriesIcon } from '../components/RequestIcons';
+import TVChecklist from '../components/TVChecklist';
 import Dropdown from '../components/Dropdown';
 
-// Requests: find a film that isn't in the library — by title, actor or director,
-// year or genre — open it to read about it, and ask for it. An admin approves or
-// declines it (you're emailed either way); approved films download by themselves
-// and you can follow them here until they're ready to watch.
+// Requests: find a film or series that isn't in the library — by title, actor or
+// director, year or genre — open it to read about it, and ask for it (a series
+// whole, or a single season once the show is on Streamulus). An admin approves or
+// declines it (you're emailed either way); approved ones download by themselves
+// and you can follow them here — series episode by episode — until they're ready.
 const ACTIVE = ['pending', 'searching', 'waiting_release', 'not_found', 'downloading', 'importing', 'failed', 'adding', 'missing'];
 const BTN = { padding: '9px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#ddd', whiteSpace: 'nowrap' };
 const PRIMARY = { ...BTN, background: '#00c2ff', border: '1px solid #00c2ff', color: '#000' };
@@ -22,8 +24,8 @@ export default function Requests() {
   const [tab, setTab] = useState('find');
   const [mine, setMine] = useState(null);
   const [flash, setFlash] = useState(null);
-  const [filmId, setFilmId] = useState(null); // the film pop-up
-  const [asking, setAsking] = useState(null); // the request dialog
+  const [openItem, setOpenItem] = useState(null); // the pop-up: { kind: 'movie' | 'tv', id }
+  const [asking, setAsking] = useState(null); // the request dialog: { item, scope, season }
   const [stamp, setStamp] = useState(0); // bumped after a request, so lists refresh
   const say = (text, error = false) => { setFlash({ text, error }); setTimeout(() => setFlash(null), 4500); };
 
@@ -49,13 +51,17 @@ export default function Requests() {
 
   const counts = useMemo(() => ({ total: mine?.length || 0, active: (mine || []).filter(r => ACTIVE.includes(r.status)).length }), [mine]);
 
-  // Ask for a film (from a card, the film pop-up or an actor's page).
-  const send = async (film, note) => {
+  // Ask for a film, a series or one season (from a card, a pop-up or an actor's page).
+  const send = async (item, note, scope = null, season = null) => {
+    const tv = item.mediaType === 'tv';
+    const what = tv && scope === 'season' ? `${item.title} — Season ${season}` : item.title;
     try {
-      const r = await axios.post('/api/requests', { tmdbId: film.tmdbId, note });
+      const r = await axios.post('/api/requests', tv
+        ? { mediaType: 'tv', tmdbId: item.tmdbId, scope: scope || 'series', season, note }
+        : { tmdbId: item.tmdbId, note });
       setAsking(null);
-      say(r.data.joined ? `Someone had already asked for ${film.title} — you'll hear when it's ready too`
-        : `Requested ${film.title} — you'll get an email when an admin decides`);
+      say(r.data.joined ? `Someone had already asked for ${what} — you'll hear when it's ready too`
+        : r.data.already ? `You've already asked for ${what}` : `Requested ${what} — you'll get an email when an admin decides`);
       loadMine();
       setStamp(s => s + 1);
       return true;
@@ -64,11 +70,17 @@ export default function Requests() {
       return false;
     }
   };
-  // The button under a film: Request (asks for a note), See Progress, or Me Too.
-  const act = (film) => {
-    if (!film.request) setAsking(film);
-    else if (film.request.mine) { setFilmId(null); setTab('mine'); loadMine(); } else send(film, '');
+  // The button under a title: Request (asks for a note), See Progress, or Me Too.
+  // A series already on Streamulus opens its page instead, to choose seasons.
+  const act = (item, scope = null, season = null) => {
+    const tv = item.mediaType === 'tv';
+    if (tv && !scope && !item.request && item.showId) { setOpenItem({ kind: 'tv', id: item.tmdbId }); return; }
+    const req = item.request;
+    if (!req) setAsking({ item, scope: tv ? (scope || 'series') : null, season });
+    else if (req.mine) { setOpenItem(null); setTab('mine'); loadMine(); } else send(item, '', req.scope || scope, req.season ?? season);
   };
+  const open = (id, kind = 'movie') => setOpenItem({ kind, id });
+  const findLabel = config?.films && config?.tv ? 'Request a Film or Series' : config?.tv ? 'Request a Series' : 'Request a Film';
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f', color: '#fff' }}>
@@ -77,8 +89,8 @@ export default function Requests() {
       <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '96px 16px 64px' }}>
         <h1 style={{ fontSize: '32px', fontWeight: 800, marginBottom: '6px' }}>Requests</h1>
         <p style={{ color: '#777', fontSize: '14px', marginBottom: '22px', lineHeight: 1.6, maxWidth: '720px' }}>
-          Ask for a film that isn't on Streamulus yet — search by title, actor or director, or browse by year and genre, and open a film to read about it.
-          Once an admin approves it, it downloads by itself; follow it here, and you'll get an email when it's ready to watch.
+          Ask for a film or series that isn't on Streamulus yet — search by title, actor or director, or browse by year and genre, and open one to read about it.
+          Once an admin approves it, it downloads by itself; follow it here (series episode by episode), and you'll get an email when it's ready to watch.
         </p>
 
         {flash && (
@@ -97,7 +109,7 @@ export default function Requests() {
         ) : (
           <>
             <div role="tablist" style={{ display: 'flex', gap: '8px', marginBottom: '22px', flexWrap: 'wrap' }}>
-              {[['find', 'Request a Film'], ['mine', `My Requests${counts.total ? ` · ${counts.total}` : ''}`]].map(([key, label]) => (
+              {[['find', findLabel], ['mine', `My Requests${counts.total ? ` · ${counts.total}` : ''}`]].map(([key, label]) => (
                 <button key={key} role="tab" aria-selected={tab === key} onClick={() => { setTab(key); if (key === 'mine') loadMine(); }}
                   style={{ ...BTN, borderRadius: '999px', padding: '8px 18px', fontSize: '14px', ...(tab === key ? CHIP_ON : {}) }}>
                   {label}
@@ -108,13 +120,14 @@ export default function Requests() {
               ))}
             </div>
             {tab === 'find'
-              ? <FindFilm config={config} say={say} stamp={stamp} onOpen={setFilmId} onAct={act} />
-              : <MyRequests list={mine} say={say} reload={loadMine} goFind={() => setTab('find')} onOpen={setFilmId} />}
+              ? <FindFilm config={config} say={say} stamp={stamp} onOpen={open} onAct={act} />
+              : <MyRequests list={mine} say={say} reload={loadMine} goFind={() => setTab('find')} onOpen={open} findLabel={findLabel} />}
           </>
         )}
       </div>
-      {filmId && <FilmModal tmdbId={filmId} stamp={stamp} onClose={() => setFilmId(null)} onAct={act} onOpen={setFilmId} say={say} />}
-      {asking && <AskDialog film={asking} onCancel={() => setAsking(null)} onSend={(note) => send(asking, note)} />}
+      {openItem?.kind === 'movie' && <FilmModal tmdbId={openItem.id} stamp={stamp} onClose={() => setOpenItem(null)} onAct={act} onOpen={(id) => open(id, 'movie')} say={say} />}
+      {openItem?.kind === 'tv' && <ShowModal tmdbId={openItem.id} stamp={stamp} onClose={() => setOpenItem(null)} onAct={act} say={say} />}
+      {asking && <AskDialog asking={asking} onCancel={() => setAsking(null)} onSend={(note) => send(asking.item, note, asking.scope, asking.season)} />}
     </div>
   );
 }
@@ -122,7 +135,7 @@ export default function Requests() {
 // ── Find a film ──────────────────────────────────────────────────────────────
 
 function FindFilm({ config, say, stamp, onOpen, onAct }) {
-  const [mode, setMode] = useState('films'); // films | people
+  const [mode, setMode] = useState(config.films ? 'films' : 'series'); // films | series | people
   const [query, setQuery] = useState('');
   const [year, setYear] = useState('');
   const [genre, setGenre] = useState('');
@@ -132,7 +145,10 @@ function FindFilm({ config, say, stamp, onOpen, onAct }) {
   const latest = useRef(0);
   const text = query.trim();
   const years = useMemo(() => { const now = new Date().getFullYear(); return Array.from({ length: now + 2 - 1920 }, (_, i) => now + 1 - i); }, []);
-  const genreName = (config.genres || []).find(g => String(g.id) === String(genre))?.name;
+  const genres = (mode === 'series' ? config.tvGenres : config.genres) || [];
+  const genreName = genres.find(g => String(g.id) === String(genre))?.name;
+  const pick = (m) => { if (m !== mode) { setMode(m); setGenre(''); setData(null); } };
+  const noun = mode === 'series' ? 'series' : 'films';
 
   const run = () => {
     const ask = ++latest.current;
@@ -140,7 +156,7 @@ function FindFilm({ config, say, stamp, onOpen, onAct }) {
     setLoading(true);
     const req = mode === 'people'
       ? axios.get('/api/requests/people', { params: { q: text } })
-      : axios.get('/api/requests/search', { params: { q: text, year: year || undefined, genre: genre || undefined } });
+      : axios.get('/api/requests/search', { params: { q: text, year: year || undefined, genre: genre || undefined, type: mode === 'series' ? 'tv' : undefined } });
     req.then(r => { if (ask === latest.current) setData(r.data); })
       .catch(err => { if (ask === latest.current) say(err.response?.data?.error || "Couldn't search right now", true); })
       .finally(() => { if (ask === latest.current) setLoading(false); });
@@ -155,14 +171,14 @@ function FindFilm({ config, say, stamp, onOpen, onAct }) {
   const heading = mode === 'people'
     ? (text ? `People matching “${text}”` : 'Actors & Directors')
     : text ? `Results for “${text}”${year ? ` · ${year}` : ''}${genreName ? ` · ${genreName}` : ''}`
-      : year && genreName ? `${genreName} films from ${year}` : year ? `Films from ${year}` : genreName ? `${genreName} films` : 'Popular this week';
+      : year && genreName ? `${genreName} ${noun} from ${year}` : year ? `${mode === 'series' ? 'Series' : 'Films'} from ${year}` : genreName ? `${genreName} ${noun}` : mode === 'series' ? 'Popular series this week' : 'Popular this week';
 
   return (
     <div>
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>
         <div style={{ position: 'relative', flex: '1 1 320px', maxWidth: '560px' }}>
           <input value={query} onChange={e => setQuery(e.target.value)} aria-label="Search" autoFocus
-            placeholder={mode === 'people' ? 'Search actors and directors…' : 'Search for a film…'}
+            placeholder={mode === 'people' ? 'Search actors and directors…' : mode === 'series' ? 'Search for a series…' : 'Search for a film…'}
             style={{ width: '100%', padding: '13px 16px 13px 44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', color: '#fff', fontSize: '16px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)' }} aria-hidden="true">
             <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
@@ -170,15 +186,16 @@ function FindFilm({ config, say, stamp, onOpen, onAct }) {
         </div>
       </div>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '20px' }} data-section="filters">
-        <button style={{ ...CHIP, ...ICON_CHIP, ...(mode === 'films' ? CHIP_ON : {}) }} onClick={() => setMode('films')} data-mode="films"><FilmsIcon /> Films</button>
-        <button style={{ ...CHIP, ...ICON_CHIP, ...(mode === 'people' ? CHIP_ON : {}) }} onClick={() => setMode('people')} data-mode="people"><ActorsIcon /> Actors & Directors</button>
-        {mode === 'films' && (
+        {config.films && <button style={{ ...CHIP, ...ICON_CHIP, ...(mode === 'films' ? CHIP_ON : {}) }} onClick={() => pick('films')} data-mode="films"><FilmsIcon /> Films</button>}
+        {config.tv && <button style={{ ...CHIP, ...ICON_CHIP, ...(mode === 'series' ? CHIP_ON : {}) }} onClick={() => pick('series')} data-mode="series"><SeriesIcon /> Series</button>}
+        {config.films && <button style={{ ...CHIP, ...ICON_CHIP, ...(mode === 'people' ? CHIP_ON : {}) }} onClick={() => pick('people')} data-mode="people"><ActorsIcon /> Actors & Directors</button>}
+        {mode !== 'people' && (
           <>
             <span style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
             <Dropdown name="year" ariaLabel="Year" label="Any year" value={year} onChange={setYear} menuWidth={160}
               options={[{ value: '', label: 'Any year' }, ...years.map(y => ({ value: String(y), label: String(y) }))]} />
             <Dropdown name="genre" ariaLabel="Genre" label="Any genre" value={genre} onChange={setGenre} menuWidth={220}
-              options={[{ value: '', label: 'Any genre' }, ...(config.genres || []).map(g => ({ value: String(g.id), label: g.name }))]} />
+              options={[{ value: '', label: 'Any genre' }, ...genres.map(g => ({ value: String(g.id), label: g.name }))]} />
             {(year || genre) && <button style={{ ...CHIP, color: '#999' }} onClick={() => { setYear(''); setGenre(''); }}>Clear</button>}
           </>
         )}
@@ -208,7 +225,7 @@ function FindFilm({ config, say, stamp, onOpen, onAct }) {
         </>
       ) : (
         <>
-          {data?.results?.length === 0 && !loading && <div style={{ color: '#777', padding: '20px 0' }}>No films found — try another spelling, or change the year or genre.</div>}
+          {data?.results?.length === 0 && !loading && <div style={{ color: '#777', padding: '20px 0' }}>No {noun} found — try another spelling, or change the year or genre.</div>}
           <FilmGrid films={data?.results || []} onOpen={onOpen} onAct={onAct} />
         </>
       )}
@@ -222,8 +239,8 @@ function FilmGrid({ films, onOpen, onAct }) {
       {films.map(film => {
         const rating = film.rating > 0 ? film.rating.toFixed(1) : null;
         return (
-          <div key={film.tmdbId} data-film={film.title} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <button className="req-poster" onClick={() => onOpen(film.tmdbId)} aria-label={`About ${film.title}`} data-action="open-film">
+          <div key={`${film.mediaType || 'movie'}-${film.tmdbId}`} {...(film.mediaType === 'tv' ? { 'data-show': film.title } : { 'data-film': film.title })} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <button className="req-poster" onClick={() => onOpen(film.tmdbId, film.mediaType === 'tv' ? 'tv' : 'movie')} aria-label={`About ${film.title}`} data-action={film.mediaType === 'tv' ? 'open-show' : 'open-film'}>
               <div className="req-art">
                 <div className="req-art-clip">
                   {film.posterUrl
@@ -242,13 +259,16 @@ function FilmGrid({ films, onOpen, onAct }) {
                 </div>
               </div>
               {film.request && <div style={{ marginTop: '10px', display: 'flex' }}><StatusPill status={film.request.status} label={film.request.label} /></div>}
-              <div style={{ fontWeight: 700, fontSize: '14px', marginTop: film.request ? '6px' : '10px', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{film.title}</div>
+              {!film.request && film.showId && <div style={{ marginTop: '10px', display: 'flex' }}><OnServerPill /></div>}
+              <div style={{ fontWeight: 700, fontSize: '14px', marginTop: film.request || film.showId ? '6px' : '10px', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{film.title}</div>
               <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[film.year, film.role].filter(Boolean).join(' · ') || '—'}</div>
             </button>
             <div style={{ marginTop: 'auto' }}>
               {film.request
                 ? <button style={{ ...BTN, width: '100%' }} onClick={() => onAct(film)} data-action={film.request.mine ? 'progress' : 'join'}>{film.request.mine ? 'See Progress' : 'Me Too'}</button>
-                : <button style={{ ...PRIMARY, width: '100%' }} onClick={() => onAct(film)} data-action="request">Request</button>}
+                : film.mediaType === 'tv' && film.showId
+                  ? <button style={{ ...BTN, width: '100%' }} onClick={() => onAct(film)} data-action="seasons">Request Seasons</button>
+                  : <button style={{ ...PRIMARY, width: '100%' }} onClick={() => onAct(film)} data-action="request">{film.mediaType === 'tv' ? 'Request Series' : 'Request'}</button>}
             </div>
           </div>
         );
@@ -256,6 +276,13 @@ function FilmGrid({ films, onOpen, onAct }) {
     </div>
   );
 }
+
+// "On Streamulus" — a series that's already here (some seasons, at least).
+const OnServerPill = () => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: '#00c864', border: '1px solid #00c86455', background: '#00c86414', whiteSpace: 'nowrap' }} data-on-server>
+    ✓ On Streamulus
+  </span>
+);
 
 const Avatar = ({ url, size }) => (
   <span style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'rgba(255,255,255,0.08)', display: 'inline-flex', verticalAlign: 'top', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: size / 2.6 }}>
@@ -405,7 +432,193 @@ function FilmModal({ tmdbId, stamp, onClose, onAct, onOpen, say }) {
   );
 }
 
-function AskDialog({ film, onCancel, onSend }) {
+// A series' page: backdrop, poster, facts, synopsis, cast, trailer — and its
+// seasons: how much of each is on Streamulus, and asking for the whole series
+// or (once the show is here) a single season. Open a season to see its episodes.
+function ShowModal({ tmdbId, stamp, onClose, onAct, say }) {
+  const [show, setShow] = useState(null);
+  const [opened, setOpened] = useState(null); // a season number
+  const [episodes, setEpisodes] = useState({}); // season → episodes
+  useEffect(() => {
+    setShow(null);
+    axios.get(`/api/requests/show/${tmdbId}`).then(r => setShow(r.data.show)).catch(err => { say(err.response?.data?.error || "Couldn't load this series", true); onClose(); });
+  }, [tmdbId, stamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = overflow; };
+  }, [onClose]);
+  const toggleSeason = (n) => {
+    setOpened(o => (o === n ? null : n));
+    if (!episodes[n]) axios.get(`/api/requests/show/${tmdbId}/season/${n}`).then(r => setEpisodes(e => ({ ...e, [n]: r.data.episodes }))).catch(() => {});
+  };
+  const yearOf = (d) => (d ? new Date(d).getFullYear() : null);
+  const years = show ? (() => {
+    const a = yearOf(show.firstAirDate); const b = yearOf(show.lastAirDate);
+    if (!a) return null;
+    return show.status === 'Returning Series' ? `${a}–` : b && b !== a ? `${a}–${b}` : String(a);
+  })() : null;
+  const facts = show ? [years, `${show.numberOfSeasons} season${show.numberOfSeasons === 1 ? '' : 's'}`, show.certification,
+    show.status === 'Returning Series' ? 'Still running' : show.status === 'Ended' ? 'Ended' : show.status === 'Canceled' ? 'Cancelled' : null].filter(Boolean).join(' · ') : '';
+  const item = show ? { ...show, mediaType: 'tv' } : null;
+
+  return (
+    // Above the menu bar (1000), with room above and below.
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: 'max(72px, 9vh) 16px 56px' }}>
+      <div onClick={e => e.stopPropagation()} role="dialog" aria-label={show?.title || 'Series'} data-dialog="show"
+        style={{ width: '100%', maxWidth: '880px', background: '#141418', borderRadius: '18px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 30px 80px rgba(0,0,0,0.6)' }}>
+        {!show ? <div className="spinner" style={{ margin: '80px auto' }} /> : (
+          <>
+            <div style={{ position: 'relative', height: 'min(320px, 45vw)', background: '#000' }}>
+              {(show.backdropUrl || show.posterUrl) && <img src={show.backdropUrl || show.posterUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.85 }} />}
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 35%, rgba(20,20,24,0.9) 85%, #141418 100%)' }} />
+              <button onClick={onClose} aria-label="Close" style={{ position: 'absolute', top: '14px', right: '14px', width: '36px', height: '36px', borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding: '0 26px 28px', marginTop: '-90px', position: 'relative' }}>
+              <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                {show.posterUrl && <img src={show.posterUrl} alt="" style={{ width: '130px', height: '195px', objectFit: 'cover', borderRadius: '12px', boxShadow: '0 12px 30px rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.12)' }} />}
+                <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 800, letterSpacing: '1.2px', color: '#00c2ff', marginBottom: '4px' }}><SeriesIcon size={11} /> SERIES</div>
+                  <div style={{ fontSize: '30px', fontWeight: 900, lineHeight: 1.15 }}>{show.title}</div>
+                  <div style={{ color: '#bbb', fontSize: '14px', marginTop: '6px', fontWeight: 600 }} data-facts>{facts}</div>
+                  {(show.rating > 0 || show.networks.length > 0) && (
+                    <div style={{ fontSize: '14px', marginTop: '4px' }}>
+                      {show.rating > 0 && <><span style={{ color: '#ffd166' }}>★</span> <strong>{show.rating.toFixed(1)}</strong> <span style={{ color: '#888' }}>· {show.voteCount?.toLocaleString()} ratings</span></>}
+                      {show.networks.length > 0 && <span style={{ color: '#888' }}>{show.rating > 0 ? ' · ' : ''}{show.networks.join(', ')}</span>}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', margin: '22px 0' }}>
+                {show.onServer && <Link to={`/tv/${show.onServer.showId}`} style={{ ...BTN, padding: '12px 22px', fontSize: '15px', textDecoration: 'none' }} data-action="watch-show">▶ On Streamulus — Watch</Link>}
+                {show.request ? (
+                  <>
+                    <StatusPill status={show.request.status} label={show.request.label} />
+                    <span style={{ color: '#aaa', fontSize: '14px' }}>{show.request.mine ? "You've asked for the whole series" : 'Someone has asked for the whole series'}</span>
+                    <button style={{ ...(show.request.mine ? BTN : PRIMARY), padding: '12px 22px', fontSize: '15px' }} onClick={() => onAct(item)} data-action={show.request.mine ? 'progress' : 'join'}>
+                      {show.request.mine ? 'See Progress' : 'Me Too — Tell Me When It\'s Ready'}
+                    </button>
+                  </>
+                ) : show.canRequestSeries && (
+                  <button style={{ ...PRIMARY, padding: '12px 22px', fontSize: '15px' }} onClick={() => onAct({ ...item, request: null }, 'series')} data-action="request-series">
+                    ＋ {show.onServer ? 'Request All Missing Seasons' : 'Request Entire Series'}
+                  </button>
+                )}
+                {show.trailer && <a href={show.trailer.url} target="_blank" rel="noreferrer" style={{ ...BTN, padding: '12px 22px', fontSize: '15px', textDecoration: 'none' }} data-action="trailer">▶ Watch Trailer</a>}
+              </div>
+
+              {show.tagline && <div style={{ fontStyle: 'italic', color: '#ddd', fontSize: '17px', marginBottom: '14px' }}>“{show.tagline}”</div>}
+              {show.genres.length > 0 && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '18px' }}>
+                  {show.genres.map(g => <span key={g} style={{ padding: '5px 12px', borderRadius: '999px', background: 'rgba(255,255,255,0.08)', fontSize: '13px', fontWeight: 600 }}>{g}</span>)}
+                </div>
+              )}
+              {show.overview && (
+                <>
+                  <div style={{ fontSize: '17px', fontWeight: 800, marginBottom: '6px' }}>Synopsis</div>
+                  <p style={{ color: '#ccc', fontSize: '15px', lineHeight: 1.7, margin: '0 0 20px' }} data-synopsis>{show.overview}</p>
+                </>
+              )}
+
+              <div style={{ fontSize: '17px', fontWeight: 800, marginBottom: '6px' }}>Seasons</div>
+              {!show.onServer && (
+                <div style={{ fontSize: '13px', color: '#999', marginBottom: '10px', lineHeight: 1.5 }} data-season-note>
+                  Single seasons can be asked for once the show is on Streamulus — request the whole series to get started.
+                </div>
+              )}
+              <div data-section="seasons" style={{ display: 'flex', flexDirection: 'column', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: '22px' }}>
+                {show.seasons.map((x, i) => {
+                  const isOpen = opened === x.season;
+                  return (
+                    <div key={x.season} data-season={x.season} style={{ borderTop: i ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '12px 14px', background: isOpen ? 'rgba(255,255,255,0.03)' : 'transparent', flexWrap: 'wrap' }}>
+                        <button type="button" onClick={() => toggleSeason(x.season)} aria-expanded={isOpen} className="tvc-row" data-action="open-season"
+                          style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 260px', minWidth: 0, background: 'none', border: 'none', padding: 0, color: '#fff', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                          {x.posterUrl ? <img src={x.posterUrl} alt="" style={{ width: '40px', height: '60px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0, background: '#1c1c1e' }} />
+                            : <div style={{ width: '40px', height: '60px', borderRadius: '6px', background: '#1c1c1e', flexShrink: 0 }} />}
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: 'block', fontWeight: 700, fontSize: '15px' }}>{x.name}</span>
+                            <span style={{ display: 'block', fontSize: '12px', color: '#888', marginTop: '2px' }}>
+                              {[x.year, `${x.episodeCount} episode${x.episodeCount === 1 ? '' : 's'}`, x.aired < x.episodeCount ? (x.aired ? `${x.aired} aired so far` : 'not aired yet') : null].filter(Boolean).join(' · ')}
+                            </span>
+                            {show.onServer && x.aired > 0 && (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', maxWidth: '260px' }}>
+                                <span style={{ flex: 1, height: '4px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                                  <span style={{ display: 'block', width: `${Math.round((x.onServer / x.aired) * 100)}%`, height: '100%', background: x.complete ? '#00c864' : '#00c2ff' }} />
+                                </span>
+                                <span style={{ fontSize: '11px', color: '#999', whiteSpace: 'nowrap' }}>{x.onServer} of {x.aired} on Streamulus</span>
+                              </span>
+                            )}
+                          </span>
+                          <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" style={{ marginLeft: 'auto', transition: 'transform 0.2s', transform: isOpen ? 'rotate(90deg)' : 'none', opacity: 0.6, flexShrink: 0 }}>
+                            <path d="M4.2 2 8 6l-3.8 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                          {x.complete ? <OnServerPill />
+                            : x.request ? (
+                              <>
+                                <StatusPill status={x.request.status} label={x.request.scope === 'series' ? 'Whole series asked for' : x.request.label} />
+                                <button style={BTN} onClick={() => onAct({ ...item, request: x.request }, x.request.scope, x.request.season)} data-action={x.request.mine ? 'progress' : 'join'}>{x.request.mine ? 'See Progress' : 'Me Too'}</button>
+                              </>
+                            ) : x.canRequest ? (
+                              <button style={PRIMARY} onClick={() => onAct({ ...item, request: null }, 'season', x.season)} data-action="request-season">Request Season</button>
+                            ) : null}
+                        </div>
+                      </div>
+                      {isOpen && (
+                        <div style={{ padding: '0 14px 12px 68px' }} data-episodes>
+                          {!episodes[x.season] ? <div style={{ color: '#777', fontSize: '13px', padding: '6px 0' }}>Loading episodes…</div>
+                            : episodes[x.season].map(e => (
+                              <div key={e.episode} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '13px' }}>
+                                <span style={{ color: '#777', width: '34px', flexShrink: 0 }}>E{String(e.episode).padStart(2, '0')}</span>
+                                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: e.aired ? '#e6e6ea' : '#777' }}>{e.title || `Episode ${e.episode}`}</span>
+                                <span style={{ fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap', color: e.onServer ? '#00c864' : e.aired ? '#888' : '#6b6b76' }}>
+                                  {e.onServer ? '✓ On Streamulus' : e.aired ? (e.airDate ? new Date(e.airDate).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : '') : `Airs ${e.airDate ? new Date(e.airDate).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : 'later'}`}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {show.creators.length > 0 && (
+                <div style={{ marginBottom: '20px', fontSize: '15px' }}>
+                  <span style={{ fontWeight: 800 }}>Created by: </span><span style={{ color: '#ddd' }}>{show.creators.map(c => c.name).join(', ')}</span>
+                </div>
+              )}
+              {show.cast.length > 0 && (
+                <>
+                  <div style={{ fontSize: '17px', fontWeight: 800, marginBottom: '10px' }}>Cast</div>
+                  <div style={{ display: 'flex', gap: '14px', overflowX: 'auto', paddingBottom: '6px' }}>
+                    {show.cast.map(c => (
+                      <div key={c.id} data-cast={c.name} style={{ width: '92px', flexShrink: 0, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '6px' }}>
+                        <Avatar url={c.profileUrl} size={76} />
+                        <div style={{ fontSize: '12px', fontWeight: 700, marginTop: '6px', lineHeight: 1.3 }}>{c.name}</div>
+                        {c.character && <div style={{ fontSize: '11px', color: '#888', lineHeight: 1.3 }}>{c.character}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+      <style>{'.tvc-row:hover { filter: none !important; box-shadow: none !important; } .tvc-row:active { transform: none !important; }'}</style>
+    </div>
+  );
+}
+
+function AskDialog({ asking, onCancel, onSend }) {
+  const { item: film, scope, season } = asking;
+  const tv = film.mediaType === 'tv';
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -419,11 +632,16 @@ function AskDialog({ film, onCancel, onSend }) {
         style={{ width: '100%', maxWidth: '540px', background: '#17171b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px', display: 'flex', gap: '18px', boxShadow: '0 30px 80px rgba(0,0,0,0.6)' }}>
         {film.posterUrl && <img src={film.posterUrl} alt="" style={{ width: '100px', height: '150px', objectFit: 'cover', borderRadius: '10px', flexShrink: 0 }} />}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '1.5px', color: '#00c2ff' }}>REQUEST</div>
+          <div style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '1.5px', color: '#00c2ff' }}>{tv ? (scope === 'season' ? 'REQUEST A SEASON' : 'REQUEST A SERIES') : 'REQUEST'}</div>
           <div style={{ fontSize: '20px', fontWeight: 800, marginTop: '2px' }}>{film.title} <span style={{ color: '#888', fontWeight: 500 }}>{film.year || ''}</span></div>
+          {tv && (
+            <div data-scope style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: 'rgba(0,194,255,0.12)', border: '1px solid rgba(0,194,255,0.35)', color: '#7fdcff', fontSize: '12px', fontWeight: 700 }}>
+              <SeriesIcon size={11} /> {scope === 'season' ? `Season ${season}` : film.showId ? 'Every missing season' : 'The whole series'}
+            </div>
+          )}
           <p style={{ color: '#bbb', fontSize: '13px', lineHeight: 1.55, margin: '8px 0 12px', maxHeight: '62px', overflow: 'hidden' }}>{film.overview}</p>
           <label style={{ fontSize: '13px', color: '#ddd', fontWeight: 700, display: 'block', marginBottom: '6px' }} htmlFor="request-note">Note for the admin · optional</label>
-          <textarea id="request-note" value={note} onChange={e => setNote(e.target.value)} maxLength={500} rows={2} placeholder="e.g. the 2021 version, please"
+          <textarea id="request-note" value={note} onChange={e => setNote(e.target.value)} maxLength={500} rows={2} placeholder={tv ? 'e.g. the original, not the remake' : 'e.g. the 2021 version, please'}
             style={{ width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} />
           <div style={{ fontSize: '12px', color: '#999', marginTop: '8px' }}>You'll get an email when it's approved or declined, and again when it's ready to watch.</div>
           <div style={{ display: 'flex', gap: '10px', marginTop: '14px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -440,35 +658,37 @@ function AskDialog({ film, onCancel, onSend }) {
 
 // ── My requests ──────────────────────────────────────────────────────────────
 
-function MyRequests({ list, say, reload, goFind, onOpen }) {
+function MyRequests({ list, say, reload, goFind, onOpen, findLabel }) {
   if (!list) return <div className="spinner" style={{ margin: '60px auto' }} />;
   if (!list.length) {
     return (
       <div style={{ padding: '36px', textAlign: 'center', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-        <div style={{ color: '#aaa', marginBottom: '14px' }}>You haven't asked for any films yet.</div>
-        <button style={PRIMARY} onClick={goFind}>Request a Film</button>
+        <div style={{ color: '#aaa', marginBottom: '14px' }}>You haven't asked for anything yet.</div>
+        <button style={PRIMARY} onClick={goFind}>{findLabel}</button>
       </div>
     );
   }
   const cancel = async (r) => {
-    if (!window.confirm(`Cancel your request for ${r.title}?`)) return;
+    const name = r.displayTitle || r.title;
+    if (!window.confirm(`Cancel your request for ${name}?`)) return;
     try {
       await axios.delete(`/api/requests/${r.id}`);
-      say(`Cancelled your request for ${r.title}`);
+      say(`Cancelled your request for ${name}`);
       reload();
     } catch (err) { say(err.response?.data?.error || "Couldn't cancel it", true); }
   };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      {list.map(r => <RequestCard key={r.id} r={r} onCancel={() => cancel(r)} onOpen={() => onOpen(r.tmdbId)} />)}
+      {list.map(r => <RequestCard key={r.id} r={r} onCancel={() => cancel(r)} onOpen={() => onOpen(r.tmdbId, r.mediaType === 'tv' ? 'tv' : 'movie')} />)}
     </div>
   );
 }
 
 function RequestCard({ r, onCancel, onOpen }) {
   const color = STATUS_COLORS[r.status] || '#888';
+  const tv = r.mediaType === 'tv';
   return (
-    <div data-request={r.title} style={{ display: 'flex', gap: '16px', padding: '16px', borderRadius: '14px', background: 'rgba(255,255,255,0.04)', border: `1px solid ${r.status === 'available' ? 'rgba(0,200,100,0.25)' : 'rgba(255,255,255,0.08)'}` }}>
+    <div data-request={r.displayTitle || r.title} style={{ display: 'flex', gap: '16px', padding: '16px', borderRadius: '14px', background: 'rgba(255,255,255,0.04)', border: `1px solid ${r.status === 'available' ? 'rgba(0,200,100,0.25)' : 'rgba(255,255,255,0.08)'}` }}>
       <button onClick={onOpen} aria-label={`About ${r.title}`} style={{ width: '72px', flexShrink: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer', alignSelf: 'flex-start' }}>
         {r.posterUrl ? <img src={r.posterUrl} alt="" style={{ width: '72px', height: '108px', objectFit: 'cover', borderRadius: '8px', display: 'block' }} />
           : <div style={{ width: '72px', height: '108px', borderRadius: '8px', background: '#1c1c1e' }} />}
@@ -477,16 +697,22 @@ function RequestCard({ r, onCancel, onOpen }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <button onClick={onOpen} style={{ background: 'none', border: 'none', padding: 0, color: '#fff', fontSize: '17px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>{r.title}</button>
           <span style={{ color: '#777', fontSize: '14px' }}>{r.year || ''}</span>
+          {tv && (
+            <span data-scope style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', background: 'rgba(255,255,255,0.07)', color: '#ccc', fontSize: '11px', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+              <SeriesIcon size={10} /> {r.scope === 'season' ? `Season ${r.season}` : 'Entire series'}
+            </span>
+          )}
           <StatusPill status={r.status} label={r.label} />
         </div>
         <Steps status={r.status} />
-        {r.status === 'downloading' && (
+        {tv && r.tv && r.tv.seasons?.length > 0 && <TVChecklist tv={r.tv} scope={r.scope} />}
+        {!tv && r.status === 'downloading' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ flex: 1 }}><ProgressBar status={r.status} progress={r.progress} /></div>
             <span style={{ fontSize: '13px', fontWeight: 700, color, minWidth: '40px', textAlign: 'right' }}>{Math.round((r.progress || 0) * 100)}%</span>
           </div>
         )}
-        {['importing', 'adding', 'searching'].includes(r.status) && <ProgressBar status={r.status} progress={r.progress} />}
+        {!tv && ['importing', 'adding', 'searching'].includes(r.status) && <ProgressBar status={r.status} progress={r.progress} />}
         {r.detail && <div style={{ fontSize: '13px', color: ['not_found', 'failed', 'missing'].includes(r.status) ? '#ffb38a' : '#aaa', lineHeight: 1.5 }} data-detail>{r.detail}</div>}
         {r.status === 'pending' && <div style={{ fontSize: '13px', color: '#aaa' }}>Waiting for an admin to approve it — you'll get an email either way.</div>}
         {r.status === 'declined' && (
@@ -503,6 +729,9 @@ function RequestCard({ r, onCancel, onOpen }) {
           </span>
           <div style={{ flex: 1 }} />
           {r.status === 'available' && r.movieId && <Link to={`/movie/${r.movieId}`} style={{ ...PRIMARY, textDecoration: 'none' }} data-action="watch">Watch Now</Link>}
+          {tv && r.showId && (r.status === 'available' || r.tv?.ready > 0) && (
+            <Link to={`/tv/${r.showId}`} style={{ ...(r.status === 'available' ? PRIMARY : BTN), textDecoration: 'none' }} data-action="watch">{r.status === 'available' ? 'Watch Now' : "Watch What's Ready"}</Link>
+          )}
           {r.status === 'pending' && <button style={{ ...BTN, color: '#ff8080', border: '1px solid rgba(255,77,77,0.35)' }} onClick={onCancel} data-action="cancel">Cancel Request</button>}
         </div>
       </div>

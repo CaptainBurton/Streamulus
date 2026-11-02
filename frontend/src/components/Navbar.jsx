@@ -170,7 +170,7 @@ function makeCounter(event, url, pick, initial) {
 const adminCounts = makeCounter('streamulus:admin-counts', '/api/admin/stats',
   d => ({ pending: d.pendingCount || 0, feedback: d.feedbackUnread || 0, requests: d.requestsPending || 0, requestsAttention: d.requestsAttention || 0 }),
   { pending: 0, feedback: 0, requests: 0, requestsAttention: 0 });
-// Whether film requests are open to this profile (adds Requests to the menu).
+// Whether requests (films or series) are open to this profile (adds Requests to the menu).
 const requestsOpen = makeCounter('streamulus:requests-open', '/api/requests/config', d => !!d.open, false);
 const feedbackReplies = makeCounter('streamulus:feedback-replies', '/api/feedback/unread', d => d.count || 0, 0);
 

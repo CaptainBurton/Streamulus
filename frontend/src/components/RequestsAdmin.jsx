@@ -2,12 +2,17 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { noteAdminCounts } from './Navbar';
 import { StatusPill, ProgressBar, RequestStyles } from './RequestStatus';
+import TVChecklist from './TVChecklist';
+import Dropdown from './Dropdown';
+import { SeriesIcon } from './RequestIcons';
 
-// Admin › Requests: films people asked for — approve (adds it to Radarr and
-// searches) or decline (with a reason, emailed to them) — then follow them until
-// they're ready, with Search Again for ones Radarr couldn't find, or the backup:
-// paste a magnet link, which goes to Deluge and is moved into the movie library
-// when it's done. Plus the Radarr and Deluge connections and request settings.
+// Admin › Requests: films and series people asked for — approve (adds it to
+// Radarr / Sonarr and searches) or decline (with a reason, emailed to them) —
+// then follow them until they're ready (series episode by episode), with Search
+// Again for ones that weren't found, or the backup: paste a magnet link (for a
+// series: the whole series, a season or one episode), which goes to Deluge and
+// is moved into the library when it's done. Plus the Radarr, Sonarr and Deluge
+// connections and request settings.
 
 const CARD = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '24px' };
 const INPUT = { width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' };
@@ -47,6 +52,7 @@ export default function RequestsAdmin({ flash }) {
   const [filter, setFilter] = useState('pending');
   const [list, setList] = useState(null);
   const [radarrOptions, setRadarrOptions] = useState(null); // { rootFolders, qualityProfiles }
+  const [sonarrOptions, setSonarrOptions] = useState(null); // { rootFolders, qualityProfiles, languageProfiles }
 
   const loadCounts = () => axios.get('/api/admin/requests/counts').then(r => {
     setCounts(r.data);
@@ -60,6 +66,7 @@ export default function RequestsAdmin({ flash }) {
     axios.get('/api/admin/requests/settings').then(r => {
       setSettings(r.data);
       if (r.data.radarr.configured) axios.post('/api/admin/requests/settings/test', {}).then(t => setRadarrOptions(t.data)).catch(() => {});
+      if (r.data.sonarr?.configured) axios.post('/api/admin/requests/settings/sonarr-test', {}).then(t => setSonarrOptions(t.data)).catch(() => {});
     }).catch(() => {});
     loadCounts().then(c => {
       // Start where the work is.
@@ -82,9 +89,9 @@ export default function RequestsAdmin({ flash }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1100px' }} data-section="requests-admin">
       <RequestStyles />
-      {settings && !settings.radarr.configured && (
+      {settings && !settings.radarr.configured && !settings.sonarr?.configured && (
         <div style={{ padding: '14px 18px', borderRadius: '10px', background: 'rgba(255,183,3,0.08)', border: '1px solid rgba(255,183,3,0.3)', color: '#ffd166', fontSize: '14px', lineHeight: 1.6 }}>
-          Connect Radarr below to turn requests on. Until then, nobody sees the Requests page.
+          Connect Radarr (films) and/or Sonarr (series) below to turn requests on. Until then, nobody sees the Requests page.
         </div>
       )}
 
@@ -110,22 +117,31 @@ export default function RequestsAdmin({ flash }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {list.map(r => <AdminRow key={r.id} r={r} flash={flash} options={radarrOptions} settings={settings} onChanged={reload} />)}
+            {list.map(r => <AdminRow key={r.id} r={r} flash={flash} options={r.mediaType === 'tv' ? sonarrOptions : radarrOptions} settings={settings} onChanged={reload} />)}
           </div>
         )}
       </div>
 
-      {settings && <RadarrSettings settings={settings} flash={flash} options={radarrOptions}
-        onSaved={(s) => setSettings(s)} onOptions={setRadarrOptions} />}
+      {settings && <RadarrSettings settings={settings} flash={flash} options={radarrOptions} tvOptions={sonarrOptions}
+        onSaved={(s) => setSettings(s)} onOptions={setRadarrOptions} onTvOptions={setSonarrOptions} />}
     </div>
   );
 }
 
 function AdminRow({ r, flash, options, settings, onChanged }) {
+  const tv = r.mediaType === 'tv';
+  const name = r.displayTitle || r.title;
+  const arr = tv ? settings?.sonarr : settings?.radarr;
+  const app = tv ? 'Sonarr' : 'Radarr';
   const [mode, setMode] = useState(null); // 'approve' | 'decline' | 'magnet'
   const [magnet, setMagnet] = useState('');
-  const [profile, setProfile] = useState(settings?.radarr.qualityProfileId || '');
-  const [root, setRoot] = useState(settings?.radarr.rootFolder || '');
+  // A series magnet: the whole series, a season, or one episode.
+  const [scope, setScope] = useState(r.scope === 'season' ? 'season' : 'series');
+  const [mSeason, setMSeason] = useState(r.season || 1);
+  const [mEpisode, setMEpisode] = useState(1);
+  const [profile, setProfile] = useState(arr?.qualityProfileId || '');
+  const [root, setRoot] = useState(arr?.rootFolder || '');
+  const [language, setLanguage] = useState(settings?.sonarr?.languageProfileId || '');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -135,24 +151,29 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
     try { await fn(); flash(done); setMode(null); onChanged(); } catch (err) { flash(err.response?.data?.error || 'Something went wrong', true); }
     setBusy(false);
   };
-  const approve = () => run(() => axios.post(`/api/admin/requests/${r.id}/approve`, { qualityProfileId: profile || undefined, rootFolder: root || undefined }),
-    `Approved ${r.title} — added to Radarr and searching`);
-  const decline = () => run(() => axios.post(`/api/admin/requests/${r.id}/decline`, { reason }), `Declined ${r.title}`);
-  const searchAgain = () => run(() => axios.post(`/api/admin/requests/${r.id}/search`), `Searching again for ${r.title}`);
-  const checkNow = () => run(() => axios.post(`/api/admin/requests/${r.id}/refresh`), `Checked ${r.title} in ${r.manual ? 'Deluge' : 'Radarr'}`);
-  const startMagnet = () => run(async () => { await axios.post(`/api/admin/requests/${r.id}/magnet`, { magnet: magnet.trim() }); setMagnet(''); },
-    `Added ${r.title} to Deluge — it moves into the library by itself when it's done`);
+  const approve = () => run(() => axios.post(`/api/admin/requests/${r.id}/approve`, {
+    qualityProfileId: profile || undefined, rootFolder: root || undefined, ...(tv && language ? { languageProfileId: Number(language) } : {}),
+  }), `Approved ${name} — added to ${app} and searching`);
+  const decline = () => run(() => axios.post(`/api/admin/requests/${r.id}/decline`, { reason }), `Declined ${name}`);
+  const searchAgain = () => run(() => axios.post(`/api/admin/requests/${r.id}/search`), `Searching again for ${name}`);
+  const checkNow = () => run(() => axios.post(`/api/admin/requests/${r.id}/refresh`), `Checked ${name} in ${r.manual ? 'Deluge' : app}`);
+  const startMagnet = () => run(async () => {
+    await axios.post(`/api/admin/requests/${r.id}/magnet`, tv
+      ? { magnet: magnet.trim(), scope, season: scope === 'series' ? undefined : Number(mSeason), episode: scope === 'episode' ? Number(mEpisode) : undefined }
+      : { magnet: magnet.trim() });
+    setMagnet('');
+  }, `Added ${name} to Deluge — it moves into the library by itself when it's done`);
   const pasteMagnet = async () => {
     try { const text = await navigator.clipboard.readText(); if (text) setMagnet(text.trim()); } catch { /* not allowed: paste by hand */ }
   };
   const remove = () => {
     if (!confirmRemove) { setConfirmRemove(true); setTimeout(() => setConfirmRemove(false), 4000); return; }
-    run(() => axios.delete(`/api/admin/requests/${r.id}`), `Removed the request for ${r.title}`);
+    run(() => axios.delete(`/api/admin/requests/${r.id}`), `Removed the request for ${name}`);
   };
   const followed = ['searching', 'waiting_release', 'not_found', 'downloading', 'importing', 'failed', 'adding', 'missing'].includes(r.status);
 
   return (
-    <div data-admin-request={r.title} style={{ border: `1px solid ${r.needsAdmin ? 'rgba(255,140,66,0.35)' : 'rgba(255,255,255,0.07)'}`, borderRadius: '10px', background: 'rgba(255,255,255,0.02)', padding: '14px 16px' }}>
+    <div data-admin-request={name} style={{ border: `1px solid ${r.needsAdmin ? 'rgba(255,140,66,0.35)' : 'rgba(255,255,255,0.07)'}`, borderRadius: '10px', background: 'rgba(255,255,255,0.02)', padding: '14px 16px' }}>
       <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
         {r.posterUrl ? <img src={r.posterUrl} alt="" style={{ width: '46px', height: '69px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }} />
           : <div style={{ width: '46px', height: '69px', borderRadius: '6px', background: '#1c1c1e', flexShrink: 0 }} />}
@@ -160,6 +181,11 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 700, fontSize: '15px' }}>{r.title}</span>
             <span style={{ color: '#777', fontSize: '13px' }}>{r.year || ''}</span>
+            {tv && (
+              <span data-scope style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '2px 9px', borderRadius: '999px', background: 'rgba(255,255,255,0.07)', color: '#ccc', fontSize: '11px', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                <SeriesIcon size={10} /> {r.scope === 'season' ? `Season ${r.season}` : 'Entire series'}
+              </span>
+            )}
             <StatusPill status={r.status} label={r.label} />
             {r.needsAdmin && <span style={{ fontSize: '11px', fontWeight: 700, color: '#ff8c42' }}>NEEDS YOU</span>}
           </div>
@@ -168,7 +194,9 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
             {r.decidedBy && ` · ${r.status === 'declined' ? 'declined' : 'approved'} by ${r.decidedBy}`}
           </div>
           {r.note && <div style={{ fontSize: '13px', color: '#bbb', fontStyle: 'italic' }}>“{r.note}”</div>}
-          {r.status === 'downloading' && (
+          {tv && r.tv?.seasons?.length > 0 && <div style={{ maxWidth: '640px' }}><TVChecklist tv={r.tv} scope={r.scope} compact /></div>}
+          {tv && r.downloads?.length > 0 && <MagnetDownloads list={r.downloads} />}
+          {!tv && r.status === 'downloading' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '420px' }}>
               <div style={{ flex: 1 }}><ProgressBar status={r.status} progress={r.progress} /></div>
               <span style={{ fontSize: '12px', color: '#00c2ff', fontWeight: 700 }}>{Math.round((r.progress || 0) * 100)}%</span>
@@ -197,11 +225,11 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
             </button>
           )}
           {['not_found', 'failed', 'missing', 'searching', 'waiting_release'].includes(r.status) && (
-            <button style={BTN} disabled={busy} onClick={searchAgain} data-action="search-again" title={r.manual ? 'Hand it back to Radarr to find' : 'Ask Radarr to search again'}>Search Again</button>
+            <button style={BTN} disabled={busy} onClick={searchAgain} data-action="search-again" title={r.manual || r.downloads?.length ? `Hand it back to ${app} to find` : `Ask ${app} to search again`}>Search Again</button>
           )}
           {followed && <button style={BTN} disabled={busy} onClick={checkNow}>Check Now</button>}
           <button style={{ ...DANGER, ...(confirmRemove ? { background: '#ff4444', color: '#fff', border: '1px solid #ff4444' } : {}) }} disabled={busy} onClick={remove}
-            title={r.manual && ['downloading', 'failed'].includes(r.status) ? 'Removes the request, and its unfinished download in Deluge' : 'Removes the request from Streamulus (Radarr keeps the film)'}>
+            title={(r.manual || r.downloads?.length) && ['downloading', 'failed'].includes(r.status) ? 'Removes the request, and its unfinished downloads in Deluge' : `Removes the request from Streamulus (${app} keeps it)`}>
             {confirmRemove ? 'Click to remove' : 'Remove'}
           </button>
         </div>
@@ -210,7 +238,7 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
       {mode === 'approve' && (
         <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 200px' }}>
-            <label style={LABEL}>Quality profile</label>
+            <label style={LABEL}>Quality profile · {app}</label>
             <select style={SELECT} value={profile} onChange={e => setProfile(e.target.value)} aria-label="Quality profile">
               {(options?.qualityProfiles || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               {!options && <option value={profile}>Default</option>}
@@ -223,14 +251,25 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
               {!options && <option value={root}>{root || 'Default'}</option>}
             </select>
           </div>
+          {tv && options?.languageProfiles?.length > 0 && (
+            <div style={{ flex: '1 1 160px' }}>
+              <label style={LABEL}>Language profile</label>
+              <select style={SELECT} value={language} onChange={e => setLanguage(e.target.value)} aria-label="Language profile">
+                {options.languageProfiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
           <button style={PRIMARY} disabled={busy} onClick={approve} data-action="confirm-approve">{busy ? 'Approving…' : 'Approve & Download'}</button>
           <button style={BTN} disabled={busy} onClick={() => setMode(null)}>Cancel</button>
-          <div style={{ flexBasis: '100%', fontSize: '12px', color: '#666' }}>Everyone who asked for it gets an email that it's approved.</div>
+          <div style={{ flexBasis: '100%', fontSize: '12px', color: '#666' }}>
+            {tv ? `${app} monitors ${r.scope === 'season' ? `season ${r.season}` : 'every season'} and searches. ` : ''}Everyone who asked for it gets an email that it's approved.
+          </div>
         </div>
       )}
       {mode === 'magnet' && (
         <MagnetPanel r={r} settings={settings} magnet={magnet} setMagnet={setMagnet} busy={busy} onPaste={pasteMagnet}
-          onStart={startMagnet} onCancel={() => setMode(null)} />
+          onStart={startMagnet} onCancel={() => setMode(null)}
+          scope={scope} setScope={setScope} season={mSeason} setSeason={setMSeason} episode={mEpisode} setEpisode={setMEpisode} />
       )}
       {mode === 'decline' && (
         <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -256,21 +295,56 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
 
 // Paste a magnet link: it's added to Deluge, followed like any download, and the
 // film moved into the movie library (named by the naming format) when it's done.
-function MagnetPanel({ r, settings, magnet, setMagnet, busy, onPaste, onStart, onCancel }) {
+function MagnetPanel({ r, settings, magnet, setMagnet, busy, onPaste, onStart, onCancel, scope, setScope, season, setSeason, episode, setEpisode }) {
+  const tv = r.mediaType === 'tv';
   const delugeReady = !!settings?.deluge?.configured;
   const valid = isMagnet(magnet);
   const typed = magnet.trim().length > 0;
   const undecided = ['pending', 'declined'].includes(r.status);
   const radarrBusy = r.radarrId && !r.manual && ['downloading', 'searching'].includes(r.status);
-  const steps = [
+  // A series: its seasons and episodes to choose from (the checklist, else the series page).
+  const [seasons, setSeasons] = useState(() => (r.tv?.seasons || []).map(x => ({ season: x.season, episodes: x.episodes.map(e => ({ episode: e.episode, title: e.title })) })));
+  useEffect(() => {
+    if (!tv || seasons.length) return;
+    axios.get(`/api/requests/show/${r.tmdbId}`).then(res => setSeasons(res.data.show.seasons
+      .filter(x => r.scope !== 'season' || x.season === r.season)
+      .map(x => ({ season: x.season, episodes: Array.from({ length: x.episodeCount || 0 }, (_, i) => ({ episode: i + 1, title: null })) })))).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const pickable = r.scope === 'season' ? seasons.filter(x => x.season === r.season) : seasons;
+  const epList = (seasons.find(x => x.season === Number(season))?.episodes) || [];
+  const who = r.requesters.map(p => p.username).join(', ') || 'Whoever asked';
+  const part = scope === 'series' ? 'the series' : scope === 'season' ? `season ${season}` : `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
+  const steps = tv ? [
+    'Added to your Deluge',
+    r.sonarrId ? `Sonarr's downloads of ${part} are cancelled, and it stops looking for ${scope === 'episode' ? 'that episode' : 'it'}` : null,
+    `When it's done, ${scope === 'episode' ? 'the episode' : 'each episode'} (and its subtitles) is moved into “${r.title}${r.year ? ` (${r.year})` : ''}/${scope === 'series' ? 'Season …' : `Season ${season}`}”, named by your episode format, and added to Streamulus`,
+    undecided ? `${who} is emailed that it's approved now, and again when it's all ready` : `${who} can follow it episode by episode in Requests`,
+  ].filter(Boolean) : [
     'Added to your Deluge',
     radarrBusy ? "Radarr's own download of it is cancelled, and Radarr stops looking" : r.radarrId ? 'Radarr stops looking for it, so there\'s no second copy' : null,
     `When it's done, the film (and any subtitles) is moved into your movies folder as “${r.title}${r.year ? ` (${r.year})` : ''}” and added to Streamulus`,
-    undecided ? `${r.requesters.map(p => p.username).join(', ') || 'Whoever asked'} is emailed that it's approved now, and again when it's ready` : `${r.requesters.map(p => p.username).join(', ') || 'Whoever asked'} can follow it in Requests and is emailed when it's ready`,
+    undecided ? `${who} is emailed that it's approved now, and again when it's ready` : `${who} can follow it in Requests and is emailed when it's ready`,
   ].filter(Boolean);
+  const scopes = r.scope === 'season'
+    ? [{ value: 'season', label: `All of season ${r.season}` }, { value: 'episode', label: 'One episode' }]
+    : [{ value: 'series', label: 'The whole series' }, { value: 'season', label: 'One season' }, { value: 'episode', label: 'One episode' }];
   return (
     <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)' }} data-panel="magnet">
-      <label style={LABEL} htmlFor={`magnet-${r.id}`}>Magnet link for {r.title}{r.year ? ` (${r.year})` : ''}</label>
+      {tv && (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }} data-magnet-scope>
+          <span style={{ ...LABEL, margin: 0 }}>This magnet link is for</span>
+          <Dropdown name="magnet-scope" ariaLabel="Magnet link is for" label="The whole series" value={scope} onChange={setScope} options={scopes} menuWidth={200} />
+          {scope !== 'series' && r.scope !== 'season' && (
+            <Dropdown name="magnet-season" ariaLabel="Season" label="Season" value={String(season)} onChange={(v) => { setSeason(Number(v)); setEpisode(1); }} menuWidth={160}
+              options={pickable.map(x => ({ value: String(x.season), label: `Season ${x.season}` }))} />
+          )}
+          {scope === 'episode' && (
+            <Dropdown name="magnet-episode" ariaLabel="Episode" label="Episode" value={String(episode)} onChange={(v) => setEpisode(Number(v))} menuWidth={280}
+              options={epList.map(e => ({ value: String(e.episode), label: `Episode ${e.episode}${e.title ? ` — ${e.title}` : ''}` }))} />
+          )}
+        </div>
+      )}
+      <label style={LABEL} htmlFor={`magnet-${r.id}`}>Magnet link for {tv ? `${r.title} — ${part}` : `${r.title}${r.year ? ` (${r.year})` : ''}`}</label>
       {!delugeReady && (
         <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,183,3,0.08)', border: '1px solid rgba(255,183,3,0.3)', color: '#ffd166', fontSize: '13px', marginBottom: '10px' }}>
           Connect Deluge first (Deluge section below) — the magnet link is downloaded there.
@@ -297,7 +371,35 @@ function MagnetPanel({ r, settings, magnet, setMagnet, busy, onPaste, onStart, o
   );
 }
 
-function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
+// A series request's magnet downloads: what each is, how it's getting on.
+function MagnetDownloads({ list }) {
+  const label = (d) => (d.scope === 'series' ? 'Whole series' : d.scope === 'season' ? `Season ${d.season}` : `S${String(d.season).padStart(2, '0')}E${String(d.episode).padStart(2, '0')}`);
+  return (
+    <div data-downloads style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '640px' }}>
+      {list.map(d => (
+        <div key={d.id} data-download={d.status} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderRadius: '8px', fontSize: '12px',
+          background: d.status === 'failed' ? 'rgba(255,107,107,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${d.status === 'failed' ? 'rgba(255,107,107,0.3)' : 'rgba(255,255,255,0.06)'}` }}>
+          <span style={{ color: '#c58cff', display: 'inline-flex' }}><MagnetIcon size={13} /></span>
+          <span style={{ fontWeight: 700, color: '#ddd', whiteSpace: 'nowrap' }}>{label(d)}</span>
+          <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <span style={{ color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name || 'Magnet link'} · added by {d.by}</span>
+            <span style={{ color: d.status === 'failed' ? '#ff9a9a' : d.status === 'done' ? '#7fe0a8' : '#bbb' }}>{d.status === 'done' ? '✓ ' : ''}{d.detail}</span>
+          </span>
+          {d.status === 'downloading' && (
+            <span style={{ width: '110px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ flex: 1, height: '4px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                <span style={{ display: 'block', width: `${Math.round((d.progress || 0) * 100)}%`, height: '100%', background: '#00c2ff', transition: 'width 0.8s' }} />
+              </span>
+              <span style={{ color: '#00c2ff', fontWeight: 700 }}>{Math.round((d.progress || 0) * 100)}%</span>
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RadarrSettings({ settings, flash, options, tvOptions, onSaved, onOptions, onTvOptions }) {
   const [form, setForm] = useState({
     url: settings.radarr.url || '', apiKey: '', rootFolder: settings.radarr.rootFolder || '',
     qualityProfileId: settings.radarr.qualityProfileId || '', minimumAvailability: settings.radarr.minimumAvailability || 'released',
@@ -305,7 +407,11 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
     refreshSeconds: settings.refreshSeconds || 2,
     delugeUrl: settings.deluge?.url || '', delugePassword: '',
     delugeRemotePath: settings.deluge?.remotePath || '', delugeLocalPath: settings.deluge?.localPath || '',
+    sonarrUrl: settings.sonarr?.url || '', sonarrApiKey: '', sonarrRootFolder: settings.sonarr?.rootFolder || '',
+    sonarrQualityProfileId: settings.sonarr?.qualityProfileId || '', sonarrLanguageProfileId: settings.sonarr?.languageProfileId || '',
+    seriesLimit: settings.seriesLimit || 3, seasonLimit: settings.seasonLimit || 5,
   });
+  const [sonarrTested, setSonarrTested] = useState(null);
   const [delugeOk, setDelugeOk] = useState(null); // torrent count after a good test
   const [folder, setFolder] = useState(null); // { downloadFolder, localFolder, visible } after a test
   const [busy, setBusy] = useState('');
@@ -330,6 +436,25 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
     }
     setBusy('');
   };
+  const testSonarr = async () => {
+    setBusy('sonarr');
+    try {
+      const r = await axios.post('/api/admin/requests/settings/sonarr-test', { url: form.sonarrUrl, apiKey: form.sonarrApiKey || undefined });
+      onTvOptions(r.data);
+      setSonarrTested(r.data.version);
+      setForm(f => ({
+        ...f,
+        sonarrRootFolder: f.sonarrRootFolder || r.data.rootFolders[0]?.path || '',
+        sonarrQualityProfileId: f.sonarrQualityProfileId || r.data.qualityProfiles[0]?.id || '',
+        sonarrLanguageProfileId: f.sonarrLanguageProfileId || r.data.languageProfiles[0]?.id || '',
+      }));
+      flash(`Connected to Sonarr ${r.data.version || ''} — choose a root folder and quality profile, then Save`);
+    } catch (err) {
+      setSonarrTested(null);
+      flash(err.response?.data?.error || "Couldn't connect to Sonarr", true);
+    }
+    setBusy('');
+  };
   const testDeluge = async () => {
     setBusy('deluge');
     try {
@@ -349,13 +474,17 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
   const save = async () => {
     setBusy('save');
     try {
-      const body = { ...form, qualityProfileId: form.qualityProfileId ? Number(form.qualityProfileId) : '', refreshSeconds: Number(form.refreshSeconds) };
+      const body = {
+        ...form, qualityProfileId: form.qualityProfileId ? Number(form.qualityProfileId) : '', refreshSeconds: Number(form.refreshSeconds),
+        sonarrQualityProfileId: form.sonarrQualityProfileId ? Number(form.sonarrQualityProfileId) : '', sonarrLanguageProfileId: form.sonarrLanguageProfileId ? Number(form.sonarrLanguageProfileId) : '',
+      };
       if (!body.apiKey) delete body.apiKey;
+      if (!body.sonarrApiKey) delete body.sonarrApiKey;
       if (!body.delugePassword) delete body.delugePassword;
       const r = await axios.put('/api/admin/requests/settings', body);
       onSaved(r.data);
-      setForm(f => ({ ...f, apiKey: '', delugePassword: '' }));
-      flash(r.data.open ? 'Saved — requests are open' : 'Saved');
+      setForm(f => ({ ...f, apiKey: '', delugePassword: '', sonarrApiKey: '' }));
+      flash(r.data.open || r.data.tvOpen ? 'Saved — requests are open' : 'Saved');
     } catch (err) { flash(err.response?.data?.error || "Couldn't save", true); }
     setBusy('');
   };
@@ -367,7 +496,7 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
         <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>Radarr</h3>
         <span style={{ padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase',
           color: settings.open ? '#00c864' : '#ffb703', border: `1px solid ${settings.open ? '#00c86455' : '#ffb70355'}` }}>
-          {settings.open ? 'Requests open' : settings.radarr.configured ? 'Requests turned off' : 'Not connected'}
+          {settings.open ? 'Film requests open' : settings.radarr.configured ? 'Requests turned off' : 'Not connected'}
         </span>
       </div>
       <p style={{ color: '#777', fontSize: '14px', margin: '0 0 18px', lineHeight: 1.6 }}>
@@ -413,6 +542,59 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
             <option value="inCinemas">In cinemas</option>
             <option value="released">Released on digital / disc (recommended)</option>
           </select>
+        </div>
+      </div>
+
+      <div data-section="sonarr" style={{ marginTop: '26px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', flexWrap: 'wrap' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0, display: 'inline-flex', alignItems: 'center', gap: '8px' }}><SeriesIcon size={14} /> Sonarr</h3>
+          <span style={{ padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase',
+            color: settings.tvOpen ? '#00c864' : '#ffb703', border: `1px solid ${settings.tvOpen ? '#00c86455' : '#ffb70355'}` }}>
+            {settings.tvOpen ? 'Series requests open' : settings.sonarr?.configured ? 'Requests turned off' : 'Not connected'}
+          </span>
+        </div>
+        <p style={{ color: '#777', fontSize: '14px', margin: '0 0 18px', lineHeight: 1.6 }}>
+          Series requests go to Sonarr: the whole series, or a single season of a show that's already on Streamulus. Sonarr downloads them episode by
+          episode, and everyone can follow each episode on the Requests page.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '16px' }}>
+          <div>
+            <label style={LABEL} htmlFor="sonarr-url">Sonarr address</label>
+            <input id="sonarr-url" style={INPUT} value={form.sonarrUrl} onChange={set('sonarrUrl')} placeholder="http://192.168.1.20:8989" />
+          </div>
+          <div>
+            <label style={LABEL} htmlFor="sonarr-key">API key</label>
+            <input id="sonarr-key" style={INPUT} type="password" value={form.sonarrApiKey} onChange={set('sonarrApiKey')} autoComplete="off"
+              placeholder={settings.sonarr?.apiKeySet ? '•••••••••••••••• (saved — type to replace)' : 'Sonarr › Settings › General › API Key'} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
+          <button style={BTN} onClick={testSonarr} disabled={!!busy || !form.sonarrUrl} data-action="test-sonarr">{busy === 'sonarr' ? 'Connecting…' : 'Test Sonarr'}</button>
+          {sonarrTested && <span style={{ fontSize: '13px', color: '#00c864' }}>✓ Sonarr {sonarrTested}</span>}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '16px', marginTop: '18px' }}>
+          <div>
+            <label style={LABEL} htmlFor="sonarr-root">Root folder</label>
+            <select id="sonarr-root" style={SELECT} value={form.sonarrRootFolder} onChange={set('sonarrRootFolder')}>
+              {!tvOptions && <option value={form.sonarrRootFolder}>{form.sonarrRootFolder || 'Test the connection to choose'}</option>}
+              {(tvOptions?.rootFolders || []).map(f => <option key={f.path} value={f.path}>{f.path}{gb(f.freeSpace)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={LABEL} htmlFor="sonarr-profile">Quality profile</label>
+            <select id="sonarr-profile" style={SELECT} value={form.sonarrQualityProfileId} onChange={set('sonarrQualityProfileId')}>
+              {!tvOptions && <option value={form.sonarrQualityProfileId}>{form.sonarrQualityProfileId ? `Profile ${form.sonarrQualityProfileId}` : 'Test the connection to choose'}</option>}
+              {(tvOptions?.qualityProfiles || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          {tvOptions?.languageProfiles?.length > 0 && (
+            <div>
+              <label style={LABEL} htmlFor="sonarr-language">Language profile (Sonarr 3)</label>
+              <select id="sonarr-language" style={SELECT} value={form.sonarrLanguageProfileId} onChange={set('sonarrLanguageProfileId')}>
+                {tvOptions.languageProfiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -486,11 +668,15 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
             <option value="30">30 seconds</option>
           </select>
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#ccc' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#ccc', flexWrap: 'wrap' }} data-section="limits">
           Each person can have up to
-          <input type="number" min="1" max="100" value={form.limit} onChange={set('limit')} style={{ ...INPUT, width: '80px', padding: '7px 10px' }} aria-label="Request limit" />
-          requests on the go at once
-        </label>
+          <input type="number" min="1" max="100" value={form.limit} onChange={set('limit')} style={{ ...INPUT, width: '70px', padding: '7px 10px' }} aria-label="Request limit" />
+          films,
+          <input type="number" min="1" max="100" value={form.seriesLimit} onChange={set('seriesLimit')} style={{ ...INPUT, width: '70px', padding: '7px 10px' }} aria-label="Series limit" />
+          whole series and
+          <input type="number" min="1" max="100" value={form.seasonLimit} onChange={set('seasonLimit')} style={{ ...INPUT, width: '70px', padding: '7px 10px' }} aria-label="Season limit" />
+          single seasons on the go at once
+        </div>
       </div>
       <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
         <button style={PRIMARY} onClick={save} disabled={!!busy} data-action="save-radarr">{busy === 'save' ? 'Saving…' : 'Save'}</button>
