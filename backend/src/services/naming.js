@@ -305,4 +305,32 @@ function parseMovie(libraryRoot, filePath, cfg = getConfig()) {
   return fromFile.title ? fromFile : null;
 }
 
-module.exports = { DEFAULTS, getConfig, compileFormat, parseEpisode, parseMovie, isExtrasFolder, idsFrom };
+// A folder or file name for a film from a naming format, e.g. "{Movie Title}
+// ({Release Year})" → "Dune (2021)". Tokens Streamulus doesn't know (quality,
+// release group…) are left out, along with brackets they leave empty. Characters
+// that aren't allowed in file names are replaced, as Radarr does.
+function renderMovieName(format, { title, year, tmdbId, imdbId } = {}) {
+  const theLast = (t) => { const m = String(t).match(/^(the|a|an)\s+(.+)$/i); return m ? `${m[2]}, ${m[1]}` : String(t); };
+  const cleanTitle = (t) => String(t).replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+  let out = String(format || DEFAULTS.naming_movie_file).replace(/\{([^{}]+)\}/g, (_, token) => {
+    const t = token.toLowerCase().replace(/[\s_.-]+/g, '');
+    const base = /clean/.test(t) ? cleanTitle(title || '') : /the$|theyear$/.test(t) ? theLast(title || '') : String(title || '');
+    if (/^moviecleantitle(the)?year$|^movie(original)?title(the)?year$/.test(t)) return year ? `${base} (${year})` : base;
+    if (/^moviecleantitle(the)?$|^movie(original)?title(the)?$/.test(t)) return base;
+    if (/^(release)?year$/.test(t)) return year ? String(year) : '';
+    if (t === 'tmdbid') return tmdbId ? String(tmdbId) : '';
+    if (t === 'imdbid') return imdbId || '';
+    return '';
+  });
+  out = out
+    .replace(/[[{(]\s*(?:tmdb|imdb|tvdb)(?:id)?[-=]?\s*[\]})]/gi, '') // {tmdb-} with no id
+    .replace(/\(\s*\)|\[\s*\]|\{\s*\}/g, '')
+    .replace(/:\s+/g, ' - ').replace(/:/g, '-')
+    .replace(/[<>"/\\|?*\u0000-\u001f]/g, '')
+    .replace(/\s+-\s+-\s+/g, ' - ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s.-]+|[\s.-]+$/g, '');
+  return out || cleanTitle(title || 'Movie') || 'Movie';
+}
+
+module.exports = { DEFAULTS, getConfig, compileFormat, parseEpisode, parseMovie, isExtrasFolder, idsFrom, renderMovieName };

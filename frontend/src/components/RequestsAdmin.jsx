@@ -5,8 +5,9 @@ import { StatusPill, ProgressBar, RequestStyles } from './RequestStatus';
 
 // Admin › Requests: films people asked for — approve (adds it to Radarr and
 // searches) or decline (with a reason, emailed to them) — then follow them until
-// they're ready, with Search Again for ones Radarr couldn't find. Plus the Radarr
-// connection and request settings.
+// they're ready, with Search Again for ones Radarr couldn't find, or the backup:
+// paste a magnet link, which goes to Deluge and is moved into the movie library
+// when it's done. Plus the Radarr and Deluge connections and request settings.
 
 const CARD = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '24px' };
 const INPUT = { width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' };
@@ -24,6 +25,18 @@ const DECLINE_NOTES = [
   'Not suitable for this server',
   "We've got too many requests right now — try again later",
 ];
+
+// Statuses a magnet link can be used for (not while it's being moved in, or once it's ready).
+const MAGNET_OK = ['pending', 'declined', 'searching', 'waiting_release', 'not_found', 'failed', 'missing', 'downloading'];
+const isMagnet = (v) => /^magnet:\?.*xt=urn:btih:[a-z0-9]{32,40}/i.test(String(v || '').trim());
+
+// A horseshoe magnet: two pole tips over the U.
+const MagnetIcon = ({ size = 15 }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
+    <path d="M4 2.5h5.2v3.6H4zM14.8 2.5H20v3.6h-5.2z" />
+    <path d="M4 7.6h5.2v3.6a2.8 2.8 0 0 0 5.6 0V7.6H20v3.6a8 8 0 0 1-16 0z" />
+  </svg>
+);
 
 const FILTERS = [['pending', 'Waiting'], ['attention', 'Needs attention'], ['active', 'In progress'], ['available', 'Ready'], ['declined', 'Declined'], ['all', 'All']];
 const when = (ms) => (ms ? new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
@@ -109,7 +122,8 @@ export default function RequestsAdmin({ flash }) {
 }
 
 function AdminRow({ r, flash, options, settings, onChanged }) {
-  const [mode, setMode] = useState(null); // 'approve' | 'decline'
+  const [mode, setMode] = useState(null); // 'approve' | 'decline' | 'magnet'
+  const [magnet, setMagnet] = useState('');
   const [profile, setProfile] = useState(settings?.radarr.qualityProfileId || '');
   const [root, setRoot] = useState(settings?.radarr.rootFolder || '');
   const [reason, setReason] = useState('');
@@ -125,7 +139,12 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
     `Approved ${r.title} — added to Radarr and searching`);
   const decline = () => run(() => axios.post(`/api/admin/requests/${r.id}/decline`, { reason }), `Declined ${r.title}`);
   const searchAgain = () => run(() => axios.post(`/api/admin/requests/${r.id}/search`), `Searching again for ${r.title}`);
-  const checkNow = () => run(() => axios.post(`/api/admin/requests/${r.id}/refresh`), `Checked ${r.title} in Radarr`);
+  const checkNow = () => run(() => axios.post(`/api/admin/requests/${r.id}/refresh`), `Checked ${r.title} in ${r.manual ? 'Deluge' : 'Radarr'}`);
+  const startMagnet = () => run(async () => { await axios.post(`/api/admin/requests/${r.id}/magnet`, { magnet: magnet.trim() }); setMagnet(''); },
+    `Added ${r.title} to Deluge — it moves into the library by itself when it's done`);
+  const pasteMagnet = async () => {
+    try { const text = await navigator.clipboard.readText(); if (text) setMagnet(text.trim()); } catch { /* not allowed: paste by hand */ }
+  };
   const remove = () => {
     if (!confirmRemove) { setConfirmRemove(true); setTimeout(() => setConfirmRemove(false), 4000); return; }
     run(() => axios.delete(`/api/admin/requests/${r.id}`), `Removed the request for ${r.title}`);
@@ -156,6 +175,14 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
             </div>
           )}
           {r.detail && <div style={{ fontSize: '13px', color: r.needsAdmin ? '#ffb38a' : '#999' }}>{r.detail}</div>}
+          {r.manual && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#8a8a94', minWidth: 0 }} data-manual>
+              <span style={{ color: '#c58cff', display: 'inline-flex' }}><MagnetIcon size={13} /></span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Magnet link{r.manual.name ? <> · <span style={{ color: '#bbb' }}>{r.manual.name}</span></> : ''} · added by {r.manual.by} {when(r.manual.at)}
+              </span>
+            </div>
+          )}
           {r.declineReason && <div style={{ fontSize: '13px', color: '#ff9a9a' }}>Note to them: “{r.declineReason}”</div>}
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -163,11 +190,18 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
             <button style={PRIMARY} disabled={busy} onClick={() => setMode('approve')} data-action="approve">Approve</button>
           )}
           {r.status === 'pending' && !mode && <button style={DANGER} disabled={busy} onClick={() => setMode('decline')} data-action="decline">Decline</button>}
+          {MAGNET_OK.includes(r.status) && mode !== 'magnet' && (
+            <button style={{ ...(r.needsAdmin ? PRIMARY : BTN), display: 'inline-flex', alignItems: 'center', gap: '6px' }} disabled={busy} onClick={() => setMode('magnet')} data-action="magnet"
+              title="Radarr can't find it? Paste a magnet link — it's downloaded in Deluge and moved into the library">
+              <MagnetIcon /> {r.manual && r.status === 'downloading' ? 'Replace Magnet' : 'Magnet Link'}
+            </button>
+          )}
           {['not_found', 'failed', 'missing', 'searching', 'waiting_release'].includes(r.status) && (
-            <button style={r.needsAdmin ? PRIMARY : BTN} disabled={busy} onClick={searchAgain} data-action="search-again">Search Again</button>
+            <button style={BTN} disabled={busy} onClick={searchAgain} data-action="search-again" title={r.manual ? 'Hand it back to Radarr to find' : 'Ask Radarr to search again'}>Search Again</button>
           )}
           {followed && <button style={BTN} disabled={busy} onClick={checkNow}>Check Now</button>}
-          <button style={{ ...DANGER, ...(confirmRemove ? { background: '#ff4444', color: '#fff', border: '1px solid #ff4444' } : {}) }} disabled={busy} onClick={remove} title="Removes the request from Streamulus (Radarr keeps the film)">
+          <button style={{ ...DANGER, ...(confirmRemove ? { background: '#ff4444', color: '#fff', border: '1px solid #ff4444' } : {}) }} disabled={busy} onClick={remove}
+            title={r.manual && ['downloading', 'failed'].includes(r.status) ? 'Removes the request, and its unfinished download in Deluge' : 'Removes the request from Streamulus (Radarr keeps the film)'}>
             {confirmRemove ? 'Click to remove' : 'Remove'}
           </button>
         </div>
@@ -194,6 +228,10 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
           <div style={{ flexBasis: '100%', fontSize: '12px', color: '#666' }}>Everyone who asked for it gets an email that it's approved.</div>
         </div>
       )}
+      {mode === 'magnet' && (
+        <MagnetPanel r={r} settings={settings} magnet={magnet} setMagnet={setMagnet} busy={busy} onPaste={pasteMagnet}
+          onStart={startMagnet} onCancel={() => setMode(null)} />
+      )}
       {mode === 'decline' && (
         <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 100%' }}>
@@ -216,6 +254,49 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
   );
 }
 
+// Paste a magnet link: it's added to Deluge, followed like any download, and the
+// film moved into the movie library (named by the naming format) when it's done.
+function MagnetPanel({ r, settings, magnet, setMagnet, busy, onPaste, onStart, onCancel }) {
+  const delugeReady = !!settings?.deluge?.configured;
+  const valid = isMagnet(magnet);
+  const typed = magnet.trim().length > 0;
+  const undecided = ['pending', 'declined'].includes(r.status);
+  const radarrBusy = r.radarrId && !r.manual && ['downloading', 'searching'].includes(r.status);
+  const steps = [
+    'Added to your Deluge',
+    radarrBusy ? "Radarr's own download of it is cancelled, and Radarr stops looking" : r.radarrId ? 'Radarr stops looking for it, so there\'s no second copy' : null,
+    `When it's done, the film (and any subtitles) is moved into your movies folder as “${r.title}${r.year ? ` (${r.year})` : ''}” and added to Streamulus`,
+    undecided ? `${r.requesters.map(p => p.username).join(', ') || 'Whoever asked'} is emailed that it's approved now, and again when it's ready` : `${r.requesters.map(p => p.username).join(', ') || 'Whoever asked'} can follow it in Requests and is emailed when it's ready`,
+  ].filter(Boolean);
+  return (
+    <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)' }} data-panel="magnet">
+      <label style={LABEL} htmlFor={`magnet-${r.id}`}>Magnet link for {r.title}{r.year ? ` (${r.year})` : ''}</label>
+      {!delugeReady && (
+        <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,183,3,0.08)', border: '1px solid rgba(255,183,3,0.3)', color: '#ffd166', fontSize: '13px', marginBottom: '10px' }}>
+          Connect Deluge first (Deluge section below) — the magnet link is downloaded there.
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+        <textarea id={`magnet-${r.id}`} value={magnet} onChange={e => setMagnet(e.target.value)} rows={2} spellCheck={false} aria-label="Magnet link"
+          placeholder="magnet:?xt=urn:btih:…" disabled={!delugeReady}
+          style={{ ...INPUT, flex: 1, resize: 'vertical', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '12.5px', lineHeight: 1.5, wordBreak: 'break-all',
+            ...(typed && !valid ? { border: '1px solid rgba(255,107,107,0.6)' } : valid ? { border: '1px solid rgba(0,194,255,0.6)' } : {}) }} />
+        <button type="button" style={{ ...BTN, alignSelf: 'flex-start' }} onClick={onPaste} disabled={!delugeReady || busy}>Paste</button>
+      </div>
+      {typed && !valid && <div style={{ fontSize: '12px', color: '#ff8a8a', marginTop: '6px' }}>That doesn't look like a magnet link — it should start with magnet:?xt=urn:btih:</div>}
+      <ul style={{ margin: '12px 0 14px', paddingLeft: '18px', color: '#8a8a94', fontSize: '12.5px', lineHeight: 1.7 }}>
+        {steps.map(s => <li key={s}>{s}</li>)}
+      </ul>
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <button style={{ ...PRIMARY, display: 'inline-flex', alignItems: 'center', gap: '7px' }} disabled={busy || !valid || !delugeReady} onClick={onStart} data-action="start-magnet">
+          <MagnetIcon /> {busy ? 'Adding…' : undecided ? 'Approve & Download' : 'Download in Deluge'}
+        </button>
+        <button style={BTN} disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
   const [form, setForm] = useState({
     url: settings.radarr.url || '', apiKey: '', rootFolder: settings.radarr.rootFolder || '',
@@ -223,8 +304,10 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
     enabled: settings.enabled, limit: settings.limit, notifyAdmins: settings.notifyAdmins,
     refreshSeconds: settings.refreshSeconds || 2,
     delugeUrl: settings.deluge?.url || '', delugePassword: '',
+    delugeRemotePath: settings.deluge?.remotePath || '', delugeLocalPath: settings.deluge?.localPath || '',
   });
   const [delugeOk, setDelugeOk] = useState(null); // torrent count after a good test
+  const [folder, setFolder] = useState(null); // { downloadFolder, localFolder, visible } after a test
   const [busy, setBusy] = useState('');
   const [tested, setTested] = useState(null); // version string after a good test
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
@@ -250,11 +333,15 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
   const testDeluge = async () => {
     setBusy('deluge');
     try {
-      const r = await axios.post('/api/admin/requests/settings/deluge-test', { url: form.delugeUrl, password: form.delugePassword || undefined });
+      const r = await axios.post('/api/admin/requests/settings/deluge-test', {
+        url: form.delugeUrl, password: form.delugePassword || undefined, remotePath: form.delugeRemotePath, localPath: form.delugeLocalPath,
+      });
       setDelugeOk(r.data.torrents);
-      flash(`Connected to Deluge (${r.data.torrents} torrent${r.data.torrents === 1 ? '' : 's'}) — press Save to use it`);
+      setFolder(r.data);
+      flash(`Connected to Deluge (${r.data.torrents} torrent${r.data.torrents === 1 ? '' : 's'})${r.data.downloadFolder && !r.data.visible ? " — but Streamulus can't see its download folder yet (see below)" : ''} — press Save to use it`, r.data.downloadFolder && !r.data.visible);
     } catch (err) {
       setDelugeOk(null);
+      setFolder(null);
       flash(err.response?.data?.error || "Couldn't connect to Deluge", true);
     }
     setBusy('');
@@ -329,10 +416,11 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
         </div>
       </div>
 
-      <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', margin: '22px 0 6px' }}>Deluge · live download progress (optional)</div>
+      <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', margin: '22px 0 6px' }}>Deluge · live progress and magnet links (optional)</div>
       <p style={{ color: '#666', fontSize: '13px', margin: '0 0 12px', lineHeight: 1.6 }}>
-        Radarr only checks on downloads about once a minute, so its percentage and time left lag behind. With Deluge connected, progress,
-        speed and time left come straight from Deluge instead.
+        With Deluge connected, download progress, speed and time left come straight from Deluge (Radarr's lag by about a minute), and when
+        Radarr can't find a film you can paste a magnet link on its request instead — it downloads in Deluge and is moved into your movies
+        folder when it's done.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '16px' }}>
         <div>
@@ -349,6 +437,29 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
         <button style={BTN} onClick={testDeluge} disabled={!!busy || !form.delugeUrl} data-action="test-deluge">{busy === 'deluge' ? 'Connecting…' : 'Test Deluge'}</button>
         {delugeOk != null && <span style={{ fontSize: '13px', color: '#00c864' }}>✓ Connected · {delugeOk} torrent{delugeOk === 1 ? '' : 's'}</span>}
         {settings.deluge?.error && delugeOk == null && <span style={{ fontSize: '13px', color: '#ffb38a' }}>{settings.deluge.error}</span>}
+      </div>
+      {folder?.downloadFolder && (
+        <div style={{ marginTop: '12px', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', lineHeight: 1.6,
+          background: folder.visible ? 'rgba(0,200,100,0.07)' : 'rgba(255,140,66,0.08)', border: `1px solid ${folder.visible ? 'rgba(0,200,100,0.25)' : 'rgba(255,140,66,0.3)'}`,
+          color: folder.visible ? '#7fe0a8' : '#ffb38a' }} data-folder-check>
+          Deluge saves downloads to <code style={{ color: '#fff' }}>{folder.downloadFolder}</code>.{' '}
+          {folder.visible
+            ? <>✓ Streamulus can see it{folder.localFolder !== folder.downloadFolder ? <> (at <code style={{ color: '#fff' }}>{folder.localFolder}</code>)</> : ''} — finished magnet downloads are moved into your movies folder from there.</>
+            : <>Streamulus can't see that folder{folder.localFolder !== folder.downloadFolder ? <> (looked at <code style={{ color: '#fff' }}>{folder.localFolder}</code>)</> : ''}. If Deluge runs in Docker or on another computer, enter where that folder is on this server below, then Test again.</>}
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '16px', marginTop: '14px' }}>
+        <div>
+          <label style={LABEL} htmlFor="deluge-remote-path">Deluge's download folder <span style={{ color: '#555', fontWeight: 500 }}>· as Deluge sees it</span></label>
+          <input id="deluge-remote-path" style={INPUT} value={form.delugeRemotePath} onChange={set('delugeRemotePath')} placeholder={folder?.downloadFolder || '/downloads'} />
+        </div>
+        <div>
+          <label style={LABEL} htmlFor="deluge-local-path">The same folder on this server</label>
+          <input id="deluge-local-path" style={INPUT} value={form.delugeLocalPath} onChange={set('delugeLocalPath')} placeholder="/mnt/media/downloads" />
+        </div>
+      </div>
+      <div style={{ fontSize: '12px', color: '#5f5f68', marginTop: '6px' }}>
+        Only needed when they differ (like Radarr's Remote Path Mappings). Leave both empty if Deluge and Streamulus see the same paths.
       </div>
 
       <div style={{ fontSize: '11px', color: '#444', letterSpacing: '1px', textTransform: 'uppercase', margin: '22px 0 10px' }}>Requests</div>

@@ -126,4 +126,21 @@ async function history(movieId) {
   return Array.isArray(res.data) ? res.data : (res.data?.records || []);
 }
 
-module.exports = { settings, configured, test, errorText, findByTmdb, getMovie, search, command, addAndSearch, queueByMovie, history };
+// The admin is getting a film by hand (a magnet link in Deluge): cancel Radarr's
+// own downloads of it (blocklisting those releases) and stop it looking, so it
+// doesn't fetch a second copy. → how many downloads were cancelled
+async function standDown(movieId) {
+  const api = client();
+  const items = (await queueByMovie()).get(movieId) || [];
+  for (const item of items) {
+    await api.delete(`/queue/${item.id}`, { params: { removeFromClient: true, blocklist: true } }).catch(() => {});
+  }
+  const movie = await getMovie(movieId);
+  if (movie?.monitored) await api.put(`/movie/${movieId}`, { ...movie, monitored: false });
+  return items.length;
+}
+
+// Ask Radarr to look at a film's folder again (after Streamulus put a file there).
+const rescan = async (movieId) => (await client().post('/command', { name: 'RescanMovie', movieId })).data;
+
+module.exports = { settings, configured, test, errorText, findByTmdb, getMovie, search, command, addAndSearch, queueByMovie, history, standDown, rescan };

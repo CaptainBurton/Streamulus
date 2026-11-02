@@ -6,6 +6,13 @@
 //
 // One request per film: anyone else who asks for the same film is added to it
 // (media_request_users) and hears about it too.
+//
+// The admin's backup, when Radarr can't find a film (or its download fails or
+// stalls): paste a magnet link. It's added to Deluge (Radarr's own download of
+// the film is cancelled and Radarr stops looking), followed like any download,
+// and when it's finished the film — and any subtitles with it — is moved into
+// the movie library under the naming format, the leftover download folder is
+// cleared away, and it's added to Streamulus.
 const fs = require('fs');
 const path = require('path');
 const db = require('../database/db');
@@ -14,6 +21,7 @@ const deluge = require('./deluge');
 const mailer = require('./mailer');
 const templates = require('./emailTemplates');
 const tmdb = require('./tmdb');
+const naming = require('./naming');
 
 // What people see for each status (detail adds specifics, e.g. "45% · 12 min left").
 const LABELS = {
@@ -94,6 +102,7 @@ function shape(r, { forUser = null, withRequesters = false } = {}) {
     movieId: r.movie_id,
     radarrId: r.radarr_id,
     createdAt: r.created_at,
+    ...(withRequesters ? { manual: r.manual_hash ? { name: r.manual_name, by: r.manual_by, at: r.manual_at } : null } : {}),
     updatedAt: r.updated_at,
     ...(withRequesters ? { requesters: people.map(p => ({ id: p.id, username: p.username })) } : {}),
     ...(forUser ? {
@@ -267,10 +276,18 @@ async function decline({ id, admin, reason, req }) {
 // Search again (after "not found" or a failed download).
 async function searchAgain({ id, admin, req }) {
   const r = get(id);
-  if (!r || !r.radarr_id) throw Object.assign(new Error('That request isn\'t in Radarr'), { status: 400 });
+  if (!r) throw Object.assign(new Error('Request not found'), { status: 404 });
+  if (!r.radarr_id && !r.manual_hash) throw Object.assign(new Error('That request isn\'t in Radarr'), { status: 400 });
   let cmd;
   try {
-    cmd = await radarr.search(r.radarr_id);
+    if (r.manual_hash || !r.radarr_id) {
+      // Was being fetched by hand (Radarr was told to stop): back to Radarr, monitored again.
+      const result = await radarr.addAndSearch(r.tmdb_id);
+      update(id, { radarr_id: result.movie.id });
+      cmd = result.command;
+    } else {
+      cmd = await radarr.search(r.radarr_id);
+    }
   } catch (err) {
     // Gone from Radarr: add it again.
     if (err?.response?.status === 404) {
@@ -281,13 +298,21 @@ async function searchAgain({ id, admin, req }) {
       throw Object.assign(new Error(radarr.errorText(err)), { status: 502 });
     }
   }
-  update(id, { status: 'searching', detail: 'Searching for a download…', needs_admin: 0, search_command_id: cmd?.id || null, searched_at: now(), checked_at: null });
+  update(id, {
+    status: 'searching', detail: 'Searching for a download…', needs_admin: 0, search_command_id: cmd?.id || null, searched_at: now(), checked_at: null,
+    manual_hash: null, manual_name: null, import_plan: null, download_id: null,
+  });
   require('./activity').log(req, { category: 'admin', action: 'request_searched', detail: `${r.title}${r.year ? ` (${r.year})` : ''}` });
   refresh(get(id)).catch(() => {});
   return get(id);
 }
 
 function remove(id) {
+  // A hand-added download that hasn't finished goes too (with what it downloaded).
+  const r = get(id);
+  if (r?.manual_hash && ['downloading', 'failed'].includes(r.status) && !r.import_plan && deluge.configured()) {
+    deluge.remove(r.manual_hash, true).catch(() => {});
+  }
   db.prepare('DELETE FROM media_request_users WHERE request_id = ?').run(id);
   return db.prepare('DELETE FROM media_requests WHERE id = ?').run(id).changes > 0;
 }
@@ -388,8 +413,21 @@ function delugeDetail(t) {
   };
 }
 
-// Look one approved request up in Radarr and record how it's getting on.
+// The film is in Streamulus: tell everyone who asked.
+async function markAvailable(r, movieId) {
+  update(r.id, { status: 'available', detail: null, progress: 1, eta: null, speed: null, needs_admin: 0, movie_id: movieId, checked_at: now() });
+  require('./activity').log(null, { category: 'admin', action: 'request_available', username: 'Streamulus', detail: `${r.title}${r.year ? ` (${r.year})` : ''}` });
+  await emailPeople(get(r.id), 'request_available', { link: `${mailer.siteUrl(null)}/movie/${movieId}` });
+}
+
+// Check on one approved request and record how it's getting on.
 async function refresh(r, queue = null) {
+  if (r?.manual_hash) return refreshManual(r);
+  return refreshRadarr(r, queue);
+}
+
+// …one Radarr is fetching.
+async function refreshRadarr(r, queue = null) {
   if (!r || !ACTIVE.includes(r.status) || !r.radarr_id) return;
   let movie;
   try {
@@ -402,12 +440,7 @@ async function refresh(r, queue = null) {
   }
 
   const local = findLocal(r, movie);
-  if (local) {
-    update(r.id, { status: 'available', detail: null, progress: 1, eta: null, needs_admin: 0, movie_id: local, checked_at: now() });
-    require('./activity').log(null, { category: 'admin', action: 'request_available', username: 'Streamulus', detail: `${r.title}${r.year ? ` (${r.year})` : ''}` });
-    await emailPeople(get(r.id), 'request_available', { link: `${mailer.siteUrl(null)}/movie/${local}` });
-    return;
-  }
+  if (local) return markAvailable(r, local);
 
   if (movie.hasFile) {
     // Downloaded and imported by Radarr; Streamulus picks it up from the folder.
@@ -465,17 +498,26 @@ async function refresh(r, queue = null) {
 
 let polling = false;
 async function poll() {
-  if (polling || !radarr.configured()) return;
+  if (polling || (!radarr.configured() && !deluge.configured())) return;
   const active = db.prepare(`SELECT * FROM media_requests WHERE status IN (${ACTIVE.map(() => '?').join(',')})`).all(...ACTIVE);
   if (!active.length) return;
   polling = true;
   try {
+    // Hand-added downloads: straight from Deluge, every refresh (a failed one
+    // is retried every minute — e.g. once the folder mapping is fixed).
+    for (const r of active.filter(x => x.manual_hash)) {
+      const every = r.status === 'failed' ? MANUAL_RETRY_MS : refreshMs();
+      if (r.checked_at && now() - r.checked_at < every) continue;
+      try { await refreshManual(r); } catch (err) { console.error(`[requests] ${r.title}: ${err.message}`); }
+    }
     const radarrEvery = Math.max(refreshMs(), RADARR_MIN_MS);
-    const due = active.filter(r => !r.checked_at || now() - r.checked_at >= Math.max(radarrEvery, RECHECK[r.status] || 0));
+    const due = radarr.configured()
+      ? active.filter(r => !r.manual_hash && (!r.checked_at || now() - r.checked_at >= Math.max(radarrEvery, RECHECK[r.status] || 0)))
+      : [];
     if (due.length) {
       const queue = await radarr.queueByMovie().catch(() => null);
       for (const r of due) {
-        try { await refresh(r, queue); } catch (err) { console.error(`[requests] ${r.title}: ${err.message}`); }
+        try { await refreshRadarr(r, queue); } catch (err) { console.error(`[requests] ${r.title}: ${err.message}`); }
       }
     }
     await liveProgress();
@@ -488,7 +530,7 @@ async function poll() {
 let delugeError = null;
 async function liveProgress() {
   if (!deluge.configured()) return;
-  const rows = db.prepare("SELECT * FROM media_requests WHERE status = 'downloading' AND download_id IS NOT NULL").all();
+  const rows = db.prepare("SELECT * FROM media_requests WHERE status = 'downloading' AND download_id IS NOT NULL AND manual_hash IS NULL").all();
   if (!rows.length) return;
   let stats;
   try {
@@ -504,6 +546,202 @@ async function liveProgress() {
     const t = stats[r.download_id];
     if (t) update(r.id, delugeDetail(t));
   }
+}
+
+// ── The admin's backup: a magnet link ────────────────────────────────────────
+
+const MANUAL_RETRY_MS = Number(process.env.REQUESTS_MANUAL_RETRY_MS) || 60 * 1000;
+const SUB_EXTS = new Set(['.srt', '.vtt', '.ass', '.ssa', '.sub', '.idx']);
+const needs = (message) => Object.assign(new Error(message), { needsAdmin: true });
+const movieLibrary = () => db.prepare("SELECT * FROM libraries WHERE type = 'movies' ORDER BY id").get();
+
+/**
+ * Download a film from a magnet link the admin pasted (when Radarr can't find
+ * it, or its download failed or stalled). Counts as approving it if it was
+ * waiting or declined (they're emailed, as with Approve).
+ */
+async function startMagnet({ id, admin, magnet, req }) {
+  const r = get(id);
+  if (!r) throw Object.assign(new Error('Request not found'), { status: 404 });
+  const allowed = ['pending', 'declined', 'searching', 'waiting_release', 'not_found', 'failed', 'missing', 'downloading'];
+  if (!allowed.includes(r.status)) {
+    throw Object.assign(new Error(r.status === 'available' ? "It's already in the library" : "It's already being added to the library"), { status: 400 });
+  }
+  if (!deluge.configured()) throw Object.assign(new Error('Connect Deluge first (Admin › Requests › Deluge) — the magnet link is added there'), { status: 400 });
+  const uri = String(magnet || '').trim();
+  if (!deluge.magnetHash(uri)) throw Object.assign(new Error("That isn't a magnet link — it should start with magnet:?xt=urn:btih:"), { status: 400 });
+  if (!movieLibrary()) throw Object.assign(new Error('Add a Movies library first (Admin › Libraries) — the film is moved into it'), { status: 400 });
+
+  let hash;
+  try {
+    hash = await deluge.addMagnet(uri);
+  } catch (err) {
+    throw Object.assign(new Error(deluge.errorText(err)), { status: 502 });
+  }
+  // A different magnet for the same film replaces the earlier one.
+  if (r.manual_hash && r.manual_hash !== hash && !r.import_plan) deluge.remove(r.manual_hash, true).catch(() => {});
+  // Radarr: cancel its download of the film (if any) and stop it looking.
+  let cancelled = 0;
+  if (r.radarr_id && radarr.configured()) {
+    cancelled = await radarr.standDown(r.radarr_id).catch((err) => { console.error(`[requests] Radarr: ${radarr.errorText(err)}`); return 0; });
+  }
+  const undecided = ['pending', 'declined'].includes(r.status);
+  const t = now();
+  update(id, {
+    status: 'downloading', detail: 'Starting the download…', progress: 0, eta: null, speed: null, size: null, needs_admin: 0,
+    download_id: hash, manual_hash: hash, manual_name: deluge.magnetName(uri), manual_by: admin.username, manual_at: t,
+    import_plan: null, live_at: null, checked_at: null,
+    ...(undecided ? { decided_by: admin.username, decided_at: t, decline_reason: null } : {}),
+  });
+  require('./activity').log(req, {
+    category: 'admin', action: 'request_magnet',
+    detail: `${r.title}${r.year ? ` (${r.year})` : ''} — magnet link added to Deluge${cancelled ? ` (cancelled Radarr's download)` : ''}`,
+  });
+  if (undecided) await emailPeople(get(id), 'request_approved', { admin: admin.username }, req);
+  await refreshManual(get(id)).catch(() => {});
+  return get(id);
+}
+
+// Where everything in a finished download goes: the video (the biggest file,
+// not a sample) as "<naming format>.ext" in the film's folder in the movie
+// library, subtitles beside it or in a Subs folder as "<name>.<language>.srt".
+function planImport(r, t) {
+  const save = deluge.toLocal(t.savePath);
+  const files = t.files.map(f => ({ rel: f.path.replace(/\\/g, '/'), size: f.size }));
+  const { VIDEO_EXTENSIONS } = require('./scanner');
+  const videos = files
+    .filter(f => VIDEO_EXTENSIONS.has(path.extname(f.rel).toLowerCase()) && !/(^|[/._ -])sample([/._ -]|$)/i.test(f.rel))
+    .sort((a, b) => b.size - a.size);
+  if (!videos.length) {
+    throw needs(`There's no video file in this download (${files.slice(0, 3).map(f => path.posix.basename(f.rel)).join(', ') || 'no files'}) — try another magnet link`);
+  }
+  const video = videos[0];
+  const lib = movieLibrary();
+  if (!lib) throw needs('Add a Movies library first (Admin › Libraries) — the film is moved into it');
+  const cfg = naming.getConfig();
+  const values = { title: r.title, year: r.year, tmdbId: r.tmdb_id };
+  const folder = path.join(lib.path, naming.renderMovieName(cfg.naming_movie_folder, values));
+  const base = naming.renderMovieName(cfg.naming_movie_file, values);
+  const ext = path.extname(video.rel).toLowerCase();
+  let name = base;
+  for (let n = 2; fs.existsSync(path.join(folder, name + ext)); n++) name = `${base} (${n})`;
+  const from = (rel) => path.join(save, ...rel.split('/'));
+  const moves = [{ from: from(video.rel), to: path.join(folder, name + ext), video: true }];
+
+  const videoDir = path.posix.dirname(video.rel);
+  const videoBase = path.posix.basename(video.rel, path.extname(video.rel)).toLowerCase();
+  const used = new Set();
+  for (const f of files) {
+    const e = path.extname(f.rel).toLowerCase();
+    if (!SUB_EXTS.has(e)) continue;
+    const dir = path.posix.dirname(f.rel);
+    const below = videoDir === '.' ? (dir === '.' ? '' : dir) : dir === videoDir ? '' : dir.startsWith(`${videoDir}/`) ? dir.slice(videoDir.length + 1) : null;
+    if (below === null || (below && !/^(subs?|subtitles?)(\/|$)/i.test(below))) continue;
+    let tag = path.posix.basename(f.rel, path.extname(f.rel));
+    if (tag.toLowerCase().startsWith(videoBase)) tag = tag.slice(videoBase.length);
+    tag = tag.replace(/^[\s._-]*\d*[\s._-]*/, '').replace(/[^\p{L}\p{N}._-]+/gu, '.').replace(/^[.-]+|[.-]+$/g, '');
+    let target = tag ? `${name}.${tag}` : name;
+    for (let k = 2; used.has(target + e); k++) target = `${name}.${tag || 'sub'}${k}`;
+    used.add(target + e);
+    moves.push({ from: from(f.rel), to: path.join(folder, target + e) });
+  }
+  // The download's own folder, cleared away afterwards (only ever inside the download folder).
+  const top = video.rel.includes('/') ? video.rel.split('/')[0] : null;
+  const cleanup = top && !['.', '..'].includes(top) ? path.join(save, top) : null;
+  return { libId: lib.id, folder, video: moves[0].to, moves, cleanup, save, savedAt: t.savePath };
+}
+
+// Move one file (copying across drives), picking up where an interrupted move left off.
+async function moveInto(from, to) {
+  const there = fs.existsSync(to);
+  if (!fs.existsSync(from)) return there; // already moved, or gone
+  if (there) { await fs.promises.unlink(from); return true; } // copied before a restart; the original stayed
+  await fs.promises.mkdir(path.dirname(to), { recursive: true });
+  try {
+    await fs.promises.rename(from, to);
+  } catch (err) {
+    if (err.code !== 'EXDEV') throw err;
+    const partial = `${to}.partial`;
+    await fs.promises.copyFile(from, partial);
+    await fs.promises.rename(partial, to);
+    await fs.promises.unlink(from);
+  }
+  return true;
+}
+
+// The download is finished: take it out of Deluge, move it into the library and add it.
+const importing = new Set();
+async function importManual(r, t = null) {
+  if (importing.has(r.id)) return;
+  importing.add(r.id);
+  try {
+    let plan = r.import_plan ? JSON.parse(r.import_plan) : null;
+    if (!plan) {
+      t = t || await deluge.torrent(r.manual_hash);
+      if (!t) throw needs('The download was removed from Deluge before it could be moved — paste the magnet link again');
+      plan = planImport(r, t);
+      if (!fs.existsSync(plan.moves[0].from)) {
+        const mapped = deluge.settings().remotePath;
+        throw needs(`Downloaded, but Streamulus can't see the file at ${plan.moves[0].from}. ${mapped
+          ? `Check the folder mapping in Admin › Requests › Deluge (Deluge saved it in ${t.savePath}).`
+          : `If Deluge runs in Docker or on another computer, say where its download folder (${t.savePath}) is on this server in Admin › Requests › Deluge.`}`);
+      }
+      update(r.id, {
+        status: 'importing', import_plan: JSON.stringify(plan), progress: 1, eta: null, speed: null, needs_admin: 0,
+        detail: 'Downloaded — moving it into the library', checked_at: now(),
+      });
+      // Out of Deluge first, so it isn't seeding from files that are about to move.
+      await deluge.remove(r.manual_hash, false).catch(err => console.error(`[requests] Removing ${r.title} from Deluge: ${deluge.errorText(err)}`));
+    }
+    for (const m of plan.moves) {
+      const ok = await moveInto(m.from, m.to);
+      if (!ok && m.video) throw needs(`The downloaded file has gone missing (${m.from}) — paste the magnet link again`);
+    }
+    if (plan.cleanup) {
+      const inside = path.resolve(plan.cleanup).startsWith(path.resolve(plan.save) + path.sep);
+      if (inside) await fs.promises.rm(plan.cleanup, { recursive: true, force: true }).catch(() => {});
+    }
+    update(r.id, { status: 'adding', detail: 'Moved into the library — adding it to Streamulus', needs_admin: 0, checked_at: now(), scan_requested_at: now() });
+    require('./activity').log(null, { category: 'admin', action: 'request_imported', username: 'Streamulus', detail: `${r.title}${r.year ? ` (${r.year})` : ''} → ${plan.video}` });
+    const lib = db.prepare('SELECT * FROM libraries WHERE id = ?').get(plan.libId);
+    if (lib) await require('./scanner').scanPaths(lib, [plan.folder]);
+    if (r.radarr_id && radarr.configured()) radarr.rescan(r.radarr_id).catch(() => {});
+    const local = inLibrary(r.tmdb_id) || db.prepare('SELECT id FROM movies WHERE file_path = ?').get(plan.video)?.id;
+    if (local) await markAvailable(get(r.id), local);
+  } catch (err) {
+    console.error(`[requests] ${r.title}: ${err.message}`);
+    update(r.id, {
+      status: 'failed', needs_admin: 1, checked_at: now(),
+      detail: err.needsAdmin ? err.message : `Couldn't move the download into the library: ${err.message}`,
+    });
+  } finally {
+    importing.delete(r.id);
+  }
+}
+
+// Check on a hand-added download in Deluge.
+async function refreshManual(r) {
+  if (!r?.manual_hash || !ACTIVE.includes(r.status) || importing.has(r.id)) return;
+  if (r.import_plan) { importManual(r).catch(() => {}); return; } // moving (or resuming after a restart / a fix)
+  if (r.status === 'adding') {
+    const local = inLibrary(r.tmdb_id);
+    if (local) return markAvailable(r, local);
+    return update(r.id, { checked_at: now() });
+  }
+  let t;
+  try {
+    t = await deluge.torrent(r.manual_hash);
+  } catch (err) {
+    return update(r.id, { detail: `Can't reach Deluge right now (${deluge.errorText(err)})`, checked_at: now() });
+  }
+  if (!t) {
+    return update(r.id, { status: 'failed', needs_admin: 1, progress: null, eta: null, speed: null, checked_at: now(), detail: 'The download was removed from Deluge — paste the magnet link again' });
+  }
+  if (t.finished) { importManual(r, t).catch(() => {}); return; }
+  const fields = delugeDetail(t);
+  if (!t.files.length && !(t.progress > 0)) fields.detail = 'Getting the download details from peers…';
+  const named = t.name && t.name.toLowerCase() !== r.manual_hash ? { manual_name: t.name } : {};
+  return update(r.id, { ...fields, ...named, status: 'downloading', checked_at: now() });
 }
 
 let timer = null;
@@ -529,6 +767,8 @@ function saveSettings(input = {}) {
   if (input.delugeUrl !== undefined) setConf('deluge_url', String(input.delugeUrl || '').trim());
   if (typeof input.delugePassword === 'string' && input.delugePassword !== '') setConf('deluge_password', input.delugePassword);
   if (input.clearDelugePassword) setConf('deluge_password', '');
+  if (input.delugeRemotePath !== undefined) setConf('deluge_remote_path', String(input.delugeRemotePath || '').trim());
+  if (input.delugeLocalPath !== undefined) setConf('deluge_local_path', String(input.delugeLocalPath || '').trim());
 }
 
 function settingsView() {
@@ -542,6 +782,7 @@ function settingsView() {
     },
     deluge: {
       url: deluge.settings().url, passwordSet: !!deluge.settings().password, configured: deluge.configured(),
+      remotePath: deluge.settings().remotePath, localPath: deluge.settings().localPath,
       error: delugeError,
     },
   };
@@ -549,5 +790,5 @@ function settingsView() {
 
 module.exports = {
   LABELS, ACTIVE, settings, settingsView, saveSettings, isOpen, shape, get, openFor, inLibrary, posterUrl,
-  create, cancel, approve, decline, searchAgain, remove, refresh, poll, start, requesters,
+  create, cancel, approve, decline, searchAgain, remove, refresh, poll, start, requesters, startMagnet,
 };

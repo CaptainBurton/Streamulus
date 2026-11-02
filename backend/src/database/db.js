@@ -369,6 +369,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS media_requests (
 try { db.exec('ALTER TABLE media_requests ADD COLUMN download_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE media_requests ADD COLUMN speed INTEGER'); } catch {}
 try { db.exec('ALTER TABLE media_requests ADD COLUMN live_at INTEGER'); } catch {}
+// The admin's backup: a magnet link added to Deluge by hand, then moved into the library.
+try { db.exec('ALTER TABLE media_requests ADD COLUMN manual_hash TEXT'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN manual_name TEXT'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN manual_by TEXT'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN manual_at INTEGER'); } catch {}
+try { db.exec('ALTER TABLE media_requests ADD COLUMN import_plan TEXT'); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_requests_tmdb ON media_requests(media_type, tmdb_id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_requests_status ON media_requests(status)');
 db.exec(`CREATE TABLE IF NOT EXISTS media_request_users (

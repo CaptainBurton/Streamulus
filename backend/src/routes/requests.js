@@ -246,10 +246,12 @@ admin.put('/settings', requireAdmin, (req, res) => {
   res.json(requests.settingsView());
 });
 
-// { url?, password? } — the saved ones when left out. → { torrents }
+// { url?, password?, remotePath?, localPath? } — the saved ones when left out.
+// → { torrents, downloadFolder, localFolder, visible }
 admin.post('/settings/deluge-test', requireAdmin, async (req, res) => {
   try {
-    res.json(await deluge.test({ url: req.body?.url, password: req.body?.password }));
+    const b = req.body || {};
+    res.json(await deluge.test({ url: b.url, password: b.password, remotePath: b.remotePath, localPath: b.localPath }));
   } catch (err) {
     res.status(502).json({ error: deluge.errorText(err, req.body?.url) });
   }
@@ -289,7 +291,11 @@ admin.post('/:id/decline', requireAdmin, act(req => requests.decline({ id: Numbe
 
 admin.post('/:id/search', requireAdmin, act(req => requests.searchAgain({ id: Number(req.params.id), admin: req.user, req })));
 
-// Check on it in Radarr now rather than at the next regular look.
+// { magnet } — the admin's backup when Radarr can't find it: download this in
+// Deluge, then move it into the movie library.
+admin.post('/:id/magnet', requireAdmin, act(req => requests.startMagnet({ id: Number(req.params.id), admin: req.user, magnet: req.body?.magnet, req })));
+
+// Check on it (in Radarr, or Deluge for a magnet link) now rather than at the next regular look.
 admin.post('/:id/refresh', requireAdmin, act(async req => {
   const r = requests.get(Number(req.params.id));
   if (!r) throw Object.assign(new Error('Request not found'), { status: 404 });
@@ -297,7 +303,8 @@ admin.post('/:id/refresh', requireAdmin, act(async req => {
   return requests.get(r.id);
 }));
 
-// Removes the request from Streamulus only (Radarr keeps the film).
+// Removes the request from Streamulus only (Radarr keeps the film). An
+// unfinished magnet-link download is removed from Deluge too.
 admin.delete('/:id', requireAdmin, (req, res) => {
   const r = requests.get(Number(req.params.id));
   if (!r || !requests.remove(r.id)) return res.status(404).json({ error: 'Request not found' });
