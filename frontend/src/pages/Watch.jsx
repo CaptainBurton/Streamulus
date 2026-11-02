@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { parseVtt, linesAt } from '../components/subtitles';
+import SlowStartNote from '../components/SlowStartNote';
 import axios from 'axios';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -97,6 +98,10 @@ export default function Watch() {
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
   const [buffering,   setBuffering]   = useState(true);
+  // When a spinner started showing (for the slow-start note under it), or null.
+  const spinning = loading || buffering;
+  const [spinSince, setSpinSince] = useState(() => Date.now());
+  useEffect(() => { setSpinSince(spinning ? Date.now() : null); }, [spinning]);
   const [hasPlayed,   setHasPlayed]   = useState(false);
   const [showBar,     setShowBar]     = useState(true);
 
@@ -998,8 +1003,9 @@ export default function Watch() {
 
       {/* ── Loading overlay ─────────────────────────────────────────────────── */}
       {loading && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 200, ...S.center, background: '#000' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, ...S.center, flexDirection: 'column', gap: '18px', background: '#000' }}>
           <div className="spinner" />
+          <SlowStartNote since={spinSince} />
         </div>
       )}
 
@@ -1355,14 +1361,16 @@ export default function Watch() {
             hasPlayed ? (
               // Mid-playback stall: non-blocking translucent overlay at zIndex 50
               // so controls (zIndex 150) float above it and remain interactive.
-              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', gap: '18px', background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
                 <div className="spinner" style={{ pointerEvents: 'none' }} />
+                <SlowStartNote since={spinSince} />
               </div>
             ) : (
               // Initial load: same z-index so controls stay visible and usable.
               <div style={{ position: 'fixed', inset: 0, zIndex: 50, ...S.center, flexDirection: 'column', background: 'rgba(0,0,0,0.92)', gap: '16px' }}>
                 <div className="spinner" />
                 <div style={{ color: '#fff', fontSize: '16px', fontWeight: '600' }}>Loading… please wait</div>
+                <SlowStartNote since={spinSince} />
                 <DebugLog />
               </div>
             )

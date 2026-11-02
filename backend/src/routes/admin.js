@@ -182,6 +182,9 @@ router.get('/config', requireAdmin, (req, res) => {
     audioChannels:      get('audio_channels')       ?? '2',
     hlsSegmentDuration: get('hls_segment_duration') ?? '4',
     remoteMaxBitrate:   get('remote_max_bitrate')   ?? '10',
+    // The note under the player's spinner when a video takes a while to start.
+    bufferingMessageEnabled: (get('buffering_message_enabled') ?? 'true') === 'true',
+    bufferingMessage:   get('buffering_message_text') || require('./branding').DEFAULT_BUFFERING_MESSAGE,
     progressMinSeconds: get('progress_min_seconds') ?? '10',
     upNextSeconds:      get('up_next_seconds')      ?? '30',
     featuredRotateSeconds: get('featured_rotate_seconds') ?? '120',
@@ -196,8 +199,11 @@ router.put('/config', requireAdmin, (req, res) => {
     movieSourceOrder, tvSourceOrder,
     videoCrf, videoPreset, videoResolution, audioBitrate, audioChannels, hlsSegmentDuration, remoteMaxBitrate,
     progressMinSeconds, upNextSeconds, preferredLanguage, preferredCountry,
-    featuredRotateSeconds,
+    featuredRotateSeconds, bufferingMessageEnabled, bufferingMessage,
   } = req.body;
+  if (bufferingMessage !== undefined && String(bufferingMessage).trim().length > 240) {
+    return res.status(400).json({ error: 'Keep the buffering message under 240 characters' });
+  }
   if (featuredRotateSeconds !== undefined) {
     const raw = String(featuredRotateSeconds).trim();
     const secs = Number(raw);
@@ -226,6 +232,9 @@ router.put('/config', requireAdmin, (req, res) => {
   if (audioChannels    !== undefined) upsert.run('audio_channels',     audioChannels);
   if (hlsSegmentDuration !== undefined) upsert.run('hls_segment_duration', hlsSegmentDuration);
   if (remoteMaxBitrate !== undefined) upsert.run('remote_max_bitrate', String(Number(remoteMaxBitrate)));
+  if (bufferingMessageEnabled !== undefined) upsert.run('buffering_message_enabled', bufferingMessageEnabled ? 'true' : 'false');
+  // Empty: back to the default wording.
+  if (bufferingMessage !== undefined) upsert.run('buffering_message_text', String(bufferingMessage).trim());
   if (progressMinSeconds !== undefined) upsert.run('progress_min_seconds', progressMinSeconds);
   if (upNextSeconds !== undefined) upsert.run('up_next_seconds', String(parseInt(upNextSeconds)));
   if (featuredRotateSeconds !== undefined) upsert.run('featured_rotate_seconds', String(Number(String(featuredRotateSeconds).trim())));
@@ -250,7 +259,8 @@ router.put('/config', requireAdmin, (req, res) => {
   const LABELS = { tmdbApiKey: 'TMDB key', tvdbApiKey: 'TVDB key', omdbApiKey: 'OMDb key', imdbApiKey: 'IMDb key', movieSourceOrder: 'movie sources',
     tvSourceOrder: 'TV sources', videoCrf: 'video quality', videoPreset: 'encoder preset', videoResolution: 'resolution', audioBitrate: 'audio bitrate',
     audioChannels: 'audio channels', hlsSegmentDuration: 'segment length', progressMinSeconds: 'progress threshold', upNextSeconds: 'Up Next countdown',
-    preferredLanguage: 'metadata language', preferredCountry: 'country', featuredRotateSeconds: 'featured interval' };
+    preferredLanguage: 'metadata language', preferredCountry: 'country', featuredRotateSeconds: 'featured interval',
+    remoteMaxBitrate: 'remote streaming limit', bufferingMessageEnabled: 'slow start message', bufferingMessage: 'slow start wording' };
   const changed = Object.keys(LABELS).filter(k => req.body[k] !== undefined).map(k => LABELS[k]);
   if (changed.length) require('../services/activity').log(req, { category: 'admin', action: 'settings_changed', detail: `Settings: ${changed.join(', ')}` });
   res.json({ success: true, ratingsQueued });

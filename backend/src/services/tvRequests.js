@@ -164,14 +164,18 @@ async function approve({ id, admin, req, qualityProfileId, rootFolder, languageP
   if (!tvdb) throw Object.assign(new Error("This series has no TVDB id on TMDB, so Sonarr can't add it — use a magnet link instead"), { status: 400 });
   let result;
   try {
-    result = await sonarr.addAndSearch(tvdb, { season: r.scope === 'season' ? r.season_number : null, qualityProfileId, rootFolder, languageProfileId });
+    result = await sonarr.addAndSearch(tvdb, {
+      season: r.scope === 'season' ? r.season_number : null, qualityProfileId, rootFolder, languageProfileId, hold: sonarr.settings().downloadWhen === 'season',
+    });
   } catch (err) {
     throw Object.assign(new Error(sonarr.errorText(err)), { status: 502 });
   }
   const t = now();
   R().update(id, {
-    status: 'searching', detail: 'Searching for downloads…', progress: null, eta: null, needs_admin: 0, decline_reason: null,
+    status: result.command ? 'searching' : 'waiting_release', detail: result.command ? 'Searching for downloads…' : 'Waiting for the season to finish airing',
+    progress: null, eta: null, needs_admin: 0, decline_reason: null,
     decided_by: admin.username, decided_at: t, sonarr_id: result.series.id, search_command_id: result.command?.id || null, searched_at: t, checked_at: null,
+    held_seasons: result.held?.length ? JSON.stringify(result.held) : null,
   });
   require('./activity').log(req, { category: 'admin', action: 'request_approved', detail: displayTitle(r) });
   if (notify) await R().emailPeople(R().get(id), 'request_approved', { admin: admin.username }, req);
@@ -189,11 +193,14 @@ async function searchAgain({ id, req }) {
   if (!tvdb) throw Object.assign(new Error("This series has no TVDB id, so Sonarr can't search for it — use a magnet link"), { status: 400 });
   let result;
   try {
-    result = await sonarr.addAndSearch(tvdb, { season: r.scope === 'season' ? r.season_number : null });
+    result = await sonarr.addAndSearch(tvdb, { season: r.scope === 'season' ? r.season_number : null, hold: sonarr.settings().downloadWhen === 'season' });
   } catch (err) {
     throw Object.assign(new Error(sonarr.errorText(err)), { status: 502 });
   }
-  R().update(id, { status: 'searching', detail: 'Searching for downloads…', needs_admin: 0, sonarr_id: result.series.id, search_command_id: result.command?.id || null, searched_at: now(), checked_at: null });
+  R().update(id, {
+    status: 'searching', detail: 'Searching for downloads…', needs_admin: 0, sonarr_id: result.series.id, search_command_id: result.command?.id || null, searched_at: now(), checked_at: null,
+    held_seasons: result.held?.length ? JSON.stringify(result.held) : null,
+  });
   require('./activity').log(req, { category: 'admin', action: 'request_searched', detail: displayTitle(r) });
   refresh(R().get(id)).catch(() => {});
   return R().get(id);
@@ -231,6 +238,7 @@ function summarise(seasons) {
     s.ready = eps.filter(e => e.state === 'ready').length;
     s.active = eps.filter(e => ['downloading', 'importing', 'adding'].includes(e.state)).length;
     s.missing = eps.filter(e => ['missing', 'failed'].includes(e.state)).length;
+    s.waiting = eps.filter(e => e.state === 'waiting').length;
     s.unaired = s.episodes.length - eps.length;
     s.progress = s.total ? eps.reduce((n, e) => n + (e.state === 'ready' || ['importing', 'adding'].includes(e.state) ? 1 : e.state === 'downloading' ? (e.progress || 0) : 0), 0) / s.total : 0;
   }
@@ -242,6 +250,7 @@ function summarise(seasons) {
     searching: count('searching'),
     missing: count('missing'),
     failed: count('failed'),
+    waiting: count('waiting'),
     unaired: count('unaired'),
     progress: airedEps.length ? partial / airedEps.length : 0,
     seasons,
@@ -258,6 +267,7 @@ function overall(r, p, { searching }) {
   if (p.importing) parts.push(`${p.importing} moving in`);
   if (p.missing) parts.push(`${p.missing} not found yet`);
   if (p.failed) parts.push(`${p.failed} with a problem`);
+  if (p.waiting) parts.push(`${p.waiting} waiting for the season to finish`);
   const text = where + parts.join(' · ');
   const next = p.seasons.flatMap(s => s.episodes).filter(e => e.state === 'unaired' && e.airDate).sort((a, b) => Date.parse(a.airDate) - Date.parse(b.airDate))[0];
   const nextText = next ? ` (next: ${new Date(next.airDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })})` : '';
@@ -266,6 +276,16 @@ function overall(r, p, { searching }) {
   if (p.downloading) return { status: 'downloading', needs_admin: 0, detail: text };
   if (p.importing) return { status: 'importing', needs_admin: 0, detail: text };
   if (searching || p.searching) return { status: 'searching', needs_admin: 0, detail: `${where}Searching for downloads… · ${p.ready} of ${plural(p.total, 'episode')} ready` };
+  if (p.waiting && !p.missing && !p.failed) {
+    // Held back until the season's last episode is out (Download when: the whole season).
+    const held = p.seasons.filter(s => s.waiting);
+    const finale = held.flatMap(s => s.episodes).map(e => e.airDate).filter(Boolean).sort().pop();
+    const when = finale && !aired(finale) ? ` (last episode: ${new Date(finale).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })})` : '';
+    return {
+      status: 'waiting_release', needs_admin: 0,
+      detail: `${p.ready} of ${plural(p.total, 'episode')} ready · ${held.map(s => `Season ${s.season}`).join(', ')} download${held.length === 1 ? 's' : ''} in one go once ${held.length === 1 ? 'it has' : 'they have'} finished airing${when}`,
+    };
+  }
   if (p.failed) return { status: 'failed', needs_admin: 1, detail: `${text} — an admin will look into it` };
   return { status: 'not_found', needs_admin: 1, detail: `${text} — an admin will look into it. Sonarr keeps checking for new releases.` };
 }
@@ -357,8 +377,26 @@ async function refresh(r, ctx = {}) {
     }
   }
 
+  // Held seasons whose last episode is out: monitor them and search for the whole season.
+  let held = r.held_seasons ? JSON.parse(r.held_seasons) : [];
+  if (series && eps && held.length) {
+    for (const n of [...held]) {
+      const seasonEps = eps.filter(e => e.seasonNumber === n);
+      if (!seasonEps.length || !seasonEps.every(e => aired(e.airDateUtc || e.airDate))) continue;
+      try {
+        const cmd = await sonarr.releaseSeason(r.sonarr_id, n);
+        held = held.filter(x => x !== n);
+        R().update(r.id, { held_seasons: held.length ? JSON.stringify(held) : null, search_command_id: cmd?.id || null, searched_at: now() });
+        r = R().get(r.id);
+        require('./activity').log(null, { category: 'admin', action: 'request_searched', username: 'Streamulus', detail: `${displayTitle(r)} — season ${n} has finished airing, searching for it` });
+      } catch (err) {
+        console.error(`[requests] ${r.title}: couldn't release season ${n}: ${sonarr.errorText(err)}`);
+      }
+    }
+  }
+
   let searching = false;
-  if (series && r.search_command_id && ['searching', 'pending'].includes(r.status)) {
+  if (series && r.search_command_id && ['searching', 'pending', 'waiting_release', 'not_found'].includes(r.status) && now() - (r.searched_at || 0) < 30 * 60 * 1000) {
     try { searching = ['queued', 'started'].includes((await sonarr.command(r.search_command_id))?.status); } catch { /* forgotten: finished */ }
   }
 
@@ -374,6 +412,7 @@ async function refresh(r, ctx = {}) {
     else if (q) Object.assign(ep, { state: q.state, progress: q.progress, eta: q.eta || null, ...(q.detail ? { detail: q.detail } : {}), ...(q.dl ? { dl: q.dl } : {}) });
     else if (e.hasFile) { ep.state = 'adding'; adding = true; }
     else if (!aired(e.airDate)) ep.state = 'unaired';
+    else if (held.includes(e.season)) ep.state = 'waiting';
     else ep.state = searching ? 'searching' : 'missing';
     if (!bySeason.has(e.season)) bySeason.set(e.season, []);
     bySeason.get(e.season).push(ep);
@@ -440,6 +479,11 @@ async function startMagnet({ id, admin, magnet, scope, season, episode, req }) {
   let cancelled = 0;
   if (r.sonarr_id && sonarr.configured()) {
     cancelled = await sonarr.standDown(r.sonarr_id, { scope, season, episode }).catch((err) => { console.error(`[requests] Sonarr: ${sonarr.errorText(err)}`); return 0; });
+  }
+  // A magnet for the whole series or a season replaces any hold on it.
+  if (r.held_seasons && scope !== 'episode') {
+    const held = JSON.parse(r.held_seasons).filter(n => scope === 'season' && n !== season);
+    R().update(r.id, { held_seasons: held.length ? JSON.stringify(held) : null });
   }
   const t = now();
   db.prepare(`INSERT INTO request_downloads (request_id, hash, name, scope, season, episode, status, progress, detail, added_by, added_at, updated_at)

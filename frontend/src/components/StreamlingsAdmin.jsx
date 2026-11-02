@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import Select from './Select';
 
 // Admin > Streamlings: what kids profiles can see.
 // A title is shown to Streamlings if it's ticked. Ticks follow the age-rating
@@ -114,10 +115,10 @@ export default function StreamlingsAdmin({ flash }) {
           <Toggle on={cfg.useRatings} onChange={v => saveConfig({ ...cfg, useRatings: v })} />
         </Row>
         <Row label="Maximum age rating" hint={`Highest rating a Streamling can watch${data.country ? ` — ${data.country} ratings (Admin › Settings › Regional)` : ''}`} dim={!cfg.useRatings}>
-          <select value={cfg.maxAge} disabled={!cfg.useRatings} onChange={e => saveConfig({ ...cfg, maxAge: Number(e.target.value) })} style={SELECT}>
+          <Select value={cfg.maxAge} disabled={!cfg.useRatings} onChange={e => saveConfig({ ...cfg, maxAge: Number(e.target.value) })} style={SELECT}>
             {ageOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             {!ageOptions.some(o => o.value === cfg.maxAge) && <option value={cfg.maxAge}>Up to {cfg.maxAge}</option>}
-          </select>
+          </Select>
         </Row>
         <Row label="Allow unrated titles" hint="Titles with no rating (home videos, some imports)" dim={!cfg.useRatings} last>
           <Toggle on={cfg.allowUnrated} disabled={!cfg.useRatings} onChange={v => saveConfig({ ...cfg, allowUnrated: v })} />
@@ -145,15 +146,15 @@ export default function StreamlingsAdmin({ flash }) {
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
           <input placeholder={`Search ${kind === 'movies' ? 'movies' : 'shows'}…`} value={search} onChange={e => setSearch(e.target.value)}
             style={{ flex: '1 1 200px', padding: '9px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none' }} />
-          <select value={filter} onChange={e => setFilter(e.target.value)} style={SELECT}>
+          <Select value={filter} onChange={e => setFilter(e.target.value)} style={SELECT}>
             <option value="all">All titles</option>
             <option value="allowed">Shown to Streamlings</option>
             <option value="blocked">Hidden from Streamlings</option>
             <option value="manual">Changed by hand</option>
-          </select>
-          <select value={perPage} onChange={e => changePerPage(Number(e.target.value))} style={{ ...SELECT, minWidth: 0 }} aria-label="Titles per page">
+          </Select>
+          <Select value={perPage} onChange={e => changePerPage(Number(e.target.value))} style={{ ...SELECT, minWidth: 0 }} aria-label="Titles per page">
             {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} per page</option>)}
-          </select>
+          </Select>
         </div>
 
         <Pager page={curPage} pageCount={pageCount} total={items.length} perPage={perPage} onPage={goToPage} />

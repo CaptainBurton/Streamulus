@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import Select from '../components/Select';
 
 const PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
 
@@ -132,16 +133,16 @@ export default function Movies() {
               onFocus={e => { e.target.style.borderColor = '#00c2ff'; }}
               onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
             />
-            <select value={sort} onChange={e => setSort(e.target.value)} style={controlStyle}>
+            <Select value={sort} onChange={e => setSort(e.target.value)} style={controlStyle}>
               <option value="added">Date Added</option>
               <option value="title">Title</option>
               <option value="year">Year</option>
               <option value="rating">Rating</option>
-            </select>
-            <select value={order} onChange={e => setOrder(e.target.value)} style={controlStyle}>
+            </Select>
+            <Select value={order} onChange={e => setOrder(e.target.value)} style={controlStyle}>
               <option value="DESC">Descending</option>
               <option value="ASC">Ascending</option>
-            </select>
+            </Select>
           </div>
         </div>
 

@@ -18,6 +18,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 const get = (key, fallback) => db.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value ?? fallback;
 const set = (key, value) => db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run(key, value);
 
+// The note under the player's spinner when a video is slow to start (Admin ›
+// Settings › Streaming): usually the server's drives spinning up after a quiet
+// spell. Players show it after a few seconds of loading.
+const DEFAULT_BUFFERING_MESSAGE = "Waking up the server's drives — when nobody's been watching for a while, this takes about 8–15 seconds. Hang tight!";
+const BUFFERING_MESSAGE_AFTER = 5; // seconds
+
 function branding() {
   const logoFile = get('brand_logo_path', '');
   return {
@@ -27,6 +33,11 @@ function branding() {
     logoUrl: logoFile ? `/uploads/branding/${logoFile}` : null,
     // e.g. a Tailscale Funnel address; the apps use it when the home address doesn't answer.
     publicUrl: get('public_url', '') || null,
+    bufferingMessage: {
+      enabled: get('buffering_message_enabled', 'true') === 'true',
+      text: get('buffering_message_text', '') || DEFAULT_BUFFERING_MESSAGE,
+      afterSeconds: BUFFERING_MESSAGE_AFTER,
+    },
   };
 }
 
@@ -81,3 +92,4 @@ router.delete('/logo', requireAdmin, (req, res) => {
 });
 
 module.exports = router;
+module.exports.DEFAULT_BUFFERING_MESSAGE = DEFAULT_BUFFERING_MESSAGE;

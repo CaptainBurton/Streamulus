@@ -5,6 +5,7 @@ import { StatusPill, ProgressBar, RequestStyles } from './RequestStatus';
 import TVChecklist from './TVChecklist';
 import Dropdown from './Dropdown';
 import { SeriesIcon } from './RequestIcons';
+import Select from './Select';
 
 // Admin › Requests: films and series people asked for — approve (adds it to
 // Radarr / Sonarr and searches) or decline (with a reason, emailed to them) —
@@ -239,24 +240,24 @@ function AdminRow({ r, flash, options, settings, onChanged }) {
         <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 200px' }}>
             <label style={LABEL}>Quality profile · {app}</label>
-            <select style={SELECT} value={profile} onChange={e => setProfile(e.target.value)} aria-label="Quality profile">
+            <Select style={SELECT} value={profile} onChange={e => setProfile(e.target.value)} aria-label="Quality profile">
               {(options?.qualityProfiles || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               {!options && <option value={profile}>Default</option>}
-            </select>
+            </Select>
           </div>
           <div style={{ flex: '1 1 200px' }}>
             <label style={LABEL}>Root folder</label>
-            <select style={SELECT} value={root} onChange={e => setRoot(e.target.value)} aria-label="Root folder">
+            <Select style={SELECT} value={root} onChange={e => setRoot(e.target.value)} aria-label="Root folder">
               {(options?.rootFolders || []).map(f => <option key={f.path} value={f.path}>{f.path}</option>)}
               {!options && <option value={root}>{root || 'Default'}</option>}
-            </select>
+            </Select>
           </div>
           {tv && options?.languageProfiles?.length > 0 && (
             <div style={{ flex: '1 1 160px' }}>
               <label style={LABEL}>Language profile</label>
-              <select style={SELECT} value={language} onChange={e => setLanguage(e.target.value)} aria-label="Language profile">
+              <Select style={SELECT} value={language} onChange={e => setLanguage(e.target.value)} aria-label="Language profile">
                 {options.languageProfiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              </Select>
             </div>
           )}
           <button style={PRIMARY} disabled={busy} onClick={approve} data-action="confirm-approve">{busy ? 'Approving…' : 'Approve & Download'}</button>
@@ -409,6 +410,7 @@ function RadarrSettings({ settings, flash, options, tvOptions, onSaved, onOption
     delugeRemotePath: settings.deluge?.remotePath || '', delugeLocalPath: settings.deluge?.localPath || '',
     sonarrUrl: settings.sonarr?.url || '', sonarrApiKey: '', sonarrRootFolder: settings.sonarr?.rootFolder || '',
     sonarrQualityProfileId: settings.sonarr?.qualityProfileId || '', sonarrLanguageProfileId: settings.sonarr?.languageProfileId || '',
+    sonarrDownloadWhen: settings.sonarr?.downloadWhen || 'aired',
     seriesLimit: settings.seriesLimit || 3, seasonLimit: settings.seasonLimit || 5,
   });
   const [sonarrTested, setSonarrTested] = useState(null);
@@ -523,25 +525,25 @@ function RadarrSettings({ settings, flash, options, tvOptions, onSaved, onOption
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '16px', marginTop: '18px' }}>
         <div>
           <label style={LABEL} htmlFor="radarr-root">Root folder</label>
-          <select id="radarr-root" style={SELECT} value={form.rootFolder} onChange={set('rootFolder')}>
+          <Select id="radarr-root" style={SELECT} value={form.rootFolder} onChange={set('rootFolder')}>
             {!options && <option value={form.rootFolder}>{form.rootFolder || 'Test the connection to choose'}</option>}
             {(options?.rootFolders || []).map(f => <option key={f.path} value={f.path}>{f.path}{gb(f.freeSpace)}</option>)}
-          </select>
+          </Select>
         </div>
         <div>
           <label style={LABEL} htmlFor="radarr-profile">Quality profile</label>
-          <select id="radarr-profile" style={SELECT} value={form.qualityProfileId} onChange={set('qualityProfileId')}>
+          <Select id="radarr-profile" style={SELECT} value={form.qualityProfileId} onChange={set('qualityProfileId')}>
             {!options && <option value={form.qualityProfileId}>{form.qualityProfileId ? `Profile ${form.qualityProfileId}` : 'Test the connection to choose'}</option>}
             {(options?.qualityProfiles || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </Select>
         </div>
         <div>
           <label style={LABEL} htmlFor="radarr-availability">Download when</label>
-          <select id="radarr-availability" style={SELECT} value={form.minimumAvailability} onChange={set('minimumAvailability')}>
+          <Select id="radarr-availability" style={SELECT} value={form.minimumAvailability} onChange={set('minimumAvailability')}>
             <option value="announced">Announced (as soon as anything appears)</option>
             <option value="inCinemas">In cinemas</option>
             <option value="released">Released on digital / disc (recommended)</option>
-          </select>
+          </Select>
         </div>
       </div>
 
@@ -575,24 +577,36 @@ function RadarrSettings({ settings, flash, options, tvOptions, onSaved, onOption
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '16px', marginTop: '18px' }}>
           <div>
             <label style={LABEL} htmlFor="sonarr-root">Root folder</label>
-            <select id="sonarr-root" style={SELECT} value={form.sonarrRootFolder} onChange={set('sonarrRootFolder')}>
+            <Select id="sonarr-root" style={SELECT} value={form.sonarrRootFolder} onChange={set('sonarrRootFolder')}>
               {!tvOptions && <option value={form.sonarrRootFolder}>{form.sonarrRootFolder || 'Test the connection to choose'}</option>}
               {(tvOptions?.rootFolders || []).map(f => <option key={f.path} value={f.path}>{f.path}{gb(f.freeSpace)}</option>)}
-            </select>
+            </Select>
           </div>
           <div>
             <label style={LABEL} htmlFor="sonarr-profile">Quality profile</label>
-            <select id="sonarr-profile" style={SELECT} value={form.sonarrQualityProfileId} onChange={set('sonarrQualityProfileId')}>
+            <Select id="sonarr-profile" style={SELECT} value={form.sonarrQualityProfileId} onChange={set('sonarrQualityProfileId')}>
               {!tvOptions && <option value={form.sonarrQualityProfileId}>{form.sonarrQualityProfileId ? `Profile ${form.sonarrQualityProfileId}` : 'Test the connection to choose'}</option>}
               {(tvOptions?.qualityProfiles || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            </Select>
+          </div>
+          <div>
+            <label style={LABEL} htmlFor="sonarr-when">Download when</label>
+            <Select id="sonarr-when" style={SELECT} value={form.sonarrDownloadWhen} onChange={set('sonarrDownloadWhen')}>
+              <option value="aired">Each episode airs (recommended)</option>
+              <option value="season">The whole season has aired</option>
+            </Select>
+            <div style={{ fontSize: '12px', color: '#5f5f68', marginTop: '5px', lineHeight: 1.5 }}>
+              {form.sonarrDownloadWhen === 'season'
+                ? "Seasons still airing wait until their last episode is out, then download in one go (season packs). Finished seasons download straight away."
+                : 'Episodes download as soon as they come out, one by one.'}
+            </div>
           </div>
           {tvOptions?.languageProfiles?.length > 0 && (
             <div>
               <label style={LABEL} htmlFor="sonarr-language">Language profile (Sonarr 3)</label>
-              <select id="sonarr-language" style={SELECT} value={form.sonarrLanguageProfileId} onChange={set('sonarrLanguageProfileId')}>
+              <Select id="sonarr-language" style={SELECT} value={form.sonarrLanguageProfileId} onChange={set('sonarrLanguageProfileId')}>
                 {tvOptions.languageProfiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              </Select>
             </div>
           )}
         </div>
@@ -656,7 +670,7 @@ function RadarrSettings({ settings, flash, options, tvOptions, onSaved, onOption
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#ccc', flexWrap: 'wrap' }}>
           Check progress and refresh pages every
-          <select value={String(form.refreshSeconds)} onChange={set('refreshSeconds')} aria-label="Refresh every" data-setting="refresh"
+          <Select value={String(form.refreshSeconds)} onChange={set('refreshSeconds')} aria-label="Refresh every" data-setting="refresh"
             style={{ ...SELECT, width: 'auto', padding: '7px 10px' }}>
             {!['1', '2', '3', '5', '10', '15', '30'].includes(String(form.refreshSeconds)) && <option value={String(form.refreshSeconds)}>{form.refreshSeconds} seconds</option>}
             <option value="1">1 second</option>
@@ -666,7 +680,7 @@ function RadarrSettings({ settings, flash, options, tvOptions, onSaved, onOption
             <option value="10">10 seconds</option>
             <option value="15">15 seconds</option>
             <option value="30">30 seconds</option>
-          </select>
+          </Select>
         </label>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#ccc', flexWrap: 'wrap' }} data-section="limits">
           Each person can have up to

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import Select from '../components/Select';
 
 const PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"%3E%3Crect width="200" height="300" fill="%231e1e1e"/%3E%3Ctext x="100" y="155" text-anchor="middle" fill="%23444" font-size="14" font-family="Inter,sans-serif"%3ENo Image%3C/text%3E%3C/svg%3E';
 const PAGE_SIZE = 32;
@@ -110,15 +111,15 @@ export default function TVShows() {
               onFocus={e => { e.target.style.borderColor = '#00c2ff'; }}
               onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
             />
-            <select value={sort} onChange={e => setSort(e.target.value)} style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+            <Select value={sort} onChange={e => setSort(e.target.value)} style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
               <option value="added">Date Added</option>
               <option value="title">Title</option>
               <option value="rating">Rating</option>
-            </select>
-            <select value={order} onChange={e => setOrder(e.target.value)} style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+            </Select>
+            <Select value={order} onChange={e => setOrder(e.target.value)} style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
               <option value="DESC">Descending</option>
               <option value="ASC">Ascending</option>
-            </select>
+            </Select>
           </div>
         </div>
 

@@ -355,6 +355,7 @@ private fun episodeColor(state: String): Color = when (state) {
     "searching" -> Color(0xFFFFD166)
     "failed" -> Color(0xFFFF6B6B)
     "unaired" -> Color.White.copy(alpha = 0.4f)
+    "waiting" -> Color(0xFF8FA8FF)
     else -> Color(0xFFFF8C42)
 }
 
@@ -391,6 +392,7 @@ internal fun TVChecklist(tv: TVProgress, scope: String?) {
                         s.total > 0 && s.ready == s.total -> (if (s.unaired > 0) "Aired ready" else "All ready") to Brand.Success
                         s.active > 0 -> "${s.active} downloading" to Brand.Accent
                         s.missing > 0 -> "${s.missing} not found" to Color(0xFFFF8C42)
+                        s.waiting > 0 -> "Waiting for the finale" to episodeColor("waiting")
                         s.total == 0 && s.unaired > 0 -> "Not aired yet" to Color.White.copy(alpha = 0.5f)
                         else -> "${s.ready} of ${s.total}" to Brand.Secondary
                     }
@@ -421,6 +423,7 @@ private fun EpisodeRow(e: TVEpisodeProgress) {
                 "searching" -> "Searching"
                 "failed" -> "Problem"
                 "unaired" -> e.airDate?.let { "Airs ${shortDate(it)}" } ?: "Not aired yet"
+                "waiting" -> "After the finale"
                 else -> "Not found yet"
             },
             style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = episodeColor(e.state),

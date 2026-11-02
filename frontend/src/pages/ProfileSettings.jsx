@@ -5,6 +5,7 @@ import Navbar from '../components/Navbar';
 import ProfileAvatar from '../components/ProfileAvatar';
 import AvatarPicker from '../components/AvatarPicker';
 import { useAuth } from '../context/AuthContext';
+import Select from '../components/Select';
 
 const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
 
@@ -284,11 +285,11 @@ function LanguageSection({ profile, onChanged, say, errText }) {
               For files with more than one audio track, like dual-audio anime (Japanese and English). Choose Original language for subs, English for dubs. You can still switch in the player, and what you pick there is remembered for that title.
             </span>
           </span>
-          <select value={audio} disabled={busy} aria-label="Audio language"
+          <Select value={audio} disabled={busy} aria-label="Audio language"
             onChange={e => save({ audio_language: e.target.value }, 'Audio language saved')}
             style={{ ...INPUT, flex: '0 1 260px', cursor: 'pointer', colorScheme: 'dark' }}>
             {AUDIO_LANGUAGES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
+          </Select>
         </label>
 
         <SwitchRow label="English subtitles when the audio isn't English" hint="Turns on English subtitles (where the title has them) when you watch in Japanese or another language."

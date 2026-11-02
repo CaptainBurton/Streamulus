@@ -37,7 +37,11 @@ final class PlaybackController: ObservableObject {
     @Published private(set) var position: Double = 0      // seconds into the whole file
     @Published private(set) var duration: Double = 0      // whole file; 0 until known
     @Published private(set) var isPlaying = false
-    @Published private(set) var isBuffering = true
+    @Published private(set) var isBuffering = true {
+        didSet { if isBuffering != oldValue { bufferingSince = isBuffering ? Date() : nil } }
+    }
+    /// When the spinner started showing (for the slow-start note under it), or nil.
+    @Published private(set) var bufferingSince: Date? = Date()
     @Published private(set) var pendingSeek: Double?      // where the user is skipping to
     @Published private(set) var buffered: Double = 0      // seconds into the file that are loaded
     @Published private(set) var upNext: NextEpisode?
@@ -46,6 +50,9 @@ final class PlaybackController: ObservableObject {
     @Published private(set) var errorText: String?
 
     private let session: Session
+
+    /// The admin's note for slow starts (Admin › Settings › Streaming).
+    var slowStartMessage: BufferingMessage? { session.branding.bufferingMessage }
     private let onFinished: () -> Void
     private var current: PlayRequest
     private var timeObserver: Any?
@@ -92,6 +99,7 @@ final class PlaybackController: ObservableObject {
 
     init(session: Session, request: PlayRequest, onFinished: @escaping () -> Void) {
         self.session = session
+        Task { await session.refreshBranding() } // the latest slow-start note
         self.onFinished = onFinished
         self.current = request
         self.title = request.title
@@ -146,6 +154,7 @@ final class PlaybackController: ObservableObject {
         errorText = nil
         advancing = false
         isBuffering = true
+        bufferingSince = Date()
 
         guard let url = session.streamURL(type: request.type, id: request.mediaId, start: request.start, compat: compat, audio: requestedAudio) else {
             errorText = "You're signed out — sign in again to play."

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import Select from './Select';
 
 // Admin › Profile Pictures: categories (e.g. "The Simpsons") of pictures that
 // profiles can choose from on the web and the iPhone / iPad app. Each category
@@ -164,10 +165,10 @@ function ImageTile({ category, image, reload, flash }) {
 
 function AudienceSelect({ value, onChange, label, small }) {
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} aria-label={label}
+    <Select value={value} onChange={e => onChange(e.target.value)} aria-label={label}
       style={small ? S.smallSelect : S.select}>
       {AUDIENCES.map(a => <option key={a.value} value={a.value}>{small ? a.short : a.label}</option>)}
-    </select>
+    </Select>
   );
 }
 

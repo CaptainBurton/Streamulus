@@ -193,6 +193,7 @@ class PlaybackController(
     }
 
     init {
+        scope.launch { session.refreshBranding() } // the latest slow-start note
         exo.addListener(listenerFor(exo))
         cast?.let { castPlayer ->
             castPlayer.addListener(listenerFor(castPlayer))

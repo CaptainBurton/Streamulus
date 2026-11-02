@@ -53,7 +53,7 @@ struct PlayerView: View {
             }
 
             if controller.isBuffering && controller.errorText == nil {
-                ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false)
+                BufferingIndicator(since: controller.bufferingSince, message: controller.slowStartMessage).allowsHitTesting(false)
             }
 
             if !controller.subtitleLines.isEmpty { subtitleOverlay }

@@ -1,5 +1,9 @@
 package com.streamulus.android.player
 
+import com.streamulus.android.ui.LocalSession
+import com.streamulus.android.data.BufferingMessage
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -165,7 +169,7 @@ fun PlayerScreen(
         }
 
         if (controller.isBuffering && controller.errorText == null && !controller.casting) {
-            CircularProgressIndicator(Modifier.align(Alignment.Center).size(52.dp), color = Color.White)
+            BufferingIndicator(LocalSession.current.branding.bufferingMessage, Modifier.align(Alignment.Center))
         }
 
         if (controller.subtitleLines.isNotEmpty()) {
@@ -447,6 +451,37 @@ private fun ErrorPanel(message: String, modifier: Modifier, onClose: () -> Unit)
             Text("This video couldn't be played", style = MaterialTheme.typography.titleMedium, color = Color.White)
             Text(message, style = MaterialTheme.typography.bodyMedium, color = Brand.Secondary, textAlign = TextAlign.Center)
             Button(onClick = onClose) { Text("Close") }
+        }
+    }
+}
+
+/**
+ * The loading spinner, and under it — once it has been spinning for a few
+ * seconds — the note the admin set (Admin › Settings › Streaming › Slow Start
+ * Message): usually the server's drives waking up after a quiet spell, which
+ * takes around 8–15 seconds. It's only on screen while loading, so the wait
+ * starts when the spinner appears.
+ */
+@Composable
+private fun BufferingIndicator(message: BufferingMessage?, modifier: Modifier = Modifier) {
+    var showNote by remember { mutableStateOf(false) }
+    LaunchedEffect(message) {
+        showNote = false
+        if (message == null || !message.enabled || message.text.isBlank()) return@LaunchedEffect
+        delay((message.afterSeconds * 1000).toLong())
+        showNote = true
+    }
+    Column(modifier.padding(horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        CircularProgressIndicator(Modifier.size(52.dp), color = Color.White)
+        AnimatedVisibility(showNote, enter = fadeIn(tween(500)) + slideInVertically(tween(500)) { it / 3 }) {
+            Text(
+                message?.text.orEmpty(),
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 380.dp),
+            )
         }
     }
 }

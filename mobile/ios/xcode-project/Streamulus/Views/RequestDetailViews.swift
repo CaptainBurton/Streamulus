@@ -932,6 +932,7 @@ struct TVChecklistView: View {
         if total > 0 && ready == total { return ((s.unaired ?? 0) > 0 ? "Aired ready" : "All ready", .green) }
         if (s.active ?? 0) > 0 { return ("\(s.active!) downloading", Theme.accent) }
         if (s.missing ?? 0) > 0 { return ("\(s.missing!) not found", .orange) }
+        if (s.waiting ?? 0) > 0 { return ("Waiting for the finale", EpisodeMark.color("waiting")) }
         if total == 0 && (s.unaired ?? 0) > 0 { return ("Not aired yet", .white.opacity(0.5)) }
         return ("\(ready) of \(total)", .white.opacity(0.6))
     }
@@ -955,6 +956,7 @@ struct TVChecklistView: View {
         case "searching": return "Searching"
         case "failed": return "Problem"
         case "unaired": return e.airDate.map { "Airs \(RequestDates.short($0))" } ?? "Not aired yet"
+        case "waiting": return "After the finale"
         default: return "Not found yet"
         }
     }
@@ -973,6 +975,7 @@ struct EpisodeMark: View {
         case "searching": return .yellow
         case "failed": return .red
         case "unaired": return .white.opacity(0.4)
+        case "waiting": return Color(red: 0.56, green: 0.66, blue: 1)
         default: return .orange
         }
     }

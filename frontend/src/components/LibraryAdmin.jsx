@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import Select from './Select';
 
 // Admin › Libraries: how folders and files are named (like Sonarr / Radarr's
 // naming settings, which Streamulus reads instead of writes), and tidying the
@@ -115,11 +116,11 @@ export function NamingFormats({ flash }) {
       <form onSubmit={runTest} style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
         <label style={LABEL} htmlFor="naming-test">Test a file path</label>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <select value={test.kind} onChange={e => { setTest(t => ({ ...t, kind: e.target.value })); setTestResult(null); }}
+          <Select value={test.kind} onChange={e => { setTest(t => ({ ...t, kind: e.target.value })); setTestResult(null); }}
             style={{ ...INPUT, width: 'auto', fontFamily: 'inherit', colorScheme: 'dark', cursor: 'pointer' }} aria-label="Library type">
             <option value="tv">TV</option>
             <option value="movies">Movie</option>
-          </select>
+          </Select>
           <input id="naming-test" style={{ ...INPUT, flex: '1 1 320px', width: 'auto' }} spellCheck={false} value={test.path}
             placeholder={test.kind === 'tv' ? '/tv/Show Name (2020)/Season 01/Show Name - S01E01 - Pilot.mkv' : '/movies/Movie Name (2001)/Movie Name (2001).mkv'}
             onChange={e => setTest(t => ({ ...t, path: e.target.value }))} />
@@ -310,9 +311,9 @@ export function CountryPicker({ value, onChange, style }) {
   const list = (items) => items.filter(o => o.age != null).map(o => o.code).join(' · ');
   return (
     <div>
-      <select value={value} onChange={e => onChange(e.target.value)} style={{ ...style, cursor: 'pointer', width: '100%', colorScheme: 'dark' }} aria-label="Country">
+      <Select value={value} onChange={e => onChange(e.target.value)} style={{ ...style, cursor: 'pointer', width: '100%', colorScheme: 'dark' }} aria-label="Country">
         {(info?.countries || [{ code: value, name: value }]).map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
-      </select>
+      </Select>
       {info && (
         <div style={{ marginTop: '10px', fontSize: '12px', color: '#777', lineHeight: 1.7 }}>
           <div><span style={{ color: '#999', fontWeight: 600 }}>Movies:</span> {list(info.movie)}</div>

@@ -816,10 +816,12 @@ struct Branding: Decodable, Equatable {
     var logoUrl: String?
     /// The server's public address, e.g. a Tailscale Funnel URL.
     var publicUrl: String?
+    /// The note under the player's spinner when a video is slow to start.
+    var bufferingMessage: BufferingMessage?
 
     static let `default` = Branding()
 
-    enum CodingKeys: String, CodingKey { case showLogo, showText, logoUrl, publicUrl }
+    enum CodingKeys: String, CodingKey { case showLogo, showText, logoUrl, publicUrl, bufferingMessage }
 
     init() {}
 
@@ -829,8 +831,17 @@ struct Branding: Decodable, Equatable {
         showText = (try? c.decodeIfPresent(Bool.self, forKey: .showText)) ?? true
         logoUrl = c.lossyString(.logoUrl)
         publicUrl = c.lossyString(.publicUrl)
+        bufferingMessage = try? c.decodeIfPresent(BufferingMessage.self, forKey: .bufferingMessage)
         if !showLogo && !showText { showText = true }
     }
+}
+
+/// Admin › Settings › Streaming › Slow Start Message: shown under the player's
+/// spinner after `afterSeconds` of loading — usually the server's drives waking up.
+struct BufferingMessage: Decodable, Equatable {
+    let enabled: Bool
+    let text: String
+    let afterSeconds: Double?
 }
 
 // MARK: - Film and series requests (/api/requests)
@@ -969,6 +980,8 @@ struct TVSeasonProgress: Decodable, Hashable, Identifiable {
     let active: Int?
     let missing: Int?
     let unaired: Int?
+    /// Aired, but held until the season's last episode is out (Download when: the whole season).
+    let waiting: Int?
     let progress: Double?
     let episodes: [TVEpisodeProgress]
     var id: Int { season }
@@ -978,7 +991,7 @@ struct TVEpisodeProgress: Decodable, Hashable, Identifiable {
     let episode: Int
     let title: String?
     let airDate: String?
-    /// ready, downloading, importing, adding, searching, missing, failed, unaired
+    /// ready, downloading, importing, adding, searching, missing, failed, unaired, waiting
     let state: String
     let progress: Double?
     var id: Int { episode }

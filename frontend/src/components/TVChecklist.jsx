@@ -18,6 +18,8 @@ const STATES = {
   missing: { color: '#ff8c42', label: 'Not found yet' },
   failed: { color: '#ff6b6b', label: 'Problem' },
   unaired: { color: '#6b6b76', label: 'Not aired yet' },
+  // Download when: the whole season — aired, but held until the season's last episode is out.
+  waiting: { color: '#8fa8ff', label: 'After the finale' },
 };
 
 const day = (d) => (d ? new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : '');
@@ -61,6 +63,7 @@ function seasonSummary(s) {
   if (s.total && s.ready === s.total) return { text: s.unaired ? `All aired ready · ${s.unaired} to come` : 'All ready', color: STATES.ready.color };
   if (s.active) return { text: `${s.active} downloading`, color: STATES.downloading.color };
   if (s.missing) return { text: `${s.missing} not found yet`, color: STATES.missing.color };
+  if (s.waiting) return { text: 'Waiting for the finale', color: STATES.waiting.color };
   if (!s.total && s.unaired) return { text: 'Not aired yet', color: STATES.unaired.color };
   return { text: `${s.ready} of ${s.total}`, color: '#aaa' };
 }

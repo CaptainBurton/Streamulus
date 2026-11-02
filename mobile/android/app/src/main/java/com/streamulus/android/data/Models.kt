@@ -390,6 +390,8 @@ data class Branding(
     val logoUrl: String? = null,
     /** The server's public address, e.g. a Tailscale Funnel URL. */
     val publicUrl: String? = null,
+    /** The note under the player's spinner when a video is slow to start. */
+    val bufferingMessage: BufferingMessage? = null,
 ) {
     companion object {
         val Default = Branding()
@@ -397,10 +399,17 @@ data class Branding(
         fun from(o: JsonObject): Branding {
             val logo = o.bool("showLogo", default = true)
             val text = o.bool("showText", default = true)
-            return Branding(logo, text || !logo, o.str("logoUrl"), o.str("publicUrl"))
+            val note = o.obj("bufferingMessage")?.let { BufferingMessage(it.bool("enabled", default = true), it.str("text") ?: "", it.double("afterSeconds") ?: 5.0) }
+            return Branding(logo, text || !logo, o.str("logoUrl"), o.str("publicUrl"), note)
         }
     }
 }
+
+/**
+ * Admin › Settings › Streaming › Slow Start Message: shown under the player's
+ * spinner after [afterSeconds] of loading — usually the server's drives waking up.
+ */
+data class BufferingMessage(val enabled: Boolean, val text: String, val afterSeconds: Double)
 
 // ── Feedback ─────────────────────────────────────────────────────────────────
 
@@ -595,16 +604,18 @@ data class TVProgress(val total: Int, val ready: Int, val progress: Double, val 
 data class TVSeasonProgress(
     val season: Int, val total: Int, val ready: Int, val active: Int, val missing: Int, val unaired: Int, val progress: Double,
     val episodes: List<TVEpisodeProgress>,
+    /** Aired, but held until the season's last episode is out (Download when: the whole season). */
+    val waiting: Int = 0,
 ) {
     companion object {
         fun from(o: JsonObject) = TVSeasonProgress(
             o.int("season") ?: 0, o.int("total") ?: 0, o.int("ready") ?: 0, o.int("active") ?: 0, o.int("missing") ?: 0, o.int("unaired") ?: 0,
-            o.double("progress") ?: 0.0, o.objects("episodes").map(TVEpisodeProgress::from),
+            o.double("progress") ?: 0.0, o.objects("episodes").map(TVEpisodeProgress::from), o.int("waiting") ?: 0,
         )
     }
 }
 
-/** state: ready, downloading, importing, adding, searching, missing, failed, unaired */
+/** state: ready, downloading, importing, adding, searching, missing, failed, unaired, waiting */
 data class TVEpisodeProgress(val episode: Int, val title: String?, val airDate: String?, val state: String, val progress: Double) {
     companion object {
         fun from(o: JsonObject) = TVEpisodeProgress(o.int("episode") ?: 0, o.str("title"), o.str("airDate"), o.str("state") ?: "missing", o.double("progress") ?: 0.0)

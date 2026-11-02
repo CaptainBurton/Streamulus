@@ -14,6 +14,7 @@ import GenresAdmin from '../components/GenresAdmin';
 import StreamingServicesAdmin from '../components/StreamingServicesAdmin';
 import BrandingAdmin from '../components/BrandingAdmin';
 import { NamingFormats, LibraryMaintenance, CountryPicker } from '../components/LibraryAdmin';
+import Select from '../components/Select';
 
 function StatCard({ label, value, icon }) {
   return (
@@ -291,6 +292,7 @@ export default function Admin() {
     videoCrf: '23', videoPreset: 'ultrafast', videoResolution: 'original',
     audioBitrate: '192k', audioChannels: '2', hlsSegmentDuration: '4', progressMinSeconds: '10',
     upNextSeconds: '30', remoteMaxBitrate: '10',
+    bufferingMessageEnabled: true, bufferingMessage: '',
   });
   const [newLib, setNewLib] = useState({ name: '', path: '', type: 'movies' });
   const [editLib, setEditLib] = useState(null); // { id, path } while editing a library's path
@@ -340,6 +342,8 @@ export default function Admin() {
         progressMinSeconds: configRes.data.progressMinSeconds || '10',
         upNextSeconds: configRes.data.upNextSeconds || '30',
         remoteMaxBitrate: configRes.data.remoteMaxBitrate ?? '10',
+        bufferingMessageEnabled: configRes.data.bufferingMessageEnabled !== false,
+        bufferingMessage: configRes.data.bufferingMessage || '',
       });
       setPreferredLanguage(configRes.data.preferredLanguage || 'en');
       setPreferredCountry(configRes.data.preferredCountry || 'US');
@@ -614,10 +618,10 @@ export default function Admin() {
                   onChange={v => setNewLib(l => ({ ...l, path: v }))}
                   placeholder="/movies or /tv"
                 />
-                <select style={selectStyle} value={newLib.type} onChange={e => setNewLib(l => ({ ...l, type: e.target.value }))}>
+                <Select style={selectStyle} value={newLib.type} onChange={e => setNewLib(l => ({ ...l, type: e.target.value }))}>
                   <option value="movies">Movies</option>
                   <option value="tv">TV Shows</option>
-                </select>
+                </Select>
                 <button type="submit" style={{ padding: '10px 20px', background: '#00c2ff', color: '#000', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}>
                   Add
                 </button>
@@ -981,7 +985,7 @@ export default function Admin() {
               ].map(({ label, key, options }, i, arr) => (
                 <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
                   <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>{label}</span>
-                  <select
+                  <Select
                     value={encSettings[key]}
                     onChange={e => setEncSettings(s => ({ ...s, [key]: e.target.value }))}
                     style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none' }}
@@ -989,7 +993,7 @@ export default function Admin() {
                     {Object.entries(options).map(([val, lbl]) => (
                       <option key={val} value={val}>{lbl}</option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               ))}
 
@@ -1009,7 +1013,7 @@ export default function Admin() {
               ].map(({ label, key, options }, i, arr) => (
                 <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
                   <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>{label}</span>
-                  <select
+                  <Select
                     value={encSettings[key]}
                     onChange={e => setEncSettings(s => ({ ...s, [key]: e.target.value }))}
                     style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none' }}
@@ -1017,7 +1021,7 @@ export default function Admin() {
                     {Object.entries(options).map(([val, lbl]) => (
                       <option key={val} value={val}>{lbl}</option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               ))}
 
@@ -1031,7 +1035,7 @@ export default function Admin() {
                     down so they don't buffer. At home, videos always play at full quality.
                   </div>
                 </div>
-                <select
+                <Select
                   data-setting="remoteMaxBitrate"
                   value={encSettings.remoteMaxBitrate}
                   onChange={e => setEncSettings(s => ({ ...s, remoteMaxBitrate: e.target.value }))}
@@ -1047,11 +1051,43 @@ export default function Admin() {
                   <option value="4">Up to 4 Mbit/s (720p, slow connections)</option>
                   <option value="2">Up to 2 Mbit/s (480p, mobile data)</option>
                   <option value="0">No limit (original quality)</option>
-                </select>
+                </Select>
+              </div>
+              <div style={{ padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }} data-section="buffering-message">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+                  <div>
+                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Slow Start Message</span>
+                    <div style={{ fontSize: '12px', color: '#555', marginTop: '3px', lineHeight: 1.5 }}>
+                      Shown under the loading spinner in every player (website, iPhone, Android, Apple TV) when a video is still loading after 5 seconds —
+                      usually the server's drives waking up after a quiet spell.
+                    </div>
+                  </div>
+                  <button
+                    type="button" role="switch" aria-checked={!!encSettings.bufferingMessageEnabled} aria-label="Show the slow start message" data-action="toggle-buffering-message"
+                    onClick={() => setEncSettings(s => ({ ...s, bufferingMessageEnabled: !s.bufferingMessageEnabled }))}
+                    style={{ position: 'relative', width: '46px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', flexShrink: 0, transition: 'background 0.2s',
+                      background: encSettings.bufferingMessageEnabled ? '#00c2ff' : 'rgba(255,255,255,0.15)' }}>
+                    <span style={{ position: 'absolute', top: '3px', left: encSettings.bufferingMessageEnabled ? '23px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                  </button>
+                </div>
+                {encSettings.bufferingMessageEnabled && (
+                  <div style={{ marginTop: '12px' }}>
+                    <textarea
+                      value={encSettings.bufferingMessage}
+                      onChange={e => setEncSettings(s => ({ ...s, bufferingMessage: e.target.value.slice(0, 240) }))}
+                      rows={2} maxLength={240} aria-label="Slow start message"
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', lineHeight: 1.5, resize: 'vertical', outline: 'none' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px', fontSize: '12px', color: '#555' }}>
+                      <span>{(encSettings.bufferingMessage || '').length}/240 · leave empty for the default</span>
+                      <button type="button" onClick={() => setEncSettings(s => ({ ...s, bufferingMessage: '' }))}
+                        style={{ background: 'none', border: 'none', color: '#00c2ff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, padding: 0 }}>Reset to default</button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Segment Size</span>
-                <select
+                <Select
                   value={encSettings.hlsSegmentDuration}
                   onChange={e => setEncSettings(s => ({ ...s, hlsSegmentDuration: e.target.value }))}
                   style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none' }}
@@ -1059,14 +1095,14 @@ export default function Admin() {
                   <option value="2">2 seconds (precise seeking)</option>
                   <option value="4">4 seconds (default)</option>
                   <option value="6">6 seconds (fewer requests)</option>
-                </select>
+                </Select>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 <div>
                   <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Up Next Countdown</span>
                   <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>How many seconds before the end of an episode the Up Next card appears</div>
                 </div>
-                <select
+                <Select
                   value={encSettings.upNextSeconds}
                   onChange={e => setEncSettings(s => ({ ...s, upNextSeconds: e.target.value }))}
                   style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none', flexShrink: 0 }}
@@ -1082,14 +1118,14 @@ export default function Admin() {
                   <option value="60">1 minute</option>
                   <option value="90">1 minute 30 seconds</option>
                   <option value="120">2 minutes</option>
-                </select>
+                </Select>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>
                 <div>
                   <span style={{ fontSize: '14px', fontWeight: '600', color: '#ccc' }}>Resume Threshold</span>
                   <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>Minimum seconds watched before adding to Continue Watching</div>
                 </div>
-                <select
+                <Select
                   value={encSettings.progressMinSeconds}
                   onChange={e => setEncSettings(s => ({ ...s, progressMinSeconds: e.target.value }))}
                   style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '200px', cursor: 'pointer', outline: 'none', flexShrink: 0 }}
@@ -1100,7 +1136,7 @@ export default function Admin() {
                   <option value="20">20 seconds</option>
                   <option value="25">25 seconds</option>
                   <option value="30">30 seconds</option>
-                </select>
+                </Select>
               </div>
 
               <button
@@ -1159,7 +1195,7 @@ export default function Admin() {
               <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: '200px' }}>
                   <label style={{ fontSize: '13px', color: '#888', display: 'block', marginBottom: '8px', fontWeight: '600' }}>Metadata Language</label>
-                  <select value={preferredLanguage} onChange={e => setPreferredLanguage(e.target.value)}
+                  <Select value={preferredLanguage} onChange={e => setPreferredLanguage(e.target.value)}
                     style={{ ...inputStyle, cursor: 'pointer', width: '100%' }}>
                     <option value="en">English</option>
                     <option value="fr">French</option>
@@ -1180,7 +1216,7 @@ export default function Admin() {
                     <option value="pl">Polish</option>
                     <option value="tr">Turkish</option>
                     <option value="hi">Hindi</option>
-                  </select>
+                  </Select>
                 </div>
                 <div style={{ flex: 1, minWidth: '200px' }}>
                   <label style={{ fontSize: '13px', color: '#888', display: 'block', marginBottom: '8px', fontWeight: '600' }}>Country</label>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import ProfileAvatar from './ProfileAvatar';
 import MailIcon from './MailIcon';
+import Select from './Select';
 
 // Admin › Users: every account (search, filter, sort), each one's details —
 // name, email, role, disable, new password, signed-in devices (sign one or all
@@ -61,17 +62,17 @@ export default function UsersAdmin({ flash, onChanged, onEmail }) {
         {adding && <AddUser flash={flash} onAdded={() => { setAdding(false); changed(); }} />}
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
           <input style={{ ...INPUT, flex: '1 1 220px' }} placeholder="Search names, emails, profiles…" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search accounts" />
-          <select style={SELECT} value={filter} onChange={e => setFilter(e.target.value)} aria-label="Show">
+          <Select style={SELECT} value={filter} onChange={e => setFilter(e.target.value)} aria-label="Show">
             <option value="all">All accounts</option>
             <option value="admins">Admins</option>
             <option value="users">Users</option>
             <option value="disabled">Disabled</option>
-          </select>
-          <select style={SELECT} value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort">
+          </Select>
+          <Select style={SELECT} value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort">
             <option value="active">Recently active</option>
             <option value="name">Name</option>
             <option value="newest">Newest</option>
-          </select>
+          </Select>
         </div>
 
         {!data ? <div className="spinner" style={{ margin: '30px auto' }} /> : (
@@ -131,10 +132,10 @@ function AddUser({ flash, onAdded }) {
       <input style={{ ...INPUT, flex: '1 1 150px' }} placeholder="Username" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} aria-label="New username" />
       <input style={{ ...INPUT, flex: '1 1 150px' }} type="password" placeholder="Password (6+ characters)" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} aria-label="New password" />
       <input style={{ ...INPUT, flex: '1 1 180px' }} type="email" placeholder="Email (optional)" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} aria-label="Email" />
-      <select style={SELECT} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} aria-label="Role">
+      <Select style={SELECT} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} aria-label="Role">
         <option value="user">User</option>
         <option value="admin">Admin</option>
-      </select>
+      </Select>
       <button type="submit" style={PRIMARY} disabled={busy || !form.username.trim() || form.password.length < 6}>Create</button>
     </form>
   );
@@ -221,10 +222,10 @@ function AccountTab({ user, self, flash, onChanged, onDeleted, onEmail }) {
         <Field label="Username"><input style={{ ...INPUT, width: '100%' }} value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} aria-label="Username" /></Field>
         <Field label="Email"><input style={{ ...INPUT, width: '100%' }} type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} aria-label="Email" /></Field>
         <Field label="Role" small>
-          <select style={{ ...SELECT, width: '100%' }} value={form.role} disabled={self} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} aria-label="Role">
+          <Select style={{ ...SELECT, width: '100%' }} value={form.role} disabled={self} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} aria-label="Role">
             <option value="user">User</option>
             <option value="admin">Admin</option>
-          </select>
+          </Select>
         </Field>
         <button style={PRIMARY} disabled={busy || !dirty} onClick={() => run(async () => {
           const r = await axios.put(`/api/admin/users/${user.id}`, form);
@@ -484,16 +485,16 @@ function ActivityLog({ users, flash }) {
       </div>
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
         <input style={{ ...INPUT, flex: '1 1 200px' }} placeholder="Search names, titles, IPs, devices…" value={filters.q} onChange={set('q')} aria-label="Search activity" />
-        <select style={SELECT} value={filters.user} onChange={set('user')} aria-label="Account">
+        <Select style={SELECT} value={filters.user} onChange={set('user')} aria-label="Account">
           <option value="">All accounts</option>
           {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
-        </select>
-        <select style={SELECT} value={filters.period} onChange={set('period')} aria-label="Period">
+        </Select>
+        <Select style={SELECT} value={filters.period} onChange={set('period')} aria-label="Period">
           <option value="24h">Last 24 hours</option>
           <option value="7d">Last 7 days</option>
           <option value="30d">Last 30 days</option>
           <option value="all">All time</option>
-        </select>
+        </Select>
       </div>
 
       <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>{loading && !items.length ? 'Loading…' : `${total} entr${total === 1 ? 'y' : 'ies'}`}</div>
@@ -507,10 +508,10 @@ function ActivityLog({ users, flash }) {
       {retention !== null && (
         <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '18px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '13px', color: '#aaa', flexWrap: 'wrap' }}>
           Keep entries for
-          <select style={SELECT} value={String(retention)} onChange={e => saveRetention(e.target.value)} aria-label="Keep entries for">
+          <Select style={SELECT} value={String(retention)} onChange={e => saveRetention(e.target.value)} aria-label="Keep entries for">
             {[[30, '30 days'], [90, '90 days'], [180, '6 months'], [365, '1 year'], [0, 'Forever']].map(([v, l]) => <option key={v} value={String(v)}>{l}</option>)}
             {![30, 90, 180, 365, 0].includes(retention) && <option value={String(retention)}>{retention} days</option>}
-          </select>
+          </Select>
         </label>
       )}
     </div>

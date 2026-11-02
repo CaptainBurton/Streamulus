@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import ServiceLogo, { logoSize } from './ServiceLogo';
+import Select from './Select';
 
 // Admin › Streaming Services: which services show on Home (and in what order),
 // their banners, and which movies and shows each one has — a title can be on
@@ -217,11 +218,11 @@ function TitleServices({ titles, services, onChanged, flash }) {
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
         <input placeholder={`Search ${kind === 'movies' ? 'movies' : 'shows'}…`} value={search} onChange={e => setSearch(e.target.value)} aria-label="Search titles"
           style={{ flex: '1 1 200px', padding: '9px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none' }} />
-        <select value={filter} onChange={e => setFilter(e.target.value)} style={SELECT} aria-label="Filter by service">
+        <Select value={filter} onChange={e => setFilter(e.target.value)} style={SELECT} aria-label="Filter by service">
           <option value="all">All titles</option>
           <option value="none">Not on any service</option>
           {services.map(s => <option key={s.id} value={s.id}>On {s.name}</option>)}
-        </select>
+        </Select>
       </div>
 
       {titles === null ? <div className="spinner" style={{ margin: '30px auto' }} /> : (

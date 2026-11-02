@@ -384,6 +384,8 @@ try { db.exec('ALTER TABLE media_requests ADD COLUMN tvdb_id INTEGER'); } catch 
 try { db.exec('ALTER TABLE media_requests ADD COLUMN sonarr_id INTEGER'); } catch {}
 try { db.exec('ALTER TABLE media_requests ADD COLUMN show_id INTEGER'); } catch {}
 try { db.exec('ALTER TABLE media_requests ADD COLUMN tv_progress TEXT'); } catch {}
+// Seasons held back until they've finished airing (Sonarr › Download when: the whole season), JSON [numbers].
+try { db.exec('ALTER TABLE media_requests ADD COLUMN held_seasons TEXT'); } catch {}
 // Magnet links an admin added for a series request — several per request (a
 // season pack, a single episode…), each followed in Deluge and moved into the
 // right season folder when done.

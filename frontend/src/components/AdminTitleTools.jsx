@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import Select from './Select';
 
 // Admin tools for a movie, show, season or episode: edit its details, and
 // remove it — from Streamulus only (the files stay, and scans leave them out
@@ -93,11 +94,11 @@ export function EditDetailsModal({ kind, item, onClose, onSaved }) {
           </div>
           <div style={{ flex: '1 1 120px' }}>
             <label style={LABEL} htmlFor="ed-rating">Age rating{ratings?.name ? <span style={{ fontWeight: 500, color: '#555' }}> ({ratings.name})</span> : null}</label>
-            <select id="ed-rating" style={{ ...INPUT, cursor: 'pointer', colorScheme: 'dark' }} value={current} onChange={set('contentRating')} disabled={!ratings}>
+            <Select id="ed-rating" style={{ ...INPUT, cursor: 'pointer', colorScheme: 'dark' }} value={current} onChange={set('contentRating')} disabled={!ratings}>
               <option value="">Not rated</option>
               {ratingOptions.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
               {!currentListed && <option value={current}>{current} — from another country</option>}
-            </select>
+            </Select>
           </div>
         </div>
         <div>

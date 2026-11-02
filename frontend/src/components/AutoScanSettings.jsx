@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import Select from './Select';
 
 // Admin › Libraries › Automatic Scanning: find new and removed files by itself
 // (like Plex's "Scan my library automatically"), and optionally scan everything
@@ -66,7 +67,7 @@ export default function AutoScanSettings({ flash }) {
             Catches changes the watcher can't see — e.g. files changed on a network share from another computer.
           </div>
         </div>
-        <select value={String(s.intervalHours)} disabled={busy} onChange={e => save({ intervalHours: Number(e.target.value) })} aria-label="Full scan interval"
+        <Select value={String(s.intervalHours)} disabled={busy} onChange={e => save({ intervalHours: Number(e.target.value) })} aria-label="Full scan interval"
           style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', padding: '8px 12px', minWidth: '180px', cursor: 'pointer', outline: 'none', colorScheme: 'dark' }}>
           {!['0', '1', '6', '12', '24'].includes(String(s.intervalHours)) && <option value={String(s.intervalHours)}>Every {s.intervalHours} hours</option>}
           <option value="0">Never</option>
@@ -74,7 +75,7 @@ export default function AutoScanSettings({ flash }) {
           <option value="6">Every 6 hours</option>
           <option value="12">Every 12 hours</option>
           <option value="24">Once a day</option>
-        </select>
+        </Select>
       </div>
     </div>
   );

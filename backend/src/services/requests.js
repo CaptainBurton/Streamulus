@@ -799,6 +799,7 @@ function saveSettings(input = {}) {
   if (typeof input.delugePassword === 'string' && input.delugePassword !== '') setConf('deluge_password', input.delugePassword);
   if (input.clearDelugePassword) setConf('deluge_password', '');
   const sonarrMap = { sonarrUrl: 'sonarr_url', sonarrRootFolder: 'sonarr_root_folder', sonarrQualityProfileId: 'sonarr_quality_profile', sonarrLanguageProfileId: 'sonarr_language_profile' };
+  if (input.sonarrDownloadWhen !== undefined) setConf('sonarr_download_when', input.sonarrDownloadWhen === 'season' ? 'season' : 'aired');
   for (const [k, key] of Object.entries(sonarrMap)) if (input[k] !== undefined) setConf(key, String(input[k] ?? '').trim());
   if (typeof input.sonarrApiKey === 'string' && input.sonarrApiKey.trim()) setConf('sonarr_api_key', input.sonarrApiKey.trim());
   if (input.seriesLimit !== undefined) setConf('requests_series_limit', String(Math.max(1, Math.min(100, parseInt(input.seriesLimit, 10) || 3))));
@@ -820,7 +821,7 @@ function settingsView() {
     sonarr: (() => {
       const so = require('./sonarr');
       const x = so.settings();
-      return { url: x.url, apiKeySet: !!x.apiKey, rootFolder: x.rootFolder, qualityProfileId: x.qualityProfileId, languageProfileId: x.languageProfileId, configured: so.configured() };
+      return { url: x.url, apiKeySet: !!x.apiKey, rootFolder: x.rootFolder, qualityProfileId: x.qualityProfileId, languageProfileId: x.languageProfileId, downloadWhen: x.downloadWhen, configured: so.configured() };
     })(),
     deluge: {
       url: deluge.settings().url, passwordSet: !!deluge.settings().password, configured: deluge.configured(),

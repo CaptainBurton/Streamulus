@@ -249,21 +249,24 @@ function FilmGrid({ films, onOpen, onAct }) {
                   {rating && (
                     <div className="req-badge" style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.75)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', fontWeight: 600, color: '#00c2ff' }}>★ {rating}</div>
                   )}
-                  <div className="req-hover" aria-hidden="true">
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff', marginBottom: '4px', lineHeight: 1.3 }}>{film.title}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {film.year && <span style={{ fontSize: '11px', color: '#aaa' }}>{film.year}</span>}
-                      {rating && <span style={{ fontSize: '11px', color: '#00c2ff', fontWeight: 600 }}>★ {rating}</span>}
+                  {/* Status at the bottom of the poster, always; on hover the title, year and rating rise in under it. */}
+                  <div className={`req-shade${film.request || film.showId ? ' req-shade-on' : ''}`} aria-hidden="true" />
+                  <div className="req-caption">
+                    {film.request ? <StatusPill status={film.request.status} label={film.request.label} /> : film.showId ? <OnServerPill /> : null}
+                    <div className="req-info">
+                      <div>
+                        <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#fff', lineHeight: 1.3 }}>{film.title}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
+                          {[film.year, film.role].filter(Boolean).length > 0 && <span style={{ fontSize: '11.5px', color: '#bbb' }}>{[film.year, film.role].filter(Boolean).join(' · ')}</span>}
+                          {rating && <span style={{ fontSize: '11.5px', color: '#00c2ff', fontWeight: 600 }}>★ {rating}</span>}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-              {film.request && <div style={{ marginTop: '10px', display: 'flex' }}><StatusPill status={film.request.status} label={film.request.label} /></div>}
-              {!film.request && film.showId && <div style={{ marginTop: '10px', display: 'flex' }}><OnServerPill /></div>}
-              <div style={{ fontWeight: 700, fontSize: '14px', marginTop: film.request || film.showId ? '6px' : '10px', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{film.title}</div>
-              <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[film.year, film.role].filter(Boolean).join(' · ') || '—'}</div>
             </button>
-            <div style={{ marginTop: 'auto' }}>
+            <div style={{ marginTop: '10px' }}>
               {film.request
                 ? <button style={{ ...BTN, width: '100%' }} onClick={() => onAct(film)} data-action={film.request.mine ? 'progress' : 'join'}>{film.request.mine ? 'See Progress' : 'Me Too'}</button>
                 : film.mediaType === 'tv' && film.showId

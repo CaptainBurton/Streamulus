@@ -16,6 +16,10 @@ function settings() {
     qualityProfileId: parseInt(getConf('sonarr_quality_profile'), 10) || null,
     // Sonarr 3 only (Sonarr 4 dropped language profiles).
     languageProfileId: parseInt(getConf('sonarr_language_profile'), 10) || null,
+    // "Download when": 'aired' — each episode as soon as it's out; 'season' — a
+    // season only once its last episode has aired (Streamulus holds it back
+    // until then, then searches for the whole season).
+    downloadWhen: getConf('sonarr_download_when', 'aired') === 'season' ? 'season' : 'aired',
   };
 }
 
@@ -76,14 +80,18 @@ const search = async (seriesId, season = null) => (await client().post('/command
 /**
  * Add a series (or, if Sonarr already has it, monitor what's asked for) and
  * search. season = null: every season (not specials); a number: that season.
- * Options default to the saved ones. → { series, command, existed }
+ * hold: leave seasons that are still airing unmonitored (Download when: the
+ * whole season has aired) — they're released later by tvRequests.
+ * Options default to the saved ones. → { series, command, existed, held: [season numbers] }
  */
-async function addAndSearch(tvdbId, { season = null, qualityProfileId, languageProfileId, rootFolder } = {}) {
+async function addAndSearch(tvdbId, { season = null, qualityProfileId, languageProfileId, rootFolder, hold = false } = {}) {
   const s = settings();
   const api = client(s);
   const wanted = (n) => (season == null ? n > 0 : n === Number(season));
   let series = await findByTvdb(tvdbId);
   let existed = !!series;
+  // Seasons someone was already getting stay as they were.
+  const alreadyMonitored = new Set((series?.seasons || []).filter(x => x.monitored && series.monitored).map(x => x.seasonNumber));
   if (series) {
     const seasons = (series.seasons || []).map(x => ({ ...x, monitored: x.monitored || wanted(x.seasonNumber) }));
     if (!series.monitored || seasons.some((x, i) => x.monitored !== series.seasons[i].monitored)) {
@@ -116,8 +124,31 @@ async function addAndSearch(tvdbId, { season = null, qualityProfileId, languageP
       existed = true;
     }
   }
-  const cmd = await search(series.id, season);
-  return { series, command: cmd, existed };
+  let held = [];
+  if (hold) {
+    const now = Date.now();
+    const eps = await episodes(series.id);
+    const airing = new Set(eps
+      .filter(e => wanted(e.seasonNumber) && !alreadyMonitored.has(e.seasonNumber) && !(e.airDateUtc && Date.parse(e.airDateUtc) <= now))
+      .map(e => e.seasonNumber));
+    held = [...airing].sort((a, b) => a - b);
+    if (held.length) {
+      const seasons = (series.seasons || []).map(x => (airing.has(x.seasonNumber) ? { ...x, monitored: false } : x));
+      series = (await api.put(`/series/${series.id}`, { ...series, seasons })).data;
+    }
+  }
+  const searchable = season == null ? (series.seasons || []).some(x => x.monitored && x.seasonNumber > 0) : !held.includes(Number(season));
+  const cmd = searchable ? await search(series.id, season) : null;
+  return { series, command: cmd, existed, held };
+}
+
+// A held season has finished airing: monitor it and search for the whole season.
+async function releaseSeason(seriesId, season) {
+  const api = client();
+  const series = await getSeries(seriesId);
+  const seasons = (series.seasons || []).map(x => (x.seasonNumber === Number(season) ? { ...x, monitored: true } : x));
+  await api.put(`/series/${seriesId}`, { ...series, monitored: true, seasons });
+  return search(seriesId, season);
 }
 
 // Everything Sonarr is downloading or importing, by Sonarr series id.
@@ -174,5 +205,5 @@ const rescan = async (seriesId) => (await client().post('/command', { name: 'Res
 
 module.exports = {
   settings, configured, client, errorText, test, findByTvdb, getSeries, episodes, command, search, addAndSearch,
-  queueBySeries, history, standDown, rescan,
+  queueBySeries, history, standDown, rescan, releaseSeason,
 };

@@ -80,16 +80,30 @@ export const RequestStyles = () => (
     .req-poster:focus-visible { outline: none; }
     .req-art { position: relative; border-radius: 8px; transition: transform 0.25s, box-shadow 0.25s; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
     .req-art-clip { border-radius: 8px; overflow: hidden; position: relative; aspect-ratio: 2 / 3; background: #1e1e1e; -webkit-mask-image: -webkit-radial-gradient(white, black); }
-    .req-hover { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; opacity: 0; transition: opacity 0.25s;
+    /* A shade up the bottom of the poster: a little behind the status label,
+       all the way on hover behind the title. */
+    .req-shade { position: absolute; inset: 0; opacity: 0; transition: opacity 0.25s; pointer-events: none;
       background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.2) 60%, transparent 100%); }
+    .req-shade-on { opacity: 0.55; }
+    /* The status label sits at the bottom; the title, year and rating rise in under it on hover. */
+    .req-caption { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 12px 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none; }
+    .req-info { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.25s ease, opacity 0.25s ease; width: 100%; }
+    .req-info > div { overflow: hidden; min-height: 0; }
     .req-badge { transition: opacity 0.2s; }
     @media (hover: hover) {
       .req-poster:hover .req-art { transform: scale(1.06) translateY(-4px); box-shadow: 0 16px 40px rgba(0,0,0,0.8); }
-      .req-poster:hover .req-hover { opacity: 1; }
+      .req-poster:hover .req-shade { opacity: 1; }
+      .req-poster:hover .req-info { grid-template-rows: 1fr; opacity: 1; }
       .req-poster:hover .req-badge { opacity: 0; }
     }
+    /* Touch screens can't hover: show the title all the time. */
+    @media (hover: none) {
+      .req-shade { opacity: 1; }
+      .req-info { grid-template-rows: 1fr; opacity: 1; }
+    }
     .req-poster:focus-visible .req-art { transform: scale(1.06) translateY(-4px); box-shadow: 0 0 0 2px #00c2ff, 0 16px 40px rgba(0,0,0,0.8); }
-    .req-poster:focus-visible .req-hover { opacity: 1; }
+    .req-poster:focus-visible .req-shade { opacity: 1; }
+    .req-poster:focus-visible .req-info { grid-template-rows: 1fr; opacity: 1; }
     .req-poster:focus-visible .req-badge { opacity: 0; }
 
     /* Cast and crew photos: the photo grows a little, like a poster. */

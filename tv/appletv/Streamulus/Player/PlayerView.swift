@@ -48,7 +48,7 @@ struct PlayerView: View {
                 .ignoresSafeArea()
 
             if controller.isBuffering && controller.errorText == nil {
-                ProgressView().scaleEffect(1.6)
+                BufferingIndicator(since: controller.bufferingSince, message: controller.slowStartMessage)
             }
 
             if showControls {
