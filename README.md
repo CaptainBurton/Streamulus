@@ -88,8 +88,14 @@ Set where your media lives on the server with two environment variables. In Port
 |---|---|---|
 | `TV_PATH` | `/mnt/movies-series/Series` | `/tv` |
 | `MOVIES_PATH` | `/mnt/movies-series/Movies` | `/movies` |
+| `DOWNLOADS_PATH` (optional) | `/home/you/docker/deluge/downloads` | `/downloads` |
 
 In the app, libraries are always `/tv` and `/movies`, whatever the server folders are called.
+
+`DOWNLOADS_PATH` is Deluge's download folder. It's only needed if admins add magnet links to requests (the backup
+when Radarr or Sonarr can't find something): when a download finishes, Streamulus moves it from there into `/movies`
+or `/tv`. Mount it at `/downloads`, the same path Deluge's container uses, and no folder mapping is needed in
+Admin › Requests › Deluge.
 
 Sign-in tokens are signed with a secret. You can set your own as a `JWT_SECRET` environment variable
 (32+ random characters, e.g. from `openssl rand -hex 32`); otherwise Streamulus makes a random one and keeps it

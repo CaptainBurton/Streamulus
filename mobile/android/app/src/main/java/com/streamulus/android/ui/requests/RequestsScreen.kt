@@ -441,7 +441,6 @@ internal fun FilmCard(film: FilmResult, onOpen: () -> Unit, onClick: () -> Unit)
         Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onOpen), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp))) {
                 RemoteImage(film.posterUrl, Modifier.fillMaxSize(), placeholder = film.title)
-                film.request?.let { Box(Modifier.padding(6.dp)) { StatusPill(it.status, it.label) } }
                 film.rating?.takeIf { it > 0 }?.let {
                     Text(
                         "★ %.1f".format(it), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
@@ -449,6 +448,7 @@ internal fun FilmCard(film: FilmResult, onOpen: () -> Unit, onClick: () -> Unit)
                     )
                 }
             }
+            film.request?.let { Box(Modifier.padding(top = 2.dp)) { StatusPill(it.status, it.label) } }
             Text(film.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 listOfNotNull(film.year?.toString(), film.role).joinToString(" · "),

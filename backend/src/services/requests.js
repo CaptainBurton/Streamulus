@@ -681,10 +681,11 @@ async function importManual(r, t = null) {
       if (!t) throw needs('The download was removed from Deluge before it could be moved — paste the magnet link again');
       plan = planImport(r, t);
       if (!fs.existsSync(plan.moves[0].from)) {
-        const mapped = deluge.settings().remotePath;
-        throw needs(`Downloaded, but Streamulus can't see the file at ${plan.moves[0].from}. ${mapped
-          ? `Check the folder mapping in Admin › Requests › Deluge (Deluge saved it in ${t.savePath}).`
-          : `If Deluge runs in Docker or on another computer, say where its download folder (${t.savePath}) is on this server in Admin › Requests › Deluge.`}`);
+        throw needs(`Downloaded, but Streamulus can't see the file at ${plan.moves[0].from}. ${deluge.inDocker()
+          ? `Streamulus runs in Docker: mount Deluge's download folder into it at ${t.savePath} (DOWNLOADS_PATH in docker-compose / Portainer), redeploy, and it's picked up by itself — see Admin › Requests › Deluge › Test Deluge.`
+          : deluge.settings().remotePath
+            ? `Check the folder mapping in Admin › Requests › Deluge (Deluge saved it in ${t.savePath}).`
+            : `If Deluge runs on another computer, say where its download folder (${t.savePath}) is on this server in Admin › Requests › Deluge.`}`);
       }
       update(r.id, {
         status: 'importing', import_plan: JSON.stringify(plan), progress: 1, eta: null, speed: null, needs_admin: 0,

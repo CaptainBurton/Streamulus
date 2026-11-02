@@ -18,6 +18,12 @@ services:
       # MOVIES_PATH environment variables (Portainer: stack > Environment variables).
       - ${TV_PATH:-/mnt/movies-series/Series}:/tv
       - ${MOVIES_PATH:-/mnt/movies-series/Movies}:/movies
+      # Deluge's download folder (optional — for magnet links an admin adds to a
+      # request: when one finishes, Streamulus moves it into /movies or /tv).
+      # Mounted at /downloads, the same path Deluge's own container uses, so no
+      # folder mapping is needed. Set DOWNLOADS_PATH to the host folder, e.g.
+      # /home/you/docker/deluge/downloads.
+      - ${DOWNLOADS_PATH:-/mnt/downloads}:/downloads
     environment:
       - NODE_ENV=production
       - PORT=8096

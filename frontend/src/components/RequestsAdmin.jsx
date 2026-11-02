@@ -445,7 +445,7 @@ function RadarrSettings({ settings, flash, options, onSaved, onOptions }) {
           Deluge saves downloads to <code style={{ color: '#fff' }}>{folder.downloadFolder}</code>.{' '}
           {folder.visible
             ? <>✓ Streamulus can see it{folder.localFolder !== folder.downloadFolder ? <> (at <code style={{ color: '#fff' }}>{folder.localFolder}</code>)</> : ''} — finished magnet downloads are moved into your movies folder from there.</>
-            : <>Streamulus can't see that folder{folder.localFolder !== folder.downloadFolder ? <> (looked at <code style={{ color: '#fff' }}>{folder.localFolder}</code>)</> : ''}. If Deluge runs in Docker or on another computer, enter where that folder is on this server below, then Test again.</>}
+            : <>Streamulus can't see that folder{folder.localFolder !== folder.downloadFolder ? <> (looked at <code style={{ color: '#fff' }}>{folder.localFolder}</code>)</> : ''}. {folder.help}</>}
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '16px', marginTop: '14px' }}>

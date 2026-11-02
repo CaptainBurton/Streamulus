@@ -4,6 +4,7 @@ import axios from 'axios';
 import Navbar from '../components/Navbar';
 import { StatusPill, ProgressBar, Steps, RequestStyles, STATUS_COLORS } from '../components/RequestStatus';
 import { FilmsIcon, ActorsIcon } from '../components/RequestIcons';
+import Dropdown from '../components/Dropdown';
 
 // Requests: find a film that isn't in the library — by title, actor or director,
 // year or genre — open it to read about it, and ask for it. An admin approves or
@@ -15,7 +16,6 @@ const PRIMARY = { ...BTN, background: '#00c2ff', border: '1px solid #00c2ff', co
 const CHIP = { ...BTN, borderRadius: '999px', padding: '7px 14px', fontSize: '13px' };
 const CHIP_ON = { background: '#fff', color: '#000', border: '1px solid #fff' };
 const ICON_CHIP = { display: 'inline-flex', alignItems: 'center', gap: '7px' };
-const SELECT = { ...CHIP, background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', colorScheme: 'dark', paddingRight: '10px' };
 
 export default function Requests() {
   const [config, setConfig] = useState(null);
@@ -175,14 +175,10 @@ function FindFilm({ config, say, stamp, onOpen, onAct }) {
         {mode === 'films' && (
           <>
             <span style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
-            <select value={year} onChange={e => setYear(e.target.value)} aria-label="Year" style={{ ...SELECT, ...(year ? { border: '1px solid #00c2ff' } : {}) }}>
-              <option value="">Any year</option>
-              {years.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={genre} onChange={e => setGenre(e.target.value)} aria-label="Genre" style={{ ...SELECT, ...(genre ? { border: '1px solid #00c2ff' } : {}) }}>
-              <option value="">Any genre</option>
-              {(config.genres || []).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
+            <Dropdown name="year" ariaLabel="Year" label="Any year" value={year} onChange={setYear} menuWidth={160}
+              options={[{ value: '', label: 'Any year' }, ...years.map(y => ({ value: String(y), label: String(y) }))]} />
+            <Dropdown name="genre" ariaLabel="Genre" label="Any genre" value={genre} onChange={setGenre} menuWidth={220}
+              options={[{ value: '', label: 'Any genre' }, ...(config.genres || []).map(g => ({ value: String(g.id), label: g.name }))]} />
             {(year || genre) && <button style={{ ...CHIP, color: '#999' }} onClick={() => { setYear(''); setGenre(''); }}>Clear</button>}
           </>
         )}
@@ -233,7 +229,6 @@ function FilmGrid({ films, onOpen, onAct }) {
                   {film.posterUrl
                     ? <img src={film.posterUrl} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#555', fontSize: '13px', padding: '10px', textAlign: 'center' }}>{film.title}</div>}
-                  {film.request && <div style={{ position: 'absolute', top: '8px', left: '8px' }}><StatusPill status={film.request.status} label={film.request.label} /></div>}
                   {rating && (
                     <div className="req-badge" style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.75)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', fontWeight: 600, color: '#00c2ff' }}>★ {rating}</div>
                   )}
@@ -243,11 +238,11 @@ function FilmGrid({ films, onOpen, onAct }) {
                       {film.year && <span style={{ fontSize: '11px', color: '#aaa' }}>{film.year}</span>}
                       {rating && <span style={{ fontSize: '11px', color: '#00c2ff', fontWeight: 600 }}>★ {rating}</span>}
                     </div>
-                    <div style={{ marginTop: '8px', background: '#00c2ff', color: '#000', borderRadius: '4px', padding: '5px 0', textAlign: 'center', fontSize: '12px', fontWeight: 700 }}>More Info</div>
                   </div>
                 </div>
               </div>
-              <div style={{ fontWeight: 700, fontSize: '14px', marginTop: '10px', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{film.title}</div>
+              {film.request && <div style={{ marginTop: '10px', display: 'flex' }}><StatusPill status={film.request.status} label={film.request.label} /></div>}
+              <div style={{ fontWeight: 700, fontSize: '14px', marginTop: film.request ? '6px' : '10px', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{film.title}</div>
               <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[film.year, film.role].filter(Boolean).join(' · ') || '—'}</div>
             </button>
             <div style={{ marginTop: 'auto' }}>
@@ -325,7 +320,8 @@ function FilmModal({ tmdbId, stamp, onClose, onAct, onOpen, say }) {
   const facts = film ? [film.year, film.runtime ? (film.runtime >= 60 ? `${Math.floor(film.runtime / 60)}h ${film.runtime % 60}m` : `${film.runtime}m`) : null, film.certification].filter(Boolean).join(' · ') : '';
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: '40px 16px' }}>
+    // Above the menu bar (1000), with room above and below so it never touches the top of the window.
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: 'max(72px, 9vh) 16px 56px' }}>
       <div onClick={e => e.stopPropagation()} role="dialog" aria-label={film?.title || 'Film'} data-dialog="film"
         style={{ width: '100%', maxWidth: '880px', background: '#141418', borderRadius: '18px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 30px 80px rgba(0,0,0,0.6)' }}>
         {!film ? <div className="spinner" style={{ margin: '80px auto' }} /> : personFilms ? (
@@ -392,7 +388,7 @@ function FilmModal({ tmdbId, stamp, onClose, onAct, onOpen, say }) {
                   <div style={{ display: 'flex', gap: '14px', overflowX: 'auto', paddingBottom: '6px' }}>
                     {film.cast.map(c => (
                       <button key={c.id} className="req-face" onClick={() => setPersonFilms(c.id)} data-cast={c.name}
-                        style={{ width: '92px', flexShrink: 0, background: 'none', border: 'none', color: '#fff', cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit', padding: '6px 0 0' }}>
+                        style={{ width: '92px', flexShrink: 0, background: 'none', border: 'none', color: '#fff', cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit', padding: '6px 0 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                         <Avatar url={c.profileUrl} size={76} />
                         <div style={{ fontSize: '12px', fontWeight: 700, marginTop: '6px', lineHeight: 1.3 }}>{c.name}</div>
                         {c.character && <div style={{ fontSize: '11px', color: '#888', lineHeight: 1.3 }}>{c.character}</div>}
@@ -418,7 +414,7 @@ function AskDialog({ film, onCancel, onSend }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onCancel]);
   return (
-    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
       <div onClick={e => e.stopPropagation()} role="dialog" aria-label={`Request ${film.title}`} data-dialog="request"
         style={{ width: '100%', maxWidth: '540px', background: '#17171b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px', display: 'flex', gap: '18px', boxShadow: '0 30px 80px rgba(0,0,0,0.6)' }}>
         {film.posterUrl && <img src={film.posterUrl} alt="" style={{ width: '100px', height: '150px', objectFit: 'cover', borderRadius: '10px', flexShrink: 0 }} />}

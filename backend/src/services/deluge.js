@@ -27,8 +27,66 @@ function settings() {
   };
 }
 
-// A path Deluge reported → where Streamulus finds it (the mapping, if one fits).
+// ── Running in Docker ────────────────────────────────────────────────────────
+// Streamulus usually runs in a container that only sees the folders mounted
+// into it, so a folder on the server (e.g. /home/you/docker/deluge/downloads)
+// is invisible unless it's mounted. These help say so, and translate a server
+// path to where it's mounted inside the container.
+const readText = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+const inDocker = () => fs.existsSync('/.dockerenv') || /docker|containerd|kubepods|libpod/.test(readText('/proc/1/cgroup'));
+const SYSTEM_MOUNTS = /^\/(proc|sys|dev|run)(\/|$)|^\/etc\/(hosts|hostname|resolv\.conf)$/;
+const unescapeMount = (p) => p.replace(/\\(\d{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
+
+// Folders mounted into this container: [{ path (inside), source (on the server, as best known) }]
+function mounts() {
+  const out = [];
+  for (const line of readText('/proc/self/mountinfo').split('\n')) {
+    const [left, right] = line.split(' - ');
+    if (!left || !right) continue;
+    const f = left.split(' ');
+    const fstype = right.split(' ')[0];
+    const root = unescapeMount(f[3] || '');
+    const point = unescapeMount(f[4] || '');
+    if (!point || point === '/' || SYSTEM_MOUNTS.test(point)) continue;
+    if (['proc', 'sysfs', 'tmpfs', 'devpts', 'mqueue', 'cgroup', 'cgroup2', 'overlay', 'shm', 'nsfs', 'autofs'].includes(fstype)) continue;
+    out.push({ path: point, source: root });
+  }
+  return out;
+}
+
+// A path on the server → the same folder inside the container, if it's mounted.
+function hostToContainer(p) {
+  const want = String(p || '').replace(/\/+$/, '');
+  if (!want) return null;
+  for (const m of mounts().sort((a, b) => b.source.length - a.source.length)) {
+    if (!m.source || m.source === '/') continue;
+    // The mount's source is the folder (or, when /home etc. is its own drive, the end of it).
+    let base = null;
+    if (want === m.source || want.startsWith(`${m.source}/`)) base = m.source;
+    else {
+      const at = want.indexOf(m.source);
+      if (at > 0 && (want.length === at + m.source.length || want[at + m.source.length] === '/')) base = want.slice(0, at + m.source.length);
+    }
+    if (base !== null) return m.path + want.slice(base.length);
+  }
+  return null;
+}
+
+const exists = (p) => { try { return fs.statSync(p).isDirectory() || fs.statSync(p).isFile(); } catch { return false; } };
+
+// A path Deluge reported → where Streamulus finds it: through the mapping if one
+// fits, and — when that's a path on the server Streamulus's container can't see
+// directly — where that folder is mounted inside the container.
 function toLocal(p, s = settings()) {
+  const mapped = mapPath(p, s);
+  if (mapped !== p && !exists(mapped) && inDocker()) {
+    const inside = hostToContainer(mapped);
+    if (inside && exists(inside)) return inside;
+  }
+  return mapped;
+}
+
+function mapPath(p, s = settings()) {
   const raw = String(p || '');
   if (!s.remotePath || !s.localPath) return raw;
   const windows = /^[a-z]:[\\/]/i.test(s.remotePath) || s.remotePath.includes('\\');
@@ -194,7 +252,25 @@ async function test({ url, password, remotePath, localPath } = {}) {
   const localFolder = downloadFolder ? toLocal(downloadFolder, s) : null;
   let visible = false;
   try { visible = !!localFolder && fs.statSync(localFolder).isDirectory(); } catch {}
-  return { torrents: Object.keys(all || {}).length, downloadFolder: downloadFolder || null, localFolder, visible };
+  const docker = inDocker();
+  return {
+    torrents: Object.keys(all || {}).length, downloadFolder: downloadFolder || null, localFolder, visible,
+    docker, mounted: docker ? mounts().map(m => m.path) : [],
+    help: downloadFolder && !visible ? folderHelp(downloadFolder, s) : null,
+  };
+}
+
+// What to do when Streamulus can't see Deluge's download folder.
+function folderHelp(downloadFolder, s = settings()) {
+  if (!inDocker()) {
+    return `Enter where ${downloadFolder} is on this server below (or share it with this computer if Deluge runs on another one).`;
+  }
+  const hostGuess = s.localPath && !exists(s.localPath) ? s.localPath : '/path/to/deluge/downloads';
+  const inside = mounts().map(m => m.path).filter(p => !/^\/(data|app)$/.test(p));
+  return `Streamulus runs in Docker, so it can only see folders mounted into its container${inside.length ? ` (right now: ${inside.join(', ')})` : ''}. `
+    + `Add Deluge's download folder to Streamulus's volumes as ${hostGuess}:${downloadFolder} — in Portainer, set the DOWNLOADS_PATH `
+    + `environment variable to ${hostGuess === '/path/to/deluge/downloads' ? 'that folder on the server' : hostGuess} — then redeploy and Test again. `
+    + `Mounted at ${downloadFolder}, both see the same path, so leave the two folder boxes below empty.`;
 }
 
 function errorText(err, url = settings().url) {
@@ -206,4 +282,4 @@ function errorText(err, url = settings().url) {
   return err?.message || String(err);
 }
 
-module.exports = { settings, configured, torrents, test, errorText, toLocal, magnetHash, magnetName, addMagnet, torrent, remove };
+module.exports = { settings, configured, torrents, test, errorText, toLocal, magnetHash, magnetName, addMagnet, torrent, remove, folderHelp, inDocker };

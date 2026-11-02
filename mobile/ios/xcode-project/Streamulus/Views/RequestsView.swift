@@ -491,11 +491,6 @@ struct FilmCard: View {
                         .clipShape(.rect(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
                         .shadow(color: .black.opacity(0.5), radius: 8, y: 4)
-                        .overlay(alignment: .topLeading) {
-                            if let state = film.request {
-                                StatusPill(status: state.status, label: state.label ?? state.status).padding(6)
-                            }
-                        }
                         .overlay(alignment: .bottomTrailing) {
                             if let rating = film.rating, rating > 0 {
                                 Label(String(format: "%.1f", rating), systemImage: "star.fill")
@@ -506,6 +501,9 @@ struct FilmCard: View {
                                     .padding(6)
                             }
                         }
+                    if let state = film.request {
+                        StatusPill(status: state.status, label: state.label ?? state.status).padding(.top, 3)
+                    }
                     Text(film.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(2)
                     Text([film.year.map(String.init), film.role].compactMap { $0 }.joined(separator: " · "))
                         .font(.caption).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
