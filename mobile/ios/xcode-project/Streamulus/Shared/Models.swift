@@ -833,15 +833,19 @@ struct Branding: Decodable, Equatable {
     }
 }
 
-// MARK: - Film requests (/api/requests)
+// MARK: - Film and series requests (/api/requests)
 
 struct RequestsConfig: Decodable {
     let open: Bool
+    /// Films (Radarr) and series (Sonarr) can each be on or off.
+    let films: Bool?
+    let tv: Bool?
     let limit: Int?
     /// How often to refresh progress (Admin › Requests).
     let refreshSeconds: Double?
-    /// For the Genre filter.
+    /// For the Genre filter: film genres, and series genres.
     let genres: [GenreOption]?
+    let tvGenres: [GenreOption]?
 }
 
 struct GenreOption: Decodable, Hashable, Identifiable {
@@ -849,7 +853,7 @@ struct GenreOption: Decodable, Hashable, Identifiable {
     let name: String
 }
 
-/// A film to choose on the Requests page (films already on the server are left out).
+/// A film (or series) to choose on the Requests page (films already on the server are left out).
 struct FilmResult: Decodable, Identifiable, Hashable {
     let tmdbId: Int
     let title: String
@@ -857,18 +861,127 @@ struct FilmResult: Decodable, Identifiable, Hashable {
     let overview: String?
     let posterUrl: String?
     let rating: Double?
-    let request: FilmRequestState?
+    var request: FilmRequestState?
     /// On a person's page: their character, or "Director".
     let role: String?
+    /// "tv" for a series.
+    let mediaType: String?
+    /// A series already on Streamulus (its missing seasons can be asked for).
+    let showId: Int?
     var id: Int { tmdbId }
+    var isShow: Bool { mediaType == "tv" }
 }
 
-/// Someone has already asked for this film.
+/// Someone has already asked for this film (or series / season).
 struct FilmRequestState: Decodable, Hashable {
     let id: Int
     let status: String
     let label: String?
     let mine: Bool
+    /// Series: "series" or "season", and which season.
+    let scope: String?
+    let season: Int?
+}
+
+/// A series' page on the Requests screen (/api/requests/show/:tmdbId).
+struct ShowRequestDetail: Decodable {
+    let tmdbId: Int
+    let title: String
+    let year: Int?
+    let overview: String?
+    let posterUrl: String?
+    let backdropUrl: String?
+    let rating: Double?
+    let voteCount: Int?
+    let request: FilmRequestState?
+    let tagline: String?
+    let firstAirDate: String?
+    let lastAirDate: String?
+    /// Returning Series, Ended, Canceled…
+    let status: String?
+    let genres: [String]
+    let networks: [String]
+    let certification: String?
+    let numberOfSeasons: Int?
+    let creators: [FilmCredit]
+    let cast: [FilmCredit]
+    let trailer: FilmTrailer?
+    let onServer: ShowOnServer?
+    let seasons: [ShowRequestSeason]
+    let canRequestSeries: Bool
+
+    var asResult: FilmResult {
+        FilmResult(tmdbId: tmdbId, title: title, year: year, overview: overview, posterUrl: posterUrl, rating: rating, request: request,
+                   role: nil, mediaType: "tv", showId: onServer?.showId)
+    }
+}
+
+struct ShowOnServer: Decodable, Hashable {
+    let showId: Int
+    let episodes: Int
+}
+
+/// A season on a series' page: how much has aired, how much is on Streamulus, and whether it's asked for.
+struct ShowRequestSeason: Decodable, Identifiable, Hashable {
+    let season: Int
+    let name: String
+    let episodeCount: Int
+    let aired: Int
+    let onServer: Int
+    let complete: Bool
+    let airDate: String?
+    let year: Int?
+    let posterUrl: String?
+    let request: FilmRequestState?
+    let canRequest: Bool
+    var id: Int { season }
+}
+
+struct ShowRequestResponse: Decodable { let show: ShowRequestDetail }
+
+struct SeasonEpisodesResponse: Decodable {
+    let season: Int
+    let episodes: [SeasonRequestEpisode]
+}
+
+struct SeasonRequestEpisode: Decodable, Identifiable, Hashable {
+    let episode: Int
+    let title: String?
+    let airDate: String?
+    let aired: Bool
+    let onServer: Bool
+    var id: Int { episode }
+}
+
+/// A series request's checklist: every episode ready, downloading, moving in, not found, or not aired yet.
+struct TVProgress: Decodable, Hashable {
+    let total: Int
+    let ready: Int
+    let downloading: Int?
+    let progress: Double?
+    let seasons: [TVSeasonProgress]
+}
+
+struct TVSeasonProgress: Decodable, Hashable, Identifiable {
+    let season: Int
+    let total: Int?
+    let ready: Int?
+    let active: Int?
+    let missing: Int?
+    let unaired: Int?
+    let progress: Double?
+    let episodes: [TVEpisodeProgress]
+    var id: Int { season }
+}
+
+struct TVEpisodeProgress: Decodable, Hashable, Identifiable {
+    let episode: Int
+    let title: String?
+    let airDate: String?
+    /// ready, downloading, importing, adding, searching, missing, failed, unaired
+    let state: String
+    let progress: Double?
+    var id: Int { episode }
 }
 
 struct FilmSearchResponse: Decodable {
@@ -963,6 +1076,13 @@ struct MovieRequest: Decodable, Identifiable, Hashable {
     let decidedBy: String?
     /// The film on the server once it's ready.
     let movieId: Int?
+    /// Series requests: "tv", the whole series or one season, the show once it's here, and the episode checklist.
+    let mediaType: String?
+    let scope: String?
+    let season: Int?
+    let showId: Int?
+    let displayTitle: String?
+    let tv: TVProgress?
     let createdAt: Double
     let mine: Bool?
     let requestedBy: String?
@@ -970,6 +1090,8 @@ struct MovieRequest: Decodable, Identifiable, Hashable {
 
     static let active: Set<String> = ["pending", "searching", "waiting_release", "not_found", "downloading", "importing", "failed", "adding", "missing"]
     var isActive: Bool { Self.active.contains(status) }
+    var isShow: Bool { mediaType == "tv" }
+    var name: String { displayTitle ?? title }
 }
 
 struct MyRequestsResponse: Decodable { let requests: [MovieRequest] }

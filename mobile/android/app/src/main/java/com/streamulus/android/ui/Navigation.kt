@@ -43,6 +43,8 @@ sealed interface Screen {
     data class Film(val tmdbId: Int, val title: String) : Screen
     /** An actor's or director's films, for requesting. */
     data class Person(val id: Int, val name: String) : Screen
+    /** A series' page on the Requests screen (by its TMDB id). */
+    data class SeriesRequest(val tmdbId: Int, val title: String) : Screen
     data class FeedbackThread(val id: Int) : Screen
 }
 

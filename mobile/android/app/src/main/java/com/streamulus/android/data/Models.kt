@@ -447,22 +447,39 @@ data class FeedbackItem(
 
 data class FeedbackMessage(val id: Int, val fromAdmin: Boolean, val author: String?, val body: String, val createdAt: Long)
 
-// ── Film requests (/api/requests) ────────────────────────────────────────────
+// ── Film and series requests (/api/requests) ─────────────────────────────────
 
-/** Whether requests are open for this profile, and how often to refresh progress (seconds). */
-data class RequestsConfig(val open: Boolean, val refreshSeconds: Double, val genres: List<GenreOption> = emptyList()) {
+/**
+ * Whether requests are open for this profile — films (Radarr) and series (Sonarr)
+ * each — how often to refresh progress (seconds), and the genres to filter by.
+ */
+data class RequestsConfig(
+    val open: Boolean,
+    val refreshSeconds: Double,
+    val genres: List<GenreOption> = emptyList(),
+    val films: Boolean = true,
+    val tv: Boolean = false,
+    val tvGenres: List<GenreOption> = emptyList(),
+) {
     companion object {
         fun from(o: JsonObject) = RequestsConfig(
             o.bool("open"), o.double("refreshSeconds") ?: 2.0,
             o.objects("genres").map { GenreOption(it.int("id") ?: 0, it.str("name") ?: "") },
+            films = o.bool("films", default = o.bool("open")),
+            tv = o.bool("tv"),
+            tvGenres = o.objects("tvGenres").map { GenreOption(it.int("id") ?: 0, it.str("name") ?: "") },
         )
     }
 }
 
 data class GenreOption(val id: Int, val name: String)
 
-/** Someone has already asked for this film. */
-data class FilmRequestState(val id: Int, val status: String, val label: String, val mine: Boolean)
+/** Someone has already asked for this film (or series / season). */
+data class FilmRequestState(val id: Int, val status: String, val label: String, val mine: Boolean, val scope: String? = null, val season: Int? = null) {
+    companion object {
+        fun from(o: JsonObject) = FilmRequestState(o.int("id") ?: 0, o.str("status") ?: "", o.str("label") ?: "", o.bool("mine"), o.str("scope"), o.int("season"))
+    }
+}
 
 /** A film to choose on the Requests page (films already on the server are left out). */
 data class FilmResult(
@@ -475,7 +492,13 @@ data class FilmResult(
     val request: FilmRequestState?,
     /** On a person's page: their character, or "Director". */
     val role: String? = null,
+    /** "tv" for a series. */
+    val mediaType: String? = null,
+    /** A series already on Streamulus (its missing seasons can be asked for). */
+    val showId: Int? = null,
 ) {
+    val isShow: Boolean get() = mediaType == "tv"
+
     companion object {
         fun from(o: JsonObject) = FilmResult(
             tmdbId = o.int("tmdbId") ?: 0,
@@ -484,9 +507,107 @@ data class FilmResult(
             overview = o.str("overview"),
             posterUrl = o.str("posterUrl"),
             rating = o.double("rating"),
-            request = o.obj("request")?.let { FilmRequestState(it.int("id") ?: 0, it.str("status") ?: "", it.str("label") ?: "", it.bool("mine")) },
+            request = o.obj("request")?.let(FilmRequestState::from),
             role = o.str("role"),
+            mediaType = o.str("mediaType"),
+            showId = o.int("showId"),
         )
+    }
+}
+
+/** A series' page on the Requests screen (/api/requests/show/:tmdbId). */
+data class ShowRequestDetail(
+    val show: FilmResult,
+    val backdropUrl: String?,
+    val tagline: String?,
+    val firstAirDate: String?,
+    val lastAirDate: String?,
+    val status: String?,
+    val genres: List<String>,
+    val networks: List<String>,
+    val certification: String?,
+    val numberOfSeasons: Int,
+    val creators: List<String>,
+    val cast: List<FilmCredit>,
+    val trailerUrl: String?,
+    /** The show on Streamulus, if some of it is here. */
+    val onServerShowId: Int?,
+    val seasons: List<ShowRequestSeason>,
+    val canRequestSeries: Boolean,
+) {
+    companion object {
+        fun from(o: JsonObject) = ShowRequestDetail(
+            show = FilmResult.from(o).copy(mediaType = "tv"),
+            backdropUrl = o.str("backdropUrl"),
+            tagline = o.str("tagline"),
+            firstAirDate = o.str("firstAirDate"),
+            lastAirDate = o.str("lastAirDate"),
+            status = o.str("status"),
+            genres = o.strings("genres"),
+            networks = o.strings("networks"),
+            certification = o.str("certification"),
+            numberOfSeasons = o.int("numberOfSeasons") ?: 0,
+            creators = o.objects("creators").mapNotNull { it.str("name") },
+            cast = o.objects("cast").map(FilmCredit::from),
+            trailerUrl = o.obj("trailer")?.str("url"),
+            onServerShowId = o.obj("onServer")?.int("showId"),
+            seasons = o.objects("seasons").map(ShowRequestSeason::from),
+            canRequestSeries = o.bool("canRequestSeries"),
+        )
+    }
+}
+
+/** A season on a series' page: how much has aired, how much is on Streamulus, and whether it's asked for. */
+data class ShowRequestSeason(
+    val season: Int,
+    val name: String,
+    val episodeCount: Int,
+    val aired: Int,
+    val onServer: Int,
+    val complete: Boolean,
+    val year: Int?,
+    val posterUrl: String?,
+    val request: FilmRequestState?,
+    val canRequest: Boolean,
+) {
+    companion object {
+        fun from(o: JsonObject) = ShowRequestSeason(
+            season = o.int("season") ?: 0, name = o.str("name") ?: "Season", episodeCount = o.int("episodeCount") ?: 0,
+            aired = o.int("aired") ?: 0, onServer = o.int("onServer") ?: 0, complete = o.bool("complete"), year = o.int("year"),
+            posterUrl = o.str("posterUrl"), request = o.obj("request")?.let(FilmRequestState::from), canRequest = o.bool("canRequest"),
+        )
+    }
+}
+
+data class SeasonRequestEpisode(val episode: Int, val title: String?, val airDate: String?, val aired: Boolean, val onServer: Boolean) {
+    companion object {
+        fun from(o: JsonObject) = SeasonRequestEpisode(o.int("episode") ?: 0, o.str("title"), o.str("airDate"), o.bool("aired"), o.bool("onServer"))
+    }
+}
+
+/** A series request's checklist: every episode ready, downloading, moving in, not found, or not aired yet. */
+data class TVProgress(val total: Int, val ready: Int, val progress: Double, val seasons: List<TVSeasonProgress>) {
+    companion object {
+        fun from(o: JsonObject) = TVProgress(o.int("total") ?: 0, o.int("ready") ?: 0, o.double("progress") ?: 0.0, o.objects("seasons").map(TVSeasonProgress::from))
+    }
+}
+
+data class TVSeasonProgress(
+    val season: Int, val total: Int, val ready: Int, val active: Int, val missing: Int, val unaired: Int, val progress: Double,
+    val episodes: List<TVEpisodeProgress>,
+) {
+    companion object {
+        fun from(o: JsonObject) = TVSeasonProgress(
+            o.int("season") ?: 0, o.int("total") ?: 0, o.int("ready") ?: 0, o.int("active") ?: 0, o.int("missing") ?: 0, o.int("unaired") ?: 0,
+            o.double("progress") ?: 0.0, o.objects("episodes").map(TVEpisodeProgress::from),
+        )
+    }
+}
+
+/** state: ready, downloading, importing, adding, searching, missing, failed, unaired */
+data class TVEpisodeProgress(val episode: Int, val title: String?, val airDate: String?, val state: String, val progress: Double) {
+    companion object {
+        fun from(o: JsonObject) = TVEpisodeProgress(o.int("episode") ?: 0, o.str("title"), o.str("airDate"), o.str("state") ?: "missing", o.double("progress") ?: 0.0)
     }
 }
 
@@ -583,8 +704,17 @@ data class MovieRequest(
     val mine: Boolean,
     val requestedBy: String?,
     val others: Int,
+    /** Series requests: "tv", the whole series or one season, the show once it's here, and the episode checklist. */
+    val mediaType: String? = null,
+    val scope: String? = null,
+    val season: Int? = null,
+    val showId: Int? = null,
+    val displayTitle: String? = null,
+    val tv: TVProgress? = null,
 ) {
     val isActive: Boolean get() = status in ACTIVE
+    val isShow: Boolean get() = mediaType == "tv"
+    val name: String get() = displayTitle ?: title
 
     companion object {
         val ACTIVE = setOf("pending", "searching", "waiting_release", "not_found", "downloading", "importing", "failed", "adding", "missing")
@@ -608,6 +738,12 @@ data class MovieRequest(
             mine = o.bool("mine", default = true),
             requestedBy = o.str("requestedBy"),
             others = o.int("others") ?: 0,
+            mediaType = o.str("mediaType"),
+            scope = o.str("scope"),
+            season = o.int("season"),
+            showId = o.int("showId"),
+            displayTitle = o.str("displayTitle"),
+            tv = o.obj("tv")?.let(TVProgress::from),
         )
     }
 }

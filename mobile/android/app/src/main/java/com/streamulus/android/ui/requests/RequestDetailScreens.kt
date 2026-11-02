@@ -234,7 +234,7 @@ fun FilmDetailScreen(tmdbId: Int, title: String) {
             if (film == null) ListStatus(loading = error == null, error = error, isEmpty = true, emptyText = "")
         }
     }
-    if (asking) film?.let { f -> AskDialog(f.film, onCancel = { asking = false }, onSend = { note -> send(note) }) }
+    if (asking) film?.let { f -> AskDialog(Ask(f.film), onCancel = { asking = false }, onSend = { note -> send(note) }) }
 }
 
 /** An actor's (or director's) page: who they are, and their films not on the server yet. */
@@ -324,11 +324,11 @@ fun PersonScreen(personId: Int, name: String) {
             if (page == null) ListStatus(loading = error == null, error = error, isEmpty = true, emptyText = "")
         }
     }
-    asking?.let { film -> AskDialog(film, onCancel = { asking = null }, onSend = { note -> send(film, note) }) }
+    asking?.let { film -> AskDialog(Ask(film), onCancel = { asking = null }, onSend = { note -> send(film, note) }) }
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun Section(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         content()
@@ -336,7 +336,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Banner(text: String, isError: Boolean) {
+internal fun Banner(text: String, isError: Boolean) {
     val color = if (isError) Color(0xFFFF4444) else Brand.Success
     Text(
         text, color = Color.White, style = MaterialTheme.typography.bodyMedium,

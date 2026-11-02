@@ -1,13 +1,22 @@
 import SwiftUI
 
-/// Requests (Search › Request a Film): find a film that isn't on the server — by
-/// title, actor or director, year or genre — open it to read about it, and ask
-/// for it. An admin approves or declines it (you're emailed either way); approved
-/// films download by themselves, and My Requests follows them with a progress
-/// bar, speed and time left until they're ready to watch.
+/// Requests (Search › Request): find a film or series that isn't on the server —
+/// by title, actor or director, year or genre — open it to read about it, and ask
+/// for it (a series whole, or one season once the show is on Streamulus). An
+/// admin approves or declines it (you're emailed either way); approved ones
+/// download by themselves, and My Requests follows them — series episode by
+/// episode — until they're ready to watch.
 struct RequestsView: View {
     enum Page: Hashable { case find, mine }
-    enum Mode: Hashable { case films, people }
+    enum Mode: Hashable { case films, series, people }
+
+    /// What the request sheet is asking for: a film, a whole series, or one season.
+    struct Ask: Identifiable {
+        let id = UUID()
+        let film: FilmResult
+        let scope: String?
+        let season: Int?
+    }
 
     @EnvironmentObject private var session: Session
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -22,7 +31,8 @@ struct RequestsView: View {
     @State private var searching = false
     @State private var mine: [MovieRequest]?
     @State private var config: RequestsConfig?
-    @State private var asking: FilmResult?
+    @State private var asking: Ask?
+    @State private var openShow: FilmResult?
     @State private var message: RequestMessage?
 
     /// `page`: which part to open on; `query`: a search to start with (from Search).
@@ -34,14 +44,16 @@ struct RequestsView: View {
     private var refresh: Double { max(1, config?.refreshSeconds ?? 2) }
     private var anyActive: Bool { (mine ?? []).contains { $0.isActive } }
     private var searchKey: String { "\(mode)|\(query.trimmingCharacters(in: .whitespaces))|\(year ?? 0)|\(genre ?? 0)" }
-    private var genreName: String? { genre.flatMap { id in config?.genres?.first { $0.id == id }?.name } }
+    private var genres: [GenreOption] { (mode == .series ? config?.tvGenres : config?.genres) ?? [] }
+    private var genreName: String? { genre.flatMap { id in genres.first { $0.id == id }?.name } }
+    private var findLabel: String { config?.films != false && config?.tv == true ? "Request" : config?.tv == true ? "Request a Series" : "Request a Film" }
 
     var body: some View {
         let m = Metrics(sizeClass)
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Picker("Page", selection: $page) {
-                    Text("Request a Film").tag(Page.find)
+                    Text(findLabel).tag(Page.find)
                     Text(mine.map { $0.isEmpty ? "My Requests" : "My Requests · \($0.count)" } ?? "My Requests").tag(Page.mine)
                 }
                 .pickerStyle(.segmented)
@@ -63,7 +75,7 @@ struct RequestsView: View {
         .navigationTitle("Requests")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: mode == .films ? "Search films" : "Search actors and directors")
+                    prompt: mode == .films ? "Search films" : mode == .series ? "Search series" : "Search actors and directors")
         .onChange(of: query) { _, _ in if !query.isEmpty { page = .find } }
         .task { await start() }
         .task(id: searchKey) { await search() }
@@ -77,8 +89,11 @@ struct RequestsView: View {
             }
         }
         .refreshable { await loadMine(); await search() }
-        .sheet(item: $asking) { film in
-            AskForFilmSheet(film: film) { note in await send(film, note: note) }
+        .sheet(item: $asking) { ask in
+            AskForFilmSheet(film: ask.film, scope: ask.scope, season: ask.season) { note in await send(ask.film, note: note, scope: ask.scope, season: ask.season) }
+        }
+        .navigationDestination(item: $openShow) { show in
+            ShowRequestView(tmdbId: show.tmdbId, title: show.title)
         }
     }
 
@@ -104,7 +119,7 @@ struct RequestsView: View {
             }
         } else {
             if films.isEmpty && !searching && shownFor != nil {
-                hint("magnifyingglass", "No films found — try another spelling, or change the year or genre.")
+                hint("magnifyingglass", "No \(mode == .series ? "series" : "films") found — try another spelling, or change the year or genre.")
             }
             FilmGrid(films: films, minimum: m.gridMinimum) { film in act(on: film) }
         }
@@ -114,20 +129,28 @@ struct RequestsView: View {
         let text = query.trimmingCharacters(in: .whitespaces)
         if mode == .people { return text.isEmpty ? "Actors & Directors" : "People matching “\(text)”" }
         if !text.isEmpty { return "Results for “\(text)”" + (year.map { " · \($0)" } ?? "") + (genreName.map { " · \($0)" } ?? "") }
+        let noun = mode == .series ? "series" : "films"
         switch (year, genreName) {
-        case let (year?, genre?): return "\(genre) films from \(year)"
-        case let (year?, nil): return "Films from \(year)"
-        case let (nil, genre?): return "\(genre) films"
-        default: return "Popular this week"
+        case let (year?, genre?): return "\(genre) \(noun) from \(year)"
+        case let (year?, nil): return "\(mode == .series ? "Series" : "Films") from \(year)"
+        case let (nil, genre?): return "\(genre) \(noun)"
+        default: return mode == .series ? "Popular series this week" : "Popular this week"
         }
     }
 
     private var filterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                FilterChip(title: "Films", systemImage: "film", asset: "RequestsFilms", selected: mode == .films) { mode = .films }
-                FilterChip(title: "Actors", systemImage: "person.fill", asset: "RequestsActors", selected: mode == .people) { mode = .people }
-                if mode == .films {
+                if config?.films != false {
+                    FilterChip(title: "Films", systemImage: "film", asset: "RequestsFilms", selected: mode == .films) { pick(.films) }
+                }
+                if config?.tv == true {
+                    FilterChip(title: "Series", systemImage: "play.tv.fill", asset: "RequestsSeries", selected: mode == .series) { pick(.series) }
+                }
+                if config?.films != false {
+                    FilterChip(title: "Actors", systemImage: "person.fill", asset: "RequestsActors", selected: mode == .people) { pick(.people) }
+                }
+                if mode != .people {
                     Divider().frame(height: 22).padding(.horizontal, 2)
                     Menu {
                         Picker("Year", selection: $year) {
@@ -140,7 +163,7 @@ struct RequestsView: View {
                     Menu {
                         Picker("Genre", selection: $genre) {
                             Text("Any genre").tag(Int?.none)
-                            ForEach(config?.genres ?? []) { Text($0.name).tag(Int?.some($0.id)) }
+                            ForEach(genres) { Text($0.name).tag(Int?.some($0.id)) }
                         }
                     } label: {
                         FilterChipLabel(title: genreName ?? "Genre", systemImage: "theatermasks", selected: genre != nil, menu: true)
@@ -155,6 +178,13 @@ struct RequestsView: View {
             }
             .padding(.vertical, 2)
         }
+    }
+
+    private func pick(_ next: Mode) {
+        guard next != mode else { return }
+        genre = nil
+        films = []
+        mode = next
     }
 
     private var years: [Int] {
@@ -178,9 +208,9 @@ struct RequestsView: View {
                 ContentUnavailableView {
                     Label("No requests yet", systemImage: "film.stack")
                 } description: {
-                    Text("Ask for a film that isn't on Streamulus — you'll get an email when it's ready.")
+                    Text("Ask for a film or series that isn't on Streamulus — you'll get an email when it's ready.")
                 } actions: {
-                    Button("Request a Film") { page = .find }.buttonStyle(.glassProminent)
+                    Button(findLabel) { page = .find }.buttonStyle(.glassProminent)
                 }
             }
             LazyVStack(spacing: 14) {
@@ -198,6 +228,7 @@ struct RequestsView: View {
     private func start() async {
         config = try? await session.get("/api/requests/config", as: RequestsConfig.self)
         guard config?.open == true else { return }
+        if config?.films == false, config?.tv == true { mode = .series }
         await loadMine()
         // Something on the go (e.g. opened from an email): show its progress first.
         if query.isEmpty, (mine ?? []).contains(where: { $0.isActive || $0.status == "available" }) { page = .mine }
@@ -227,6 +258,7 @@ struct RequestsView: View {
                 var items = [URLQueryItem(name: "q", value: text)]
                 if let year { items.append(URLQueryItem(name: "year", value: String(year))) }
                 if let genre { items.append(URLQueryItem(name: "genre", value: String(genre))) }
+                if mode == .series { items.append(URLQueryItem(name: "type", value: "tv")) }
                 let response = try await session.get("/api/requests/search", query: items, as: FilmSearchResponse.self)
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeOut(duration: 0.2)) { films = response.results }
@@ -237,21 +269,31 @@ struct RequestsView: View {
         }
     }
 
-    /// The button under a film: Request (asks for a note), See Progress, or Me Too.
+    /// The button under a title: Request (asks for a note), See Progress, or Me Too.
+    /// A series already on Streamulus opens its page instead, to choose seasons.
     private func act(on film: FilmResult) {
         if let state = film.request {
-            if state.mine { page = .mine } else { Task { await send(film, note: "") } }
+            if state.mine { page = .mine } else { Task { await send(film, note: "", scope: state.scope, season: state.season) } }
+        } else if film.isShow, film.showId != nil {
+            openShow = film
         } else {
-            asking = film
+            asking = Ask(film: film, scope: film.isShow ? "series" : nil, season: nil)
         }
     }
 
-    private func send(_ film: FilmResult, note: String) async {
+    private func send(_ film: FilmResult, note: String, scope: String? = nil, season: Int? = nil) async {
+        let what = scope == "season" ? "\(film.title) — Season \(season ?? 0)" : film.title
+        var body: [String: Any] = ["tmdbId": film.tmdbId, "note": note]
+        if film.isShow {
+            body["mediaType"] = "tv"
+            body["scope"] = scope ?? "series"
+            if let season { body["season"] = season }
+        }
         do {
-            let response = try await session.post("/api/requests", body: ["tmdbId": film.tmdbId, "note": note], as: CreateRequestResponse.self)
+            let response = try await session.post("/api/requests", body: body, as: CreateRequestResponse.self)
             asking = nil
-            show(response.joined == true ? "Someone had already asked for \(film.title) — you'll hear when it's ready too"
-                : "Requested \(film.title) — you'll get an email when an admin decides")
+            show(response.joined == true ? "Someone had already asked for \(what) — you'll hear when it's ready too"
+                : "Requested \(what) — you'll get an email when an admin decides")
             await loadMine()
             await search()
         } catch {
@@ -262,7 +304,7 @@ struct RequestsView: View {
     private func cancel(_ request: MovieRequest) async {
         do {
             _ = try await session.delete("/api/requests/\(request.id)", as: CancelRequestResponse.self)
-            show("Cancelled your request for \(request.title)")
+            show("Cancelled your request for \(request.name)")
             await loadMine()
         } catch {
             show(error.localizedDescription, error: true)
@@ -482,7 +524,11 @@ struct FilmCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             NavigationLink {
-                FilmDetailView(tmdbId: film.tmdbId, title: film.title)
+                if film.isShow {
+                    ShowRequestView(tmdbId: film.tmdbId, title: film.title)
+                } else {
+                    FilmDetailView(tmdbId: film.tmdbId, title: film.title)
+                }
             } label: {
                 VStack(alignment: .leading, spacing: 5) {
                     Color.clear
@@ -503,6 +549,8 @@ struct FilmCard: View {
                         }
                     if let state = film.request {
                         StatusPill(status: state.status, label: state.label ?? state.status).padding(.top, 3)
+                    } else if film.isShow, film.showId != nil {
+                        StatusPill(status: "available", label: "On Streamulus").padding(.top, 3)
                     }
                     Text(film.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(2)
                     Text([film.year.map(String.init), film.role].compactMap { $0 }.joined(separator: " · "))
@@ -510,8 +558,12 @@ struct FilmCard: View {
                 }
             }
             .buttonStyle(.plain)
-            if film.request == nil {
-                Button(action: action) { buttonLabel("Request", icon: "plus") }
+            if film.request == nil, film.isShow, film.showId != nil {
+                Button(action: action) { buttonLabel("Seasons", icon: "square.stack.3d.up") }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+            } else if film.request == nil {
+                Button(action: action) { buttonLabel(film.isShow ? "Request Series" : "Request", icon: "plus") }
                     .buttonStyle(.glassProminent)
                     .controlSize(.small)
             } else {
@@ -565,7 +617,11 @@ private struct RequestCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             NavigationLink {
-                FilmDetailView(tmdbId: request.tmdbId, title: request.title)
+                if request.isShow {
+                    ShowRequestView(tmdbId: request.tmdbId, title: request.title)
+                } else {
+                    FilmDetailView(tmdbId: request.tmdbId, title: request.title)
+                }
             } label: {
                 HStack(alignment: .top, spacing: 14) {
                     Color.clear
@@ -578,6 +634,11 @@ private struct RequestCard: View {
                             Text(request.title).font(.headline).foregroundStyle(.white).lineLimit(2)
                             if let year = request.year { Text(String(year)).font(.subheadline).foregroundStyle(.white.opacity(0.55)) }
                         }
+                        if request.isShow {
+                            SeriesTag(text: request.scope == "season" ? "Season \(request.season ?? 0)" : "Entire series")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white.opacity(0.75))
+                        }
                         StatusPill(status: request.status, label: request.label)
                         RequestSteps(status: request.status)
                     }
@@ -587,7 +648,9 @@ private struct RequestCard: View {
             }
             .buttonStyle(.plain)
 
-            if ["downloading", "searching", "importing", "adding"].contains(request.status) {
+            if let tv = request.tv, !tv.seasons.isEmpty {
+                TVChecklistView(tv: tv, scope: request.scope)
+            } else if ["downloading", "searching", "importing", "adding"].contains(request.status) {
                 HStack(spacing: 10) {
                     RequestProgressBar(status: request.status, progress: request.progress ?? 0)
                     if request.status == "downloading" {
@@ -610,6 +673,14 @@ private struct RequestCard: View {
                 Text(request.mine == false ? "Asked for by \(request.requestedBy ?? "someone")" : "You asked\((request.others ?? 0) > 0 ? " · and \(request.others!) other\(request.others == 1 ? "" : "s")" : "")")
                     .font(.caption).foregroundStyle(.white.opacity(0.45))
                 Spacer()
+                if request.isShow, let showId = request.showId, request.status == "available" || (request.tv?.ready ?? 0) > 0 {
+                    NavigationLink {
+                        RequestedShowView(showId: showId)
+                    } label: {
+                        Label(request.status == "available" ? "Watch Now" : "Watch What's Ready", systemImage: "play.fill").font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.glassProminent)
+                }
                 if request.status == "available", let movieId = request.movieId {
                     NavigationLink {
                         RequestedMovieView(movieId: movieId)
@@ -628,7 +699,7 @@ private struct RequestCard: View {
         .padding(16)
         .background(request.status == "available" ? Color.green.opacity(0.08) : Color.white.opacity(0.06), in: .rect(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(request.status == "available" ? Color.green.opacity(0.35) : Color.white.opacity(0.08)))
-        .confirmationDialog("Cancel your request for \(request.title)?", isPresented: $confirmCancel, titleVisibility: .visible) {
+        .confirmationDialog("Cancel your request for \(request.name)?", isPresented: $confirmCancel, titleVisibility: .visible) {
             Button("Cancel Request", role: .destructive) { Task { await onCancel() } }
         }
     }

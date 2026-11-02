@@ -1,5 +1,6 @@
 package com.streamulus.android.ui.requests
 
+import com.streamulus.android.data.Show
 import com.streamulus.android.R
 import androidx.compose.ui.res.painterResource
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -99,11 +100,12 @@ import com.streamulus.android.data.GenreOption
 import com.streamulus.android.data.PersonResult
 
 /**
- * Requests (Search › Request a Film, or Profile & Settings › Requests): find a
- * film that isn't on the server and ask for it. An admin approves or declines it
- * (you're emailed either way); approved films download by themselves, and My
- * Requests follows them — with a progress bar, speed and time left — until
- * they're ready to watch. Like the iPhone app and the website.
+ * Requests (Search › Request, or Profile & Settings › Requests): find a film or
+ * series that isn't on the server and ask for it (a series whole, or one season
+ * once the show is on Streamulus). An admin approves or declines it (you're
+ * emailed either way); approved ones download by themselves, and My Requests
+ * follows them — series episode by episode — until they're ready to watch.
+ * Like the iPhone app and the website.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,13 +119,14 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
     var config by remember { mutableStateOf<RequestsConfig?>(null) }
     var films by remember { mutableStateOf<List<FilmResult>>(emptyList()) }
     var people by remember { mutableStateOf<List<PersonResult>>(emptyList()) }
-    var actors by rememberSaveable { mutableStateOf(false) } // searching people, not films
+    var mode by rememberSaveable { mutableStateOf("films") } // films | series | people
+    val actors = mode == "people"
     var year by rememberSaveable { mutableStateOf<Int?>(null) }
     var genre by rememberSaveable { mutableStateOf<Int?>(null) }
     var searchedFor by remember { mutableStateOf<String?>(null) }
     var searching by remember { mutableStateOf(false) }
     var mine by remember { mutableStateOf<List<MovieRequest>?>(null) }
-    var asking by remember { mutableStateOf<FilmResult?>(null) }
+    var asking by remember { mutableStateOf<Ask?>(null) }
     var message by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // text, is error
     var cancelling by remember { mutableStateOf<MovieRequest?>(null) }
     val text = query.trim()
@@ -151,6 +154,7 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                     put("q", text)
                     year?.let { put("year", it.toString()) }
                     genre?.let { put("genre", it.toString()) }
+                    if (mode == "series") put("type", "tv")
                 }
                 films = session.getObject("/api/requests/search", params).objects("results").map(FilmResult::from)
             }
@@ -159,17 +163,23 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
         searching = false
     }
 
-    fun send(film: FilmResult, note: String) {
+    fun send(film: FilmResult, note: String, scopeName: String? = null, season: Int? = null) {
+        val what = if (scopeName == "season") "${film.title} — Season $season" else film.title
         scope.launch {
             attempt({ say(it, error = true) }) {
                 val response = session.post("/api/requests", buildJsonObject {
                     put("tmdbId", film.tmdbId)
                     put("note", note)
+                    if (film.isShow) {
+                        put("mediaType", "tv")
+                        put("scope", scopeName ?: "series")
+                        season?.let { put("season", it) }
+                    }
                 })
                 asking = null
                 say(
-                    if (response["joined"]?.toString() == "true") "Someone had already asked for ${film.title} — you'll hear when it's ready too"
-                    else "Requested ${film.title} — you'll get an email when an admin decides",
+                    if (response["joined"]?.toString() == "true") "Someone had already asked for $what — you'll hear when it's ready too"
+                    else "Requested $what — you'll get an email when an admin decides",
                 )
                 loadMine()
                 search()
@@ -178,6 +188,15 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
     }
 
     fun watch(request: MovieRequest) {
+        if (request.isShow) {
+            val showId = request.showId ?: return
+            scope.launch {
+                attempt({ say(it, error = true) }) {
+                    session.getObject("/api/tv/$showId/details").obj("show")?.let(Show::from)?.let { navigator.push(Screen.ShowDetail(it)) }
+                }
+            }
+            return
+        }
         val id = request.movieId ?: return
         scope.launch {
             attempt({ say(it, error = true) }) {
@@ -189,13 +208,14 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
 
     LaunchedEffect(Unit) {
         config = attempt({}) { RequestsConfig.from(session.getObject("/api/requests/config")) } ?: RequestsConfig(false, 2.0)
+        if (config?.films == false && config?.tv == true) mode = "series"
         if (config?.open == true) {
             loadMine()
             // Something on the go: show its progress first.
             if (!startOnMine && text.isEmpty() && mine.orEmpty().any { it.isActive || it.status == "available" }) showMine = true
         }
     }
-    LaunchedEffect(text, config?.open, actors, year, genre) {
+    LaunchedEffect(text, config?.open, mode, year, genre) {
         if (config?.open != true) return@LaunchedEffect
         if (text.isNotEmpty()) delay(350) // wait until typing pauses
         search()
@@ -223,7 +243,7 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                 item(key = "pages", span = { GridItemSpan(maxLineSpan) }) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         SegmentedButton(selected = !showMine, onClick = { showMine = false }, shape = SegmentedButtonDefaults.itemShape(0, 2)) {
-                            Text("Request a Film")
+                            Text(findLabel(config))
                         }
                         SegmentedButton(selected = showMine, onClick = { showMine = true; scope.launch { loadMine() } }, shape = SegmentedButtonDefaults.itemShape(1, 2)) {
                             Text(mine?.takeIf { it.isNotEmpty() }?.let { "My Requests · ${it.size}" } ?: "My Requests")
@@ -251,7 +271,7 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                             OutlinedTextField(
                                 value = query,
                                 onValueChange = { query = it },
-                                placeholder = { Text(if (actors) "Search actors and directors" else "Search for a film") },
+                                placeholder = { Text(if (actors) "Search actors and directors" else if (mode == "series") "Search for a series" else "Search for a film") },
                                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                                 trailingIcon = {
                                     if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, contentDescription = "Clear") }
@@ -260,21 +280,25 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             )
+                            val genres = (if (mode == "series") config?.tvGenres else config?.genres).orEmpty()
                             FilterRow(
-                                actors = actors, onActors = { actors = it },
+                                mode = mode, onMode = { if (it != mode) { mode = it; genre = null; films = emptyList() } },
+                                films = config?.films != false, series = config?.tv == true,
                                 year = year, onYear = { year = it },
                                 genre = genre, onGenre = { genre = it },
-                                genres = config?.genres.orEmpty(),
+                                genres = genres,
                             )
-                            val genreName = config?.genres?.firstOrNull { it.id == genre }?.name
+                            val genreName = genres.firstOrNull { it.id == genre }?.name
+                            val noun = if (mode == "series") "series" else "films"
                             Text(
                                 when {
                                     actors && text.isEmpty() -> "Actors & Directors"
                                     actors -> "People matching “$text”"
                                     text.isNotEmpty() -> "Results for “$text”" + (year?.let { " · $it" } ?: "") + (genreName?.let { " · $it" } ?: "")
-                                    year != null && genreName != null -> "$genreName films from $year"
-                                    year != null -> "Films from $year"
-                                    genreName != null -> "$genreName films"
+                                    year != null && genreName != null -> "$genreName $noun from $year"
+                                    year != null -> (if (mode == "series") "Series" else "Films") + " from $year"
+                                    genreName != null -> "$genreName $noun"
+                                    mode == "series" -> "Popular series this week"
                                     else -> "Popular this week"
                                 } + if (searching) " · searching…" else "",
                                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
@@ -282,7 +306,7 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                             when {
                                 actors && text.isEmpty() -> Text("Search for an actor or director to see all of their films.", color = Brand.Secondary)
                                 actors && people.isEmpty() && !searching && searchedFor != null -> Text("Nobody found — check the spelling.", color = Brand.Secondary)
-                                !actors && films.isEmpty() && !searching && searchedFor != null -> Text("No films found — try another spelling, or change the year or genre.", color = Brand.Secondary)
+                                !actors && films.isEmpty() && !searching && searchedFor != null -> Text("No $noun found — try another spelling, or change the year or genre.", color = Brand.Secondary)
                             }
                         }
                     }
@@ -291,13 +315,15 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                             PersonRow(person) { navigator.push(Screen.Person(person.id, person.name)) }
                         }
                     } else {
-                        items(films, key = { "f${it.tmdbId}" }) { film ->
-                            FilmCard(film, onOpen = { navigator.push(Screen.Film(film.tmdbId, film.title)) }) {
+                        items(films, key = { "${it.mediaType ?: "f"}${it.tmdbId}" }) { film ->
+                            val open = { navigator.push(if (film.isShow) Screen.SeriesRequest(film.tmdbId, film.title) else Screen.Film(film.tmdbId, film.title)) }
+                            FilmCard(film, onOpen = open) {
                                 val state = film.request
                                 when {
-                                    state == null -> asking = film
+                                    state == null && film.isShow && film.showId != null -> open() // on Streamulus: choose seasons
+                                    state == null -> asking = Ask(film, if (film.isShow) "series" else null)
                                     state.mine -> { showMine = true; scope.launch { loadMine() } }
-                                    else -> send(film, "")
+                                    else -> send(film, "", state.scope, state.season)
                                 }
                             }
                         }
@@ -307,14 +333,14 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
                     if (list != null && list.isEmpty()) {
                         item(key = "none", span = { GridItemSpan(maxLineSpan) }) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp)) {
-                                Text("You haven't asked for any films yet.", color = Brand.Secondary)
+                                Text("You haven't asked for anything yet.", color = Brand.Secondary)
                                 Spacer(Modifier.height(12.dp))
-                                Button(onClick = { showMine = false }) { Text("Request a Film") }
+                                Button(onClick = { showMine = false }) { Text(findLabel(config)) }
                             }
                         }
                     }
                     items(list.orEmpty(), key = { "r${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { request ->
-                        RequestCard(request, onOpen = { navigator.push(Screen.Film(request.tmdbId, request.title)) }, onWatch = { watch(request) }, onCancel = { cancelling = request })
+                        RequestCard(request, onOpen = { navigator.push(if (request.isShow) Screen.SeriesRequest(request.tmdbId, request.title) else Screen.Film(request.tmdbId, request.title)) }, onWatch = { watch(request) }, onCancel = { cancelling = request })
                     }
                 }
             }
@@ -322,20 +348,20 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
         }
     }
 
-    asking?.let { film ->
-        AskDialog(film, onCancel = { asking = null }, onSend = { note -> send(film, note) })
+    asking?.let { ask ->
+        AskDialog(ask, onCancel = { asking = null }, onSend = { note -> send(ask.film, note, ask.scope, ask.season) })
     }
     cancelling?.let { request ->
         AlertDialog(
             onDismissRequest = { cancelling = null },
-            title = { Text("Cancel your request for ${request.title}?") },
+            title = { Text("Cancel your request for ${request.name}?") },
             confirmButton = {
                 TextButton(onClick = {
                     cancelling = null
                     scope.launch {
                         attempt({ say(it, error = true) }) {
                             session.delete("/api/requests/${request.id}")
-                            say("Cancelled your request for ${request.title}")
+                            say("Cancelled your request for ${request.name}")
                             loadMine()
                         }
                     }
@@ -347,6 +373,12 @@ fun RequestsScreen(startOnMine: Boolean = false, startQuery: String = "") {
 }
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
+
+private fun findLabel(config: RequestsConfig?) = when {
+    config?.films != false && config?.tv == true -> "Request"
+    config?.tv == true -> "Request a Series"
+    else -> "Request a Film"
+}
 
 private fun statusColor(status: String): Color = when (status) {
     "pending" -> Brand.Streamling
@@ -449,6 +481,7 @@ internal fun FilmCard(film: FilmResult, onOpen: () -> Unit, onClick: () -> Unit)
                 }
             }
             film.request?.let { Box(Modifier.padding(top = 2.dp)) { StatusPill(it.status, it.label) } }
+                ?: film.showId?.takeIf { film.isShow }?.let { Box(Modifier.padding(top = 2.dp)) { StatusPill("available", "On Streamulus") } }
             Text(film.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 listOfNotNull(film.year?.toString(), film.role).joinToString(" · "),
@@ -456,8 +489,10 @@ internal fun FilmCard(film: FilmResult, onOpen: () -> Unit, onClick: () -> Unit)
             )
         }
         val state = film.request
-        if (state == null) {
-            Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text("Request") }
+        if (state == null && film.isShow && film.showId != null) {
+            OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text("Seasons") }
+        } else if (state == null) {
+            Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(if (film.isShow) "Request Series" else "Request") }
         } else {
             OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(if (state.mine) "See Progress" else "Me Too") }
         }
@@ -479,9 +514,18 @@ private fun RequestCard(request: MovieRequest, onOpen: () -> Unit, onWatch: () -
                 Text(request.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 request.year?.let { Text(it.toString(), color = Brand.Secondary, style = MaterialTheme.typography.bodyMedium) }
             }
+            if (request.isShow) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Icon(painterResource(R.drawable.ic_requests_series), contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
+                    Text(if (request.scope == "season") "Season ${request.season}" else "Entire series", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.75f))
+                }
+            }
             StatusPill(request.status, request.label)
             Steps(request.status)
-            if (request.status in setOf("downloading", "searching", "importing", "adding")) {
+            val tv = request.tv
+            if (tv != null && tv.seasons.isNotEmpty()) {
+                TVChecklist(tv, request.scope)
+            } else if (request.status in setOf("downloading", "searching", "importing", "adding")) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.weight(1f)) { RequestProgressBar(request.status, request.progress ?: 0.0) }
                     if (request.status == "downloading") {
@@ -501,11 +545,12 @@ private fun RequestCard(request: MovieRequest, onOpen: () -> Unit, onWatch: () -
                 else "You asked" + if (request.others > 0) " · and ${request.others} other${if (request.others == 1) "" else "s"}" else "",
                 style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.4f),
             )
-            if (request.status == "available" && request.movieId != null) {
+            val showReady = request.isShow && request.showId != null && (request.status == "available" || (request.tv?.ready ?: 0) > 0)
+            if ((request.status == "available" && request.movieId != null) || showReady) {
                 Button(onClick = onWatch) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Watch Now")
+                    Text(if (request.isShow && request.status != "available") "Watch What's Ready" else "Watch Now")
                 }
             }
             if (request.status == "pending") {
@@ -516,7 +561,8 @@ private fun RequestCard(request: MovieRequest, onOpen: () -> Unit, onWatch: () -
 }
 
 @Composable
-internal fun AskDialog(film: FilmResult, onCancel: () -> Unit, onSend: (String) -> Unit) {
+internal fun AskDialog(ask: Ask, onCancel: () -> Unit, onSend: (String) -> Unit) {
+    val film = ask.film
     var note by rememberSaveable { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     AlertDialog(
@@ -524,6 +570,18 @@ internal fun AskDialog(film: FilmResult, onCancel: () -> Unit, onSend: (String) 
         title = { Text(listOfNotNull(film.title, film.year?.toString()).joinToString(" · ")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (film.isShow) {
+                    Row(
+                        Modifier.clip(CircleShape).background(Brand.Accent.copy(alpha = 0.15f)).border(1.dp, Brand.Accent.copy(alpha = 0.4f), CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_requests_series), contentDescription = null, tint = Brand.Accent, modifier = Modifier.size(12.dp))
+                        Text(
+                            if (ask.scope == "season") "Season ${ask.season}" else if (film.showId != null) "Every missing season" else "The whole series",
+                            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Brand.Accent,
+                        )
+                    }
+                }
                 film.overview?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = Brand.Secondary, maxLines = 4, overflow = TextOverflow.Ellipsis)
                 }
@@ -531,7 +589,7 @@ internal fun AskDialog(film: FilmResult, onCancel: () -> Unit, onSend: (String) 
                     value = note,
                     onValueChange = { if (it.length <= 500) note = it },
                     label = { Text("A note for the admin · optional") },
-                    placeholder = { Text("e.g. the 2021 version, please") },
+                    placeholder = { Text(if (film.isShow) "e.g. the original, not the remake" else "e.g. the 2021 version, please") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -545,10 +603,11 @@ internal fun AskDialog(film: FilmResult, onCancel: () -> Unit, onSend: (String) 
     )
 }
 
-/** Films / Actors, and the Year and Genre menus. */
+/** Films / Series / Actors, and the Year and Genre menus. */
 @Composable
 private fun FilterRow(
-    actors: Boolean, onActors: (Boolean) -> Unit,
+    mode: String, onMode: (String) -> Unit,
+    films: Boolean, series: Boolean,
     year: Int?, onYear: (Int?) -> Unit,
     genre: Int?, onGenre: (Int?) -> Unit,
     genres: List<GenreOption>,
@@ -557,9 +616,10 @@ private fun FilterRow(
     var genreOpen by remember { mutableStateOf(false) }
     val thisYear = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Chip("Films", selected = !actors, icon = R.drawable.ic_requests_films) { onActors(false) }
-        Chip("Actors", selected = actors, icon = R.drawable.ic_requests_actors) { onActors(true) }
-        if (!actors) {
+        if (films) Chip("Films", selected = mode == "films", icon = R.drawable.ic_requests_films) { onMode("films") }
+        if (series) Chip("Series", selected = mode == "series", icon = R.drawable.ic_requests_series) { onMode("series") }
+        if (films) Chip("Actors", selected = mode == "people", icon = R.drawable.ic_requests_actors) { onMode("people") }
+        if (mode != "people") {
             Box {
                 Chip(year?.toString() ?: "Year ▾", selected = year != null) { yearOpen = true }
                 DropdownMenu(expanded = yearOpen, onDismissRequest = { yearOpen = false }) {
